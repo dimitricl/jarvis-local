@@ -79,7 +79,6 @@ struct InputBarView: View {
             .font(.body)
             .focused($isInputFocused)
             .scrollContentBackground(.hidden)
-            .scrollDisabled(true)
             .frame(minHeight: 20, maxHeight: 80)
             .background(Color(nsColor: .textBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))
