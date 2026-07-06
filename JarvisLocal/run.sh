@@ -14,7 +14,15 @@ else
 fi
 
 EXECUTABLE="${BUILD_DIR}/${APP_NAME}"
-VERSION=$(grep -A1 CFBundleShortVersionString JarvisLocal/Info.plist | grep string | sed 's/.*<string>//;s/<\/string>//')
+
+# Version depuis le dernier tag git, fallback sur Info.plist
+GIT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+if [ -n "$GIT_TAG" ]; then
+    VERSION="${GIT_TAG#v}"; VERSION="${VERSION#V}"
+else
+    VERSION=$(grep -A1 CFBundleShortVersionString JarvisLocal/Info.plist | grep string | sed 's/.*<string>//;s/<\/string>//')
+fi
+
 echo "==> Building ${APP_NAME} v${VERSION} (${MODE##--})..."
 echo "    swift build ${SWIFT_FLAGS}"
 swift build $SWIFT_FLAGS
@@ -29,7 +37,10 @@ rm -rf "${TMP_BUNDLE}"
 mkdir -p "${TMP_BUNDLE}/Contents/MacOS" "${TMP_BUNDLE}/Contents/Resources"
 
 cp "${EXECUTABLE}" "${TMP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+# Injecte la version dans Info.plist
 cp JarvisLocal/Info.plist "${TMP_BUNDLE}/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "${TMP_BUNDLE}/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "${TMP_BUNDLE}/Contents/Info.plist"
 
 # Install to /Applications with admin privileges (GUI password prompt)
 osascript -e "
