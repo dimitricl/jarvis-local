@@ -14,7 +14,6 @@ struct JarvisLocalApp: App {
                 .task {
                     await viewModel.loadConversations()
                     logVersion()
-                    Task.detached { checkEdgeTTSAvailability() }
                 }
         }
         .windowResizability(.contentSize)
@@ -25,12 +24,5 @@ struct JarvisLocalApp: App {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         os_log("JarvisLocal v%@ (%@) — https://github.com/dimitricl/jarvis-local", log: .default, type: .info, version, build)
         print("🚀 JarvisLocal v\(version) (build \(build))")
-    }
-
-    private nonisolated func checkEdgeTTSAvailability() {
-        let settings = Settings.shared
-        if settings.ttsEngine == .edgeTTS, !settings.edgeTTSAvailable {
-            os_log("⚠ edge-tts est sélectionné mais n'est pas installé. Fallback sur synthèse macOS.")
-        }
     }
 }
