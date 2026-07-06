@@ -1,1 +1,29 @@
-JarvisLocal.zip
+# Build
+.build/
+DerivedData/
+
+# Xcode
+*.xcuserdata
+*.xcuserstate
+*.xcbkptlist
+*.xcscmblueprint
+*.xcscheme
+xcshareddata/xcschemes/
+
+# SwiftPM
+.swiftpm/xcode/
+.swiftpm/playgrounds/
+
+# macOS
+.DS_Store
+Icon?
+._*
+
+# Environment
+.env
+.env.local
+
+# Archives
+*.zip
+*.tar.gz
+*.dmg

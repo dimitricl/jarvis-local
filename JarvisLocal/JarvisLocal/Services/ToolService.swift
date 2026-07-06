@@ -10,6 +10,32 @@ actor ToolService {
 
     private init() {}
 
+    /// Exécute un Process de manière asynchrone sans bloquer l'acteur.
+    /// waitUntilExit() est synchrone et bloquerait le file d'exécution de l'actor,
+    /// empêchant les autres méthodes de s'exécuter en parallèle.
+    private static func runProcess(executable: String, arguments: [String]) async throws -> (stdout: String, stderr: String) {
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global().async {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: executable)
+                proc.arguments = arguments
+                let outPipe = Pipe()
+                let errPipe = Pipe()
+                proc.standardOutput = outPipe
+                proc.standardError = errPipe
+                do {
+                    try proc.run()
+                    proc.waitUntilExit()
+                    let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                    let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                    continuation.resume(returning: (out, err))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
     let toolDefs: [ToolDef] = [
         ToolDef(function: ToolFunction(
             name: "search_web",
@@ -440,18 +466,14 @@ actor ToolService {
     // obligatoire (applescript est dans sensitiveTools côté AppViewModel) : ce filtre bloque les cas
     // évidents et non-obfusqués, il ne remplace pas la lecture du script par un humain avant de
     // cliquer "Confirmer".
-    private let forbiddenPatterns: [NSRegularExpression] = [
-        try! NSRegularExpression(pattern: #"doshellscript"#, options: [.caseInsensitive]),
-        try! NSRegularExpression(pattern: #"withadministratorprivileges"#, options: [.caseInsensitive]),
-        try! NSRegularExpression(pattern: #"systemeventskeystroke"#, options: [.caseInsensitive]),
-        try! NSRegularExpression(pattern: #"systemeventskeycode"#, options: [.caseInsensitive]),
-        // Élargissement : "run script"/"load script"/"do javascript" exécutent du code arbitraire
-        // construit dynamiquement ou chargé depuis un fichier — même surface de risque que
-        // do shell script, absents de la version précédente.
-        try! NSRegularExpression(pattern: #"runscript"#, options: [.caseInsensitive]),
-        try! NSRegularExpression(pattern: #"loadscript"#, options: [.caseInsensitive]),
-        try! NSRegularExpression(pattern: #"dojavascript"#, options: [.caseInsensitive]),
-    ]
+    private static let forbiddenPatterns: [NSRegularExpression] = {
+        let patterns = [
+            #"doshellscript"#, #"withadministratorprivileges"#,
+            #"systemeventskeystroke"#, #"systemeventskeycode"#,
+            #"runscript"#, #"loadscript"#, #"dojavascript"#,
+        ]
+        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
+    }()
 
     private func runAppleScript(_ script: String) async throws -> String {
         // Avant : on ne retirait que les espaces/retours à la ligne. Un "do¬shell script"
@@ -461,7 +483,7 @@ actor ToolService {
         // ponctuation ou saut de ligne ne suffit plus à contourner la détection.
         let flat = script.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
             .map(String.init).joined()
-        for p in forbiddenPatterns {
+        for p in Self.forbiddenPatterns {
             if p.firstMatch(in: flat, range: NSRange(flat.startIndex..., in: flat)) != nil {
                 return "Script refusé : commande dangereuse détectée (shell / privilèges admin / clavier via System Events / run-load script / do JavaScript)."
             }
@@ -609,21 +631,7 @@ actor ToolService {
     // MARK: - Shortcuts
 
     private func runShortcut(_ name: String) async throws -> String {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/shortcuts")
-        proc.arguments = ["run", name]
-
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        proc.standardOutput = outPipe
-        proc.standardError = errPipe
-
-        try proc.run()
-        proc.waitUntilExit()
-
-        let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-
+        let (out, err) = try await Self.runProcess(executable: "/usr/bin/shortcuts", arguments: ["run", name])
         if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Erreur Shortcut : \(err.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
@@ -738,14 +746,8 @@ actor ToolService {
     }
 
     private func shell(_ exec: String, _ args: [String]) async throws -> String {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: exec)
-        proc.arguments = args
-        let out = Pipe()
-        proc.standardOutput = out
-        try proc.run()
-        proc.waitUntilExit()
-        return String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let (out, _) = try await Self.runProcess(executable: exec, arguments: args)
+        return out
     }
 
     // MARK: - Clipboard
@@ -767,17 +769,16 @@ actor ToolService {
     // MARK: - take_screenshot
 
     private func takeScreenshot() async throws -> String {
-        let desktop = try FileManager.default.url(for: .desktopDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+        let tempDir = FileManager.default.temporaryDirectory
         let df = DateFormatter()
         df.dateFormat = "'Capture d\u{2019}\u{00E9}cran' yyyy-MM-dd '\u{00E0}' HH.mm.ss"
         let filename = "\(df.string(from: Date())).png"
-        let path = desktop.appendingPathComponent(filename).path
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        proc.arguments = ["-x", path]
-        try proc.run()
-        proc.waitUntilExit()
-        return "Capture d'écran enregistrée sur le bureau : \(filename)"
+        let path = tempDir.appendingPathComponent(filename).path
+        let (_, err) = try await Self.runProcess(executable: "/usr/sbin/screencapture", arguments: ["-x", path])
+        if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Erreur capture : \(err.trimmingCharacters(in: .whitespacesAndNewlines))"
+        }
+        return "Capture d'écran enregistrée : \(filename)"
     }
 
     // MARK: - sleep_mac
@@ -787,16 +788,7 @@ actor ToolService {
 
         switch lower {
         case "sleep", "veille":
-            Task {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                var waited: UInt64 = 0
-                let maxWait: UInt64 = 15_000_000_000
-                while waited < maxWait {
-                    let done = await MainActor.run { !AudioService.shared.isSpeaking }
-                    if done { break }
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    waited += 500_000_000
-                }
+            afterSpeechThen {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
                 proc.arguments = ["sleepnow"]
@@ -804,23 +796,13 @@ actor ToolService {
             }
             return "Mise en veille."
         case "lock", "verrouiller":
-            let lockProc = Process()
-            lockProc.executableURL = URL(fileURLWithPath: "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession")
-            lockProc.arguments = ["-suspend"]
-            try lockProc.run()
-            lockProc.waitUntilExit()
+            _ = try? await Self.runProcess(
+                executable: "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
+                arguments: ["-suspend"]
+            )
             return "Mac verrouillé."
         case "shutdown", "eteindre":
-            Task {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                var waited: UInt64 = 0
-                let maxWait: UInt64 = 15_000_000_000
-                while waited < maxWait {
-                    let done = await MainActor.run { !AudioService.shared.isSpeaking }
-                    if done { break }
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    waited += 500_000_000
-                }
+            afterSpeechThen {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
                 proc.arguments = ["shutdown", "now"]
@@ -828,16 +810,7 @@ actor ToolService {
             }
             return "Extinction."
         case "restart", "redemarrer":
-            Task {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                var waited: UInt64 = 0
-                let maxWait: UInt64 = 15_000_000_000
-                while waited < maxWait {
-                    let done = await MainActor.run { !AudioService.shared.isSpeaking }
-                    if done { break }
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                    waited += 500_000_000
-                }
+            afterSpeechThen {
                 let script = """
                 tell application "System Events" to restart
                 """
@@ -850,24 +823,28 @@ actor ToolService {
         }
     }
 
+    private nonisolated func afterSpeechThen(_ action: @escaping () -> Void) {
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            var waited: UInt64 = 0
+            let maxWait: UInt64 = 15_000_000_000
+            while waited < maxWait {
+                let done = await MainActor.run { !AudioService.shared.isSpeaking }
+                if done { break }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                waited += 500_000_000
+            }
+            action()
+        }
+    }
+
     // MARK: - file_search
 
     private func fileSearch(_ query: String) async throws -> String {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-        proc.arguments = ["-literal", query, "-maxresults", "10"]
-        let out = Pipe()
-        let err = Pipe()
-        proc.standardOutput = out
-        proc.standardError = err
-        try proc.run()
-        proc.waitUntilExit()
+        let (out, err) = try await Self.runProcess(executable: "/usr/bin/mdfind", arguments: ["-literal", query, "-maxresults", "10"])
+        if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Erreur : \(err)" }
 
-        let output = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let error = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        if !error.isEmpty { return "Erreur : \(error)" }
-
-        let results = output.components(separatedBy: "\n").filter { !$0.isEmpty }
+        let results = out.components(separatedBy: "\n").filter { !$0.isEmpty }
         if results.isEmpty { return "Aucun fichier trouvé pour \"\(query)\"." }
         if results.count >= 10 { return "Résultats (10 max) :\n" + results.prefix(10).joined(separator: "\n") }
         return "Résultats :\n" + results.joined(separator: "\n")
