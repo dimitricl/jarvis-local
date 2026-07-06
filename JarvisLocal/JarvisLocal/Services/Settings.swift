@@ -76,7 +76,7 @@ final class Settings {
 
     /// Vérifie si une nouvelle version est disponible sur GitHub Releases.
     /// Configurez `repoOwner` et `repoName` pour votre dépôt.
-    func checkForUpdates(repoOwner: String = "anomalyco", repoName: String = "JarvisLocal") async {
+    func checkForUpdates(repoOwner: String = "dimitricl", repoName: String = "jarvis-local") async {
         isCheckingUpdate = true
         updateCheckError = nil
         updateAvailable = false
