@@ -529,8 +529,8 @@ final class AppViewModel {
 
                         guard !text.isEmpty else { continue }
 
-                        // Si moins de 3 mots, le modèle a probablement finalisé trop tôt
-                        guard text.split(separator: " ").count >= 3 else { continue }
+                        // Filtrer le bruit de fond (transcriptions très courtes type souffle)
+                        guard text.count >= 2 else { continue }
 
                         try? await Task.sleep(nanoseconds: 200_000_000)
 

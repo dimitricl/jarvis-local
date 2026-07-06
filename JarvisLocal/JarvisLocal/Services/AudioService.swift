@@ -364,7 +364,11 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
+        #if targetEnvironment(simulator)
         request.requiresOnDeviceRecognition = true
+        #else
+        request.requiresOnDeviceRecognition = false
+        #endif
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
@@ -457,7 +461,7 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     private func scheduleSilenceTimer() {
         silenceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 1.5, repeating: .never)
+        timer.schedule(deadline: .now() + 2.5, repeating: .never)
         timer.setEventHandler { [weak self] in
             guard let self = self, self.isRecording else { NSLog("STT: timer skipped"); return }
             NSLog("STT: timer fired, ending audio")
