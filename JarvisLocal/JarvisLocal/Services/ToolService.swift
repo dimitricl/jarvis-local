@@ -296,7 +296,7 @@ actor ToolService {
         // qui traîne bloquait tout le tour de conversation. Ici : UA dédié + timeout court, et toute
         // erreur réseau retourne un résultat textuel plutôt que de faire planter tout le tour (try await
         // qui remonte jusqu'au catch générique de runConversationTurn).
-        guard let html = await fetchPage(searchURL, timeout: 15) else {
+        guard let html = await fetchPage(searchURL, timeout: 30) else {
             return "Recherche web indisponible (pas de réponse de DuckDuckGo). Réponds avec tes connaissances générales en précisant que tu n'as pas pu vérifier en ligne."
         }
 
@@ -335,7 +335,7 @@ actor ToolService {
             // au lieu du force-unwrap précédent (URL(string:)! plantait l'app si le lien était malformé).
             guard let resultURL = URL(string: r.href, relativeTo: searchURL) else { continue }
             output += "--- \(r.title) ---\n"
-            if let pageHTML = await fetchPage(resultURL, timeout: 10) {
+            if let pageHTML = await fetchPage(resultURL, timeout: 20) {
                 let text = pageHTML.htmlToText(maxLength: 3000)
                 if text.count > 100 {
                     output += "Contenu : \(text)\n"
@@ -925,7 +925,7 @@ actor ToolService {
         else { return "Erreur d'encodage du nom de ville." }
 
         guard let geoData = try? await URLSession.shared.data(for: {
-            var r = URLRequest(url: geoURL); r.timeoutInterval = 10; return r
+            var r = URLRequest(url: geoURL); r.timeoutInterval = 20; return r
         }()).0,
               let geoJSON = try? JSONSerialization.jsonObject(with: geoData) as? [String: Any],
               let results = geoJSON["results"] as? [[String: Any]],
@@ -942,7 +942,7 @@ actor ToolService {
             return "Erreur de construction de l'URL météo."
         }
         guard let (data, response) = try? await URLSession.shared.data(for: {
-            var r = URLRequest(url: forecastURL); r.timeoutInterval = 10; return r
+            var r = URLRequest(url: forecastURL); r.timeoutInterval = 20; return r
         }()),
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -995,7 +995,7 @@ actor ToolService {
     private func readURL(_ urlString: String) async throws -> String {
         let normalized = urlString.hasPrefix("http") ? urlString : "https://\(urlString)"
         guard let url = URL(string: normalized) else { return "URL invalide : \(urlString)." }
-        guard let html = await fetchPage(url, timeout: 12) else {
+        guard let html = await fetchPage(url, timeout: 20) else {
             return "Impossible de récupérer le contenu de \(urlString) (page inaccessible ou timeout)."
         }
         let text = html.htmlToText(maxLength: 4000)
