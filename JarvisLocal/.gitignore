@@ -27,3 +27,6 @@ Icon?
 *.zip
 *.tar.gz
 *.dmg
+
+# Icon generation artifacts
+*.iconset

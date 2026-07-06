@@ -37,6 +37,8 @@ rm -rf "${TMP_BUNDLE}"
 mkdir -p "${TMP_BUNDLE}/Contents/MacOS" "${TMP_BUNDLE}/Contents/Resources"
 
 cp "${EXECUTABLE}" "${TMP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+# Copie les ressources (icône, etc.)
+cp -R JarvisLocal/Resources/* "${TMP_BUNDLE}/Contents/Resources/" 2>/dev/null || true
 # Injecte la version dans Info.plist
 cp JarvisLocal/Info.plist "${TMP_BUNDLE}/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "${TMP_BUNDLE}/Contents/Info.plist"
