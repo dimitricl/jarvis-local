@@ -10,7 +10,8 @@ final class OllamaService: @unchecked Sendable {
 
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
-        c.timeoutIntervalForRequest = 120
+        c.timeoutIntervalForRequest = 300
+        c.timeoutIntervalForResource = 600
         return URLSession(configuration: c)
     }()
 
