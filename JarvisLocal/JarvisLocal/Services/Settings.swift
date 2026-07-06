@@ -132,7 +132,7 @@ final class Settings {
         self.ttsVoiceIdentifier = defaults.string(forKey: "tts_voice") ?? ""
         self.ttsEngine = TTSEngine(rawValue: defaults.string(forKey: "tts_engine") ?? "") ?? .system
         self.edgeTTSVoice = defaults.string(forKey: "edge_tts_voice") ?? "fr-FR-HenriNeural"
-        self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? true
+        self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? false
 
         refreshEdgeTTSAvailability()
     }
