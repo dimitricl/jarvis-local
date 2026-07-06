@@ -62,8 +62,16 @@ actor ToolService {
             )
         )),
         ToolDef(function: ToolFunction(
+            name: "get_weather",
+            description: "Donne la météo ACTUELLE d'une ville précise (température, conditions, vent). Utilise TOUJOURS cet outil pour toute question météo — jamais search_web, jamais add_reminder, jamais add_calendar_event. Une question météo n'est ni un rappel ni un événement de calendrier.",
+            parameters: ToolParameters(
+                properties: ["city": ToolProperty(type: "string", description: "Nom de la ville, ex: Muret, Toulouse, Paris")],
+                required: ["city"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
             name: "add_reminder",
-            description: "Ajoute un rappel dans Rappels.",
+            description: "Ajoute un rappel dans Rappels. N'appelle CE tool QUE si l'utilisateur demande explicitement de créer/ajouter un rappel (\"rappelle-moi de...\", \"ajoute un rappel...\"). Ne jamais l'appeler en réponse à une simple question factuelle (météo, heure, info) — répondre à une question n'est pas créer un rappel.",
             parameters: ToolParameters(
                 properties: [
                     "title": ToolProperty(type: "string", description: "Texte du rappel"),
@@ -76,7 +84,7 @@ actor ToolService {
         )),
         ToolDef(function: ToolFunction(
             name: "add_calendar_event",
-            description: "Ajoute un événement dans Calendrier.",
+            description: "Ajoute un événement dans Calendrier. N'appelle CE tool QUE si l'utilisateur demande explicitement de créer/ajouter un événement (\"ajoute à mon calendrier...\", \"programme un rendez-vous...\"). Ne jamais l'appeler en réponse à une simple question factuelle (météo, heure, info) — répondre à une question n'est pas créer un événement.",
             parameters: ToolParameters(
                 properties: [
                     "title": ToolProperty(type: "string", description: "Titre"),
@@ -228,6 +236,7 @@ actor ToolService {
         case "get_upcoming_events": return try await getUpcomingEvents(days: args["days"] as? Int ?? 7)
         case "list_reminders": return try await listReminders(list: args["list"] as? String)
         case "read_url": return try await readURL(args["url"] as? String ?? "")
+        case "get_weather": return try await getWeather(city: args["city"] as? String ?? "")
         case "run_routine": return try await runRoutine(args["name"] as? String ?? "")
         case "remember_fact": return await rememberFact(key: args["key"] as? String ?? "", value: args["value"] as? String ?? "")
         default: return "Outil inconnu : \(name)"
@@ -926,7 +935,65 @@ actor ToolService {
         }.joined(separator: "\n")
     }
 
-    // MARK: - read_url
+    // MARK: - get_weather
+
+    /// Open-Meteo plutôt que search_web : sans clé API, JSON stable, pas de scraping HTML fragile
+    /// (contrairement à DuckDuckGo Lite dont le parsing casse au moindre changement de markup).
+    private func getWeather(city: String) async throws -> String {
+        let trimmed = city.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Aucune ville fournie." }
+
+        guard let encodedCity = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let geoURL = URL(string: "https://geocoding-api.open-meteo.com/v1/search?name=\(encodedCity)&count=1&language=fr&format=json")
+        else { return "Erreur d'encodage du nom de ville." }
+
+        guard let geoData = try? await URLSession.shared.data(for: {
+            var r = URLRequest(url: geoURL); r.timeoutInterval = 10; return r
+        }()).0,
+              let geoJSON = try? JSONSerialization.jsonObject(with: geoData) as? [String: Any],
+              let results = geoJSON["results"] as? [[String: Any]],
+              let first = results.first,
+              let lat = first["latitude"] as? Double,
+              let lon = first["longitude"] as? Double
+        else {
+            return "Ville \"\(trimmed)\" introuvable. Vérifie l'orthographe ou précise le pays."
+        }
+        let resolvedName = first["name"] as? String ?? trimmed
+        let country = first["country"] as? String ?? ""
+
+        guard let forecastURL = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&timezone=auto") else {
+            return "Erreur de construction de l'URL météo."
+        }
+        guard let (data, response) = try? await URLSession.shared.data(for: {
+            var r = URLRequest(url: forecastURL); r.timeoutInterval = 10; return r
+        }()),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let current = json["current"] as? [String: Any]
+        else {
+            return "Service météo indisponible pour \(resolvedName) en ce moment."
+        }
+
+        let temp = current["temperature_2m"] as? Double ?? 0
+        let feelsLike = current["apparent_temperature"] as? Double ?? temp
+        let humidity = current["relative_humidity_2m"] as? Double ?? 0
+        let wind = current["wind_speed_10m"] as? Double ?? 0
+        let code = current["weather_code"] as? Int ?? -1
+
+        let condition = Self.weatherCodeDescriptions[code] ?? "conditions inconnues"
+
+        return "Météo à \(resolvedName)\(country.isEmpty ? "" : ", \(country)") : \(condition), \(String(format: "%.0f", temp))°C (ressenti \(String(format: "%.0f", feelsLike))°C), humidité \(String(format: "%.0f", humidity))%, vent \(String(format: "%.0f", wind)) km/h."
+    }
+
+    private static let weatherCodeDescriptions: [Int: String] = [
+        0: "ciel dégagé", 1: "plutôt dégagé", 2: "partiellement nuageux", 3: "couvert",
+        45: "brouillard", 48: "brouillard givrant",
+        51: "bruine légère", 53: "bruine modérée", 55: "bruine dense",
+        61: "pluie légère", 63: "pluie modérée", 65: "pluie forte",
+        71: "neige légère", 73: "neige modérée", 75: "neige forte",
+        80: "averses légères", 81: "averses modérées", 82: "averses violentes",
+        95: "orage", 96: "orage avec grêle légère", 99: "orage avec grêle forte",
+    ]
 
     private func readURL(_ urlString: String) async throws -> String {
         let normalized = urlString.hasPrefix("http") ? urlString : "https://\(urlString)"
@@ -1008,5 +1075,3 @@ private func appStoreBundlePath(for appName: String) -> String? {
     guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) else { return nil }
     return url.path
 }
-
-

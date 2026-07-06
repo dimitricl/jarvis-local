@@ -36,36 +36,51 @@ struct MessageBubbleView: View {
     }
 
     private var userBubble: some View {
-        VStack(alignment: .trailing, spacing: 2) {
+        VStack(alignment: .trailing, spacing: 3) {
             Text(text)
                 .font(.body)
-                .padding(10)
-                .background(Color.blue.opacity(0.2))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .foregroundColor(.primary)
+                .foregroundStyle(JarvisTheme.textPrimary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(JarvisTheme.accent.opacity(0.14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(JarvisTheme.accent.opacity(0.25), lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 10))
             if let ts = timestamp {
-                Text(ts).font(.caption2).foregroundStyle(.tertiary)
+                Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
             }
         }
     }
 
     private var assistantBubble: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            richTextContent
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+        // Panneau type entrée de log/console (liseré d'accent à gauche) plutôt qu'une bulle de
+        // chat classique : plus cohérent avec un assistant système qu'avec une messagerie.
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 0) {
+                Rectangle()
+                    .fill(isStreaming ? JarvisTheme.accent : JarvisTheme.textTertiary.opacity(0.5))
+                    .frame(width: 2)
+                richTextContent
+                    .textSelection(.enabled)
+                    .foregroundStyle(JarvisTheme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+            }
+            .background(JarvisTheme.panel)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
 
             if let ts = timestamp {
-                HStack(spacing: 4) {
-                    Text(ts).font(.caption2).foregroundStyle(.tertiary)
+                HStack(spacing: 6) {
+                    Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
                     Button(action: copyText) {
                         Image(systemName: "doc.on.doc").font(.caption2)
                     }
-                    .buttonStyle(.plain).foregroundStyle(.tertiary)
+                    .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
                 }
+                .padding(.leading, 4)
             }
         }
     }
@@ -122,9 +137,10 @@ struct MessageBubbleView: View {
         case .code(let text):
             Text(text)
                 .font(.system(.body, design: .monospaced))
+                .foregroundStyle(JarvisTheme.textPrimary)
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .textBackgroundColor))
+                .background(JarvisTheme.panelElevated)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .padding(.bottom, 6)
         }

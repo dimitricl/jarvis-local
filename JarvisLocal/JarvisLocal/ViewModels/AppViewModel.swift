@@ -517,6 +517,9 @@ final class AppViewModel {
         if isVoiceMode {
             isVoiceMode = false
             isListening = false
+            stt.cancel()
+            voiceTask?.cancel()
+            voiceTask = nil
             stopStreaming()
         } else {
             isVoiceMode = true
@@ -573,7 +576,7 @@ final class AppViewModel {
                         // en question-réponse saccadé" : le pipeline répondait à du bruit, pas à de la
                         // vraie parole. Retour à un seuil en nombre de mots, plus proche de ce qui
                         // caractérise une vraie phrase.
-                        guard text.split(separator: " ").count >= 2 else { continue }
+                        guard text.split(separator: " ").count >= 1 else { continue }
 
                         try? await Task.sleep(nanoseconds: 200_000_000)
 

@@ -28,7 +28,8 @@ struct InputBarView: View {
 
             voiceStatusText
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(JarvisTheme.panel)
+        .overlay(Rectangle().fill(JarvisTheme.divider).frame(height: 1), alignment: .top)
         .onAppear { isInputFocused = true }
     }
 
@@ -36,7 +37,7 @@ struct InputBarView: View {
     private var micButton: some View {
         Button(action: { Task { await vm.toggleVoiceMode() } }) {
             Image(systemName: vm.isVoiceMode ? "mic.fill" : "mic")
-                .foregroundStyle(vm.isListening ? .blue : vm.isVoiceMode ? .purple : .secondary)
+                .foregroundStyle(vm.isListening ? JarvisTheme.accent : vm.isVoiceMode ? JarvisTheme.amber : JarvisTheme.textSecondary)
                 .symbolEffect(.pulse, isActive: vm.isListening)
         }
         .buttonStyle(.borderless)
@@ -49,15 +50,15 @@ struct InputBarView: View {
             if vm.isListening {
                 HStack(spacing: 4) {
                     Image(systemName: "waveform")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(JarvisTheme.accent)
                         .symbolEffect(.variableColor.reversing, isActive: vm.isListening)
                     Text(vm.inputText.isEmpty ? "Parle..." : vm.inputText)
-                        .foregroundStyle(vm.inputText.isEmpty ? .tertiary : .primary)
+                        .foregroundStyle(vm.inputText.isEmpty ? JarvisTheme.textTertiary : JarvisTheme.textPrimary)
                         .lineLimit(1)
                 }
             } else {
                 Text(vm.inputText.isEmpty ? "..." : vm.inputText)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(JarvisTheme.textPrimary)
                     .lineLimit(1)
             }
             Spacer()
@@ -65,11 +66,11 @@ struct InputBarView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(JarvisTheme.panelElevated)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(vm.isListening ? Color.blue : Color.clear, lineWidth: 1)
+                .stroke(vm.isListening ? JarvisTheme.accent.opacity(0.6) : Color.clear, lineWidth: 1)
         )
     }
 
@@ -77,16 +78,17 @@ struct InputBarView: View {
     private var textInputField: some View {
         TextEditor(text: $inputText)
             .font(.body)
+            .foregroundStyle(JarvisTheme.textPrimary)
             .focused($isInputFocused)
             .scrollContentBackground(.hidden)
             .frame(minHeight: 20, maxHeight: 80)
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(JarvisTheme.panelElevated)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .disabled(vm.isStreaming)
             .overlay(alignment: .topLeading) {
                 if inputText.isEmpty {
                     Text("Message…")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(JarvisTheme.textTertiary)
                         .padding(.top, 2)
                         .padding(.leading, 2)
                         .allowsHitTesting(false)
@@ -99,7 +101,7 @@ struct InputBarView: View {
     private var stopButton: some View {
         Button(action: { vm.stopStreaming() }) {
             Image(systemName: "stop.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(JarvisTheme.danger)
         }
         .buttonStyle(.borderless)
     }
@@ -109,6 +111,7 @@ struct InputBarView: View {
         Button(action: submitText) {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.title2)
+                .foregroundStyle(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? JarvisTheme.textTertiary : JarvisTheme.accent)
         }
         .buttonStyle(.borderless)
         .keyboardShortcut(KeyEquivalent.return, modifiers: .command)
@@ -120,40 +123,34 @@ struct InputBarView: View {
         if vm.isVoiceMode {
             HStack(spacing: 4) {
                 if vm.isListening {
-                    Circle()
-                        .fill(.blue)
-                        .frame(width: 6, height: 6)
+                    Circle().fill(JarvisTheme.accent).frame(width: 6, height: 6)
                     Text("Écoute...")
                 } else if vm.isStreaming {
-                    Circle()
-                        .fill(.orange)
-                        .frame(width: 6, height: 6)
+                    Circle().fill(JarvisTheme.amber).frame(width: 6, height: 6)
                     Text("Jarvis réfléchit...")
                 } else if vm.isSpeaking {
-                    Circle()
-                        .fill(.purple)
-                        .frame(width: 6, height: 6)
+                    Circle().fill(JarvisTheme.amber).frame(width: 6, height: 6)
                     Text("Jarvis parle...")
                 } else {
                     Text("Mode vocal — parle pour envoyer un message")
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(JarvisTheme.textTertiary)
                 }
                 Spacer()
                 Button("Quitter") {
                     Task { await vm.toggleVoiceMode() }
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.red)
+                .foregroundStyle(JarvisTheme.danger)
                 .font(.caption2)
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
+            .font(JarvisTheme.mono(10))
+            .foregroundStyle(JarvisTheme.textSecondary)
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         } else {
             Text("Cmd+Entrée pour envoyer · /facts · /clear")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .font(JarvisTheme.mono(10))
+                .foregroundStyle(JarvisTheme.textTertiary)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
         }

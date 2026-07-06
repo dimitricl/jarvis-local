@@ -405,6 +405,13 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
             if let error = error {
                 let nsError = error as NSError
                 if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                    guard !self.isRestarting else { return }
+                    self.isRestarting = true
+                    self.stopRecording()
+                    DispatchQueue.main.async {
+                        self.startRecording()
+                        self.isRestarting = false
+                    }
                     return
                 }
                 self.stopRecording()
