@@ -961,7 +961,7 @@ actor ToolService {
         let resolvedName = first["name"] as? String ?? trimmed
         let country = first["country"] as? String ?? ""
 
-        guard let forecastURL = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&timezone=auto") else {
+        guard let forecastURL = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,wind_speed_10m_max&timezone=auto") else {
             return "Erreur de construction de l'URL météo."
         }
         guard let (data, response) = try? await URLSession.shared.data(for: {
@@ -982,7 +982,27 @@ actor ToolService {
 
         let condition = Self.weatherCodeDescriptions[code] ?? "conditions inconnues"
 
-        return "Météo à \(resolvedName)\(country.isEmpty ? "" : ", \(country)") : \(condition), \(String(format: "%.0f", temp))°C (ressenti \(String(format: "%.0f", feelsLike))°C), humidité \(String(format: "%.0f", humidity))%, vent \(String(format: "%.0f", wind)) km/h."
+        var result = "Météo à \(resolvedName)\(country.isEmpty ? "" : ", \(country)") : actuellement \(condition), \(String(format: "%.0f", temp))°C (ressenti \(String(format: "%.0f", feelsLike))°C), humidité \(String(format: "%.0f", humidity))%, vent \(String(format: "%.0f", wind)) km/h."
+
+        if let daily = json["daily"] as? [String: Any],
+           let dates = daily["time"] as? [String],
+           let maxTemps = daily["temperature_2m_max"] as? [Double],
+           let minTemps = daily["temperature_2m_min"] as? [Double],
+           let weatherCodes = daily["weather_code"] as? [Int],
+           let precip = daily["precipitation_sum"] as? [Double],
+           let windMax = daily["wind_speed_10m_max"] as? [Double] {
+
+            for i in 0..<min(dates.count, 3) where i > 0 {
+                let dayName = i == 1 ? "Demain" : "Le \(dates[i])"
+                let dayCode = weatherCodes.indices.contains(i) ? weatherCodes[i] : -1
+                let dayCondition = Self.weatherCodeDescriptions[dayCode] ?? "conditions inconnues"
+                let dayPrecip = precip.indices.contains(i) ? precip[i] : 0
+                let dayWind = windMax.indices.contains(i) ? windMax[i] : 0
+                result += " | \(dayName) : \(dayCondition), \(String(format: "%.0f", minTemps[i]))°C ~ \(String(format: "%.0f", maxTemps[i]))°C, précip. \(String(format: "%.0f", dayPrecip))mm, vent \(String(format: "%.0f", dayWind)) km/h."
+            }
+        }
+
+        return result
     }
 
     private static let weatherCodeDescriptions: [Int: String] = [
