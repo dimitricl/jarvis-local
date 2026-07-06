@@ -75,12 +75,25 @@ struct InputBarView: View {
 
     @ViewBuilder
     private var textInputField: some View {
-        TextField("Message…", text: $inputText)
-            .textFieldStyle(.plain)
+        TextEditor(text: $inputText)
             .font(.body)
             .focused($isInputFocused)
-            .onSubmit(submitText)
+            .scrollContentBackground(.hidden)
+            .scrollDisabled(true)
+            .frame(minHeight: 20, maxHeight: 80)
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
             .disabled(vm.isStreaming)
+            .overlay(alignment: .topLeading) {
+                if inputText.isEmpty {
+                    Text("Message…")
+                        .foregroundStyle(.tertiary)
+                        .padding(.top, 2)
+                        .padding(.leading, 2)
+                        .allowsHitTesting(false)
+                }
+            }
+
     }
 
     @ViewBuilder
@@ -99,6 +112,7 @@ struct InputBarView: View {
                 .font(.title2)
         }
         .buttonStyle(.borderless)
+        .keyboardShortcut(KeyEquivalent.return, modifiers: .command)
         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
@@ -138,7 +152,7 @@ struct InputBarView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         } else {
-            Text("Entrée = envoyer · /facts · /clear")
+            Text("Cmd+Entrée pour envoyer · /facts · /clear")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 12)
