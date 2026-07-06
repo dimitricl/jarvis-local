@@ -24,6 +24,8 @@ struct AutoResizingTextView: NSViewRepresentable {
         let textView = NSTextView()
         textView.font = font
         textView.string = text
+        textView.textColor = NSColor.labelColor
+        textView.insertionPointColor = NSColor.labelColor
         textView.isEditable = true
         textView.isSelectable = true
         textView.drawsBackground = false
