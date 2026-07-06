@@ -1,0 +1,14 @@
+{
+  "name": "jarvis-local",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "scripts": {
+    "dev": "bun --watch run server.ts",
+    "start": "bun run server.ts"
+  }
+}

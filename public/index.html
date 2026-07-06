@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jarvis</title>
+  <script>
+    (function(){
+      var t = localStorage.getItem('theme');
+      if (!t) t = matchMedia('(prefers-color-scheme:light)').matches ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" id="hljs-theme">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    :root {
+      --bg-body: #0a0a0a;
+      --bg-sidebar: #0d0d0d;
+      --bg-header: #111;
+      --bg-msg-user: #1a1a2e;
+      --bg-msg-assistant: #1a2e1a;
+      --bg-msg-typing: #1a2e1a;
+      --bg-msg-tool: #2a2a1a;
+      --bg-btn: #1a3a1a;
+      --bg-btn-hover: #2a5a2a;
+      --bg-btn-danger: #3a1a1a;
+      --bg-btn-danger-hover: #4a1a1a;
+      --bg-btn-mic: #1a1a3a;
+      --bg-btn-voice: #1a1a3a;
+      --bg-btn-voice-active: #3a1a3a;
+      --bg-btn-danger-dim: #2a1a1a;
+      --bg-code-inline: #1e3a1e;
+      --bg-code-block: #111;
+      --bg-hover: #151515;
+      --bg-active: #1a1a2e;
+      --bg-input: #111;
+      --bg-rename: #1a1a2e;
+
+      --text-body: #e0e0e0;
+      --text-green: #7ef7a0;
+      --text-blue: #7eb8f7;
+      --text-red: #f77e7e;
+      --text-yellow: #f0e68c;
+      --text-purple: #f09ef0;
+      --text-secondary: #999;
+      --text-tertiary: #666;
+      --text-title: #ccc;
+      --text-muted: #aaa;
+      --text-meta: #444;
+      --text-hint: #555;
+      --text-placeholder: #555;
+      --text-code-inline: #a8f0b8;
+      --text-strong: #a0f7b8;
+
+      --border: #1a1a1a;
+      --border-light: #222;
+      --border-input: #333;
+      --border-btn: #2a5a2a;
+      --border-btn-danger: #5a2a2a;
+      --border-btn-mic: #2a2a5a;
+      --border-btn-voice: #2a2a5a;
+      --border-btn-voice-active: #5a2a5a;
+
+      --status-ok: #4ade80;
+      --status-err: #f87171;
+      --status-warn: #fbbf24;
+
+      --scrollbar-thumb: #2a2a2a;
+      --scrollbar-track: transparent;
+    }
+
+    html[data-theme="light"] {
+      --bg-body: #f5f5f7;
+      --bg-sidebar: #ffffff;
+      --bg-header: #f0f0f2;
+      --bg-msg-user: #e8f0fe;
+      --bg-msg-assistant: #e6f4ea;
+      --bg-msg-typing: #e6f4ea;
+      --bg-msg-tool: #fef7e0;
+      --bg-btn: #e8f5e9;
+      --bg-btn-hover: #c8e6c9;
+      --bg-btn-danger: #ffebee;
+      --bg-btn-danger-hover: #ffcdd2;
+      --bg-btn-mic: #e3f2fd;
+      --bg-btn-voice: #e3f2fd;
+      --bg-btn-voice-active: #f3e5f5;
+      --bg-btn-danger-dim: #ffebee;
+      --bg-code-inline: #e8f5e9;
+      --bg-code-block: #f0f0f0;
+      --bg-hover: #f0f0f0;
+      --bg-active: #e8f0fe;
+      --bg-input: #ffffff;
+      --bg-rename: #e8f0fe;
+
+      --text-body: #1a1a1a;
+      --text-green: #2e7d32;
+      --text-blue: #1565c0;
+      --text-red: #c62828;
+      --text-yellow: #f9a825;
+      --text-purple: #7b1fa2;
+      --text-secondary: #666;
+      --text-tertiary: #999;
+      --text-title: #333;
+      --text-muted: #777;
+      --text-meta: #999;
+      --text-hint: #aaa;
+      --text-placeholder: #999;
+      --text-code-inline: #2e7d32;
+      --text-strong: #1b5e20;
+
+      --border: #e0e0e0;
+      --border-light: #eee;
+      --border-input: #ccc;
+      --border-btn: #a5d6a7;
+      --border-btn-danger: #ef9a9a;
+      --border-btn-mic: #90caf9;
+      --border-btn-voice: #90caf9;
+      --border-btn-voice-active: #ce93d8;
+
+      --status-ok: #4caf50;
+      --status-err: #f44336;
+      --status-warn: #ff9800;
+
+      --scrollbar-thumb: #c0c0c0;
+      --scrollbar-track: transparent;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg-body); color: var(--text-body); font-family: monospace; height: 100vh; display: flex; }
+
+    #sidebar { width: 240px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+    #sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); gap: 0.4rem; }
+    #sidebar-header h1 { font-size: 0.9rem; color: var(--text-green); flex: 1; }
+    .sb-btn { background: var(--bg-btn); color: var(--text-green); border: 1px solid var(--border-btn); padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 0.7rem; white-space: nowrap; }
+    .sb-btn:hover { background: var(--bg-btn-hover); }
+    #conv-list { flex: 1; overflow-y: auto; padding: 0.25rem 0; }
+    .conv-item { display: flex; align-items: center; padding: 0.5rem 0.75rem; cursor: pointer; font-size: 0.8rem; color: var(--text-secondary); border-left: 3px solid transparent; transition: all 0.1s; }
+    .conv-item:hover { background: var(--bg-hover); color: var(--text-body); }
+    .conv-item.active { background: var(--bg-active); color: var(--text-blue); border-left-color: var(--text-blue); }
+    .conv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .conv-delete { opacity: 0; background: none; border: none; color: var(--text-tertiary); cursor: pointer; padding: 0 0.25rem; font-size: 0.8rem; }
+    .conv-item:hover .conv-delete { opacity: 1; }
+    .conv-delete:hover { color: var(--text-red) !important; }
+
+    #facts-panel { display: none; flex-direction: column; border-top: 1px solid var(--border); max-height: 220px; }
+    #facts-panel.open { display: flex; }
+    #facts-header { display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.75rem; background: var(--bg-header); font-size: 0.75rem; color: var(--text-muted); cursor: pointer; }
+    #facts-header:hover { background: var(--bg-hover); }
+    #facts-header span { color: var(--text-yellow); font-weight: bold; }
+    #facts-list { overflow-y: auto; padding: 0.25rem; flex: 1; }
+    .fact-item { display: flex; align-items: flex-start; gap: 0.4rem; padding: 0.2rem 0.4rem; font-size: 0.72rem; border-bottom: 1px solid var(--border); }
+    .fact-item:last-child { border-bottom: none; }
+    .fact-key { color: var(--text-blue); flex-shrink: 0; }
+    .fact-val { color: var(--text-title); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fact-del { background: none; border: none; color: var(--text-meta); cursor: pointer; font-size: 0.75rem; flex-shrink: 0; padding: 0; }
+    .fact-del:hover { color: var(--text-red); }
+    #facts-clear { background: var(--bg-btn-danger-dim); border: none; color: var(--text-red); font-size: 0.7rem; cursor: pointer; padding: 0.3rem 0.5rem; margin: 0.25rem; border-radius: 3px; }
+    #facts-clear:hover { background: var(--bg-btn-danger); }
+
+    #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    #header { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 1rem; font-size: 0.8rem; background: var(--bg-header); border-bottom: 1px solid var(--border-light); }
+    #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-ok); transition: background 0.3s; flex-shrink: 0; }
+    #status-dot.disconnected { background: var(--status-err); }
+    #status-dot.connecting { background: var(--status-warn); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+    #status-text { color: var(--text-tertiary); }
+    #conv-title-display { color: var(--text-title); font-weight: bold; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    #conv-title-display:hover { color: var(--text-blue); }
+    #rename-input { display: none; flex: 1; background: var(--bg-rename); border: 1px solid var(--text-blue); color: var(--text-blue); padding: 0.1rem 0.4rem; border-radius: 3px; font-family: monospace; font-size: 0.8rem; }
+
+    #theme-btn { background: none; border: none; cursor: pointer; font-size: 1rem; padding: 0; line-height: 1; color: var(--text-tertiary); transition: color 0.15s; flex-shrink: 0; }
+    #theme-btn:hover { color: var(--text-yellow); }
+
+    #log { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    #log::-webkit-scrollbar { width: 4px; }
+    #log::-webkit-scrollbar-track { background: var(--scrollbar-track); }
+    #log::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 2px; }
+    .msg { padding: 0.5rem 0.8rem; border-radius: 6px; max-width: 80%; animation: fadeIn 0.2s ease; line-height: 1.4; }
+    .user { background: var(--bg-msg-user); align-self: flex-end; color: var(--text-blue); }
+    .assistant { background: var(--bg-msg-assistant); align-self: flex-start; color: var(--text-green); position: relative; }
+    .msg-wrap { display: flex; flex-direction: column; max-width: 82%; }
+    .msg-wrap.user-wrap { align-self: flex-end; }
+    .msg-wrap.assistant-wrap { align-self: flex-start; }
+    .msg-meta { font-size: 0.7rem; color: var(--text-meta); margin-top: 2px; display: flex; gap: 0.5rem; align-items: center; }
+    .msg-wrap.user-wrap .msg-meta { justify-content: flex-end; }
+    .copy-btn { background: none; border: none; color: var(--text-tertiary); cursor: pointer; padding: 0; font-size: 0.75rem; transition: color 0.15s; }
+    .copy-btn:hover { color: var(--text-green); }
+    .assistant pre { padding: 0 !important; border-radius: 6px !important; overflow: hidden !important; }
+    .assistant pre code { font-size: 0.82em !important; }
+    .assistant code:not(pre code) { background: var(--bg-code-inline); padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.85em; color: var(--text-code-inline); }
+    .assistant ul, .assistant ol { padding-left: 1.2rem; margin: 0.3rem 0; }
+    .assistant li { margin: 0.15rem 0; }
+    .assistant strong { color: var(--text-strong); }
+    .assistant p { margin: 0.2rem 0; }
+    .assistant h1,.assistant h2,.assistant h3 { color: var(--text-green); margin: 0.3rem 0; font-size: 1em; }
+    .assistant code { background: var(--bg-code-inline); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.9em; color: var(--text-code-inline); }
+    .assistant pre { background: var(--bg-code-block); padding: 0.5rem; border-radius: 4px; overflow-x: auto; margin: 0.3rem 0; }
+    .typing { background: var(--bg-msg-typing); align-self: flex-start; color: var(--text-green); min-width: 60px; }
+    .tool-msg { background: var(--bg-msg-tool); align-self: flex-start; color: var(--text-yellow); font-style: italic; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; }
+    .typing::after { content:''; animation: dots 1.2s steps(4,end) infinite; display: inline-block; }
+    @keyframes dots { 0%{content:''} 25%{content:'.'} 50%{content:'..'} 75%{content:'...'} 100%{content:''} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)} }
+
+    #bar { display: flex; padding: 0.75rem 1rem; gap: 0.5rem; border-top: 1px solid var(--border-light); align-items: flex-end; flex-wrap: wrap; }
+    #bar-top { display: flex; width: 100%; gap: 0.5rem; align-items: flex-end; }
+    textarea { flex: 1; background: var(--bg-input); border: 1px solid var(--border-input); color: var(--text-body); padding: 0.5rem; border-radius: 4px; font-family: monospace; resize: none; overflow-y: auto; max-height: 150px; min-height: 36px; line-height: 1.4; }
+    textarea:focus { outline: none; border-color: var(--text-green); }
+    button { background: var(--bg-btn); color: var(--text-green); border: 1px solid var(--border-btn); padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; transition: all 0.15s; font-family: monospace; }
+    button:hover { background: var(--bg-btn-hover); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #mic { background: var(--bg-btn-mic); border-color: var(--border-btn-mic); color: var(--text-blue); }
+    #mic.active { background: var(--bg-btn-danger); border-color: var(--border-btn-danger); color: var(--text-red); }
+    #voice-btn { background: var(--bg-btn-voice); border-color: var(--border-btn-voice); color: var(--text-blue); padding: 0.5rem 0.7rem; }
+    #voice-btn.active { background: var(--bg-btn-voice-active); border-color: var(--border-btn-voice-active); color: var(--text-purple); animation: pulse 1s infinite; }
+    #stop-btn { background: var(--bg-btn-danger); border-color: var(--border-btn-danger); color: var(--text-red); display: none; padding: 0.5rem 0.7rem; }
+    #stop-btn.visible { display: block; }
+    #stop-btn:hover { background: var(--bg-btn-danger-hover); }
+    #voice-status { width: 100%; text-align: center; font-size: 0.75rem; color: var(--text-tertiary); padding: 0.1rem; }
+    #voice-status.listening { color: var(--text-blue); }
+    #voice-status.speaking { color: var(--text-yellow); }
+    #hint { width: 100%; font-size: 0.68rem; color: var(--text-hint); }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>⚡ Jarvis</h1>
+      <button class="sb-btn" id="facts-toggle-btn" title="Mémoire">🧠</button>
+      <button class="sb-btn" id="new-conv-btn">+ Conv</button>
+    </div>
+    <div id="conv-list"></div>
+
+    <div id="facts-panel">
+      <div id="facts-header">
+        <span>🧠 Mémoire</span>
+        <button id="facts-clear" title="Tout effacer">✕ tout</button>
+      </div>
+      <div id="facts-list"></div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="header">
+      <span id="status-dot"></span>
+      <span id="status-text">Connecté</span>
+      <span id="conv-title-display" title="Double-clic pour renommer">Général</span>
+      <input id="rename-input" type="text" placeholder="Nouveau nom...">
+      <button id="theme-btn" title="Changer le thème">🌙</button>
+    </div>
+    <div id="log"></div>
+    <div id="bar">
+      <div id="bar-top">
+        <button id="voice-btn" title="Mode vocal conversationnel">🎤</button>
+        <button id="mic" title="Dictée ponctuelle">🎙️</button>
+        <textarea id="input" placeholder="Message… ou /facts /export /clear" rows="1" autofocus></textarea>
+        <button id="stop-btn" title="Arrêter">⏹</button>
+        <button id="send-btn">Envoyer</button>
+      </div>
+      <div id="voice-status"></div>
+      <div id="hint">Entrée = envoyer · Shift+Entrée = ligne · /facts · /export · /clear</div>
+    </div>
+  </div>
+
+<script>
+  marked.setOptions({
+    gfm: true, breaks: true,
+    highlight: (code, lang) => {
+      if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, { language: lang }).value;
+      return hljs.highlightAuto(code).value;
+    }
+  });
+
+  function makeTimestamp() {
+    return new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function wrapMsg(msgEl, role, rawText, tsOverride) {
+    const wrap = document.createElement("div");
+    wrap.className = `msg-wrap ${role}-wrap`;
+    wrap.appendChild(msgEl);
+    const meta = document.createElement("div");
+    meta.className = "msg-meta";
+    const ts = document.createElement("span");
+    ts.textContent = tsOverride || makeTimestamp();
+    meta.appendChild(ts);
+    if (role === "assistant") {
+      const btn = document.createElement("button");
+      btn.className = "copy-btn";
+      btn.textContent = "⎘ copier";
+      btn.onclick = () => {
+        navigator.clipboard.writeText(rawText || msgEl.dataset.raw || msgEl.textContent);
+        btn.textContent = "✓ copié";
+        setTimeout(() => btn.textContent = "⎘ copier", 1500);
+      };
+      meta.appendChild(btn);
+    }
+    wrap.appendChild(meta);
+    return wrap;
+  }
+
+  // ─── Theme ────────────────────────────────────────────────────────────────
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+    themeBtn.textContent = theme === 'dark' ? '🌙' : '☀️';
+    const hl = document.getElementById('hljs-theme');
+    hl.href = theme === 'dark'
+      ? 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css'
+      : 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css';
+  }
+  function toggleTheme() {
+    setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  }
+
+  // ─── Références DOM ──────────────────────────────────────────────────────
+  const log             = document.getElementById("log");
+  const input           = document.getElementById("input");
+  const sendBtn         = document.getElementById("send-btn");
+  const stopBtn         = document.getElementById("stop-btn");
+  const mic             = document.getElementById("mic");
+  const voiceBtn        = document.getElementById("voice-btn");
+  const voiceStatus     = document.getElementById("voice-status");
+  const statusDot       = document.getElementById("status-dot");
+  const statusText      = document.getElementById("status-text");
+  const convTitleDisplay = document.getElementById("conv-title-display");
+  const renameInput     = document.getElementById("rename-input");
+  const themeBtn        = document.getElementById("theme-btn");
+  const convList        = document.getElementById("conv-list");
+  const newConvBtn      = document.getElementById("new-conv-btn");
+  const factsToggleBtn  = document.getElementById("facts-toggle-btn");
+  const factsPanel      = document.getElementById("facts-panel");
+  const factsList       = document.getElementById("facts-list");
+  const factsClear      = document.getElementById("facts-clear");
+
+  // Sync theme button on load
+  themeBtn.textContent = document.documentElement.getAttribute('data-theme') === 'dark' ? '🌙' : '☀️';
+  themeBtn.addEventListener("click", toggleTheme);
+
+  let currentDiv        = null;
+  let ws                = null;
+  let reconnectTimer    = null;
+  let reconnectAttempt  = 0;
+  let currentConvId     = null;
+  let streamingConvId   = null;
+  let conversations     = [];
+  let isStreaming       = false;
+  let isSpeaking        = false;
+
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 150) + "px";
+  });
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  });
+
+  function connectWebSocket() {
+    if (ws) { ws.close(); ws = null; }
+    setStatus("connecting");
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => { setStatus("connected"); reconnectAttempt = 0; enableInput(true); };
+    ws.onmessage = ({ data }) => handleWsMessage(JSON.parse(data));
+    ws.onerror   = () => setStatus("disconnected");
+    ws.onclose   = () => { setStatus("disconnected"); enableInput(false); scheduleReconnect(); };
+  }
+
+  function handleWsMessage(msg) {
+    removeTyping();
+
+    if (msg.type === "done") {
+      if (currentDiv?._wrap) {
+        const btn = currentDiv._wrap.querySelector(".copy-btn");
+        if (btn) btn.onclick = () => {
+          navigator.clipboard.writeText(currentDiv.dataset.raw || "");
+          btn.textContent = "✓ copié"; setTimeout(() => btn.textContent = "⎘ copier", 1500);
+        };
+      }
+      document.getElementById("tool-indicator")?.remove();
+      currentDiv = null;
+      streamingConvId = null;
+      setStreaming(false);
+      refreshConversations();
+      return;
+    }
+
+    if (msg.type === "chunk") {
+      if (streamingConvId !== currentConvId) return;
+      if (!currentDiv) {
+        currentDiv = document.createElement("div");
+        currentDiv.className = "msg assistant";
+        currentDiv._wrap = wrapMsg(currentDiv, "assistant", "");
+        log.appendChild(currentDiv._wrap);
+      }
+      currentDiv.dataset.raw = (currentDiv.dataset.raw || "") + msg.text;
+      currentDiv.innerHTML = marked.parse(currentDiv.dataset.raw);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    if (msg.type === "tool_start") {
+      if (streamingConvId !== currentConvId) return;
+      const div = document.createElement("div");
+      div.className = "msg tool-msg";
+      div.id = "tool-indicator";
+      const icon = msg.tool === "search_web" ? "🔍" : "🔧";
+      div.textContent = `${icon} ${msg.tool === "search_web" ? "Recherche" : "Outil"} : ${msg.args?.query || ""}`;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+    if (msg.type === "tool_end") currentDiv = null;
+
+    if (msg.type === "tts_start") {
+      isSpeaking = true;
+      if (voiceMode) {
+        voiceStatus.textContent = "🔊 Jarvis parle...";
+        voiceStatus.className = "speaking";
+        try { if (voiceRecog) voiceRecog.stop(); } catch {}
+      }
+    }
+    if (msg.type === "tts_done") {
+      isSpeaking = false;
+      if (voiceMode) {
+        voiceStatus.textContent = "🎤 Écoute...";
+        voiceStatus.className = "listening";
+        startVoiceRecognition();
+      }
+    }
+  }
+
+  function setStreaming(active) {
+    isStreaming = active;
+    stopBtn.classList.toggle("visible", active);
+    sendBtn.disabled = active;
+  }
+
+  stopBtn.addEventListener("click", () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "stop" }));
+    }
+    setStreaming(false);
+    isSpeaking = false;
+  });
+
+  function setStatus(state) {
+    statusDot.className = "";
+    if (state === "connected")       { statusText.textContent = "Connecté"; }
+    else if (state === "connecting") { statusDot.classList.add("connecting"); statusText.textContent = "Connexion..."; }
+    else                             { statusDot.classList.add("disconnected"); statusText.textContent = "Déconnecté..."; }
+  }
+  function enableInput(enabled) {
+    input.disabled = !enabled;
+    sendBtn.disabled = !enabled || isStreaming;
+    if (mic)      mic.disabled      = !enabled;
+    if (voiceBtn) voiceBtn.disabled = !enabled;
+  }
+  function scheduleReconnect() {
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
+    reconnectAttempt++;
+    reconnectTimer = setTimeout(connectWebSocket, delay);
+  }
+
+  convTitleDisplay.addEventListener("dblclick", () => {
+    if (!currentConvId) return;
+    renameInput.value = convTitleDisplay.textContent;
+    convTitleDisplay.style.display = "none";
+    renameInput.style.display = "block";
+    renameInput.focus();
+    renameInput.select();
+  });
+  async function commitRename() {
+    const newTitle = renameInput.value.trim();
+    renameInput.style.display = "none";
+    convTitleDisplay.style.display = "";
+    if (!newTitle || !currentConvId) return;
+    await fetch(`/conversations/${currentConvId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newTitle })
+    });
+    convTitleDisplay.textContent = newTitle;
+    await refreshConversations();
+  }
+  renameInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") commitRename();
+    if (e.key === "Escape") { renameInput.style.display = "none"; convTitleDisplay.style.display = ""; }
+  });
+  renameInput.addEventListener("blur", commitRename);
+
+  async function handleSlashCommand(cmd) {
+    const lower = cmd.trim().toLowerCase();
+
+    if (lower === "/facts") {
+      factsPanel.classList.toggle("open");
+      if (factsPanel.classList.contains("open")) await refreshFacts();
+      return true;
+    }
+    if (lower === "/clear") {
+      if (!currentConvId || !confirm("Effacer les messages de cette conversation ?")) return true;
+      await fetch(`/conversations/${currentConvId}`, { method: "DELETE" });
+      await fetch("/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Nouvelle conversation" })
+      });
+      await refreshConversations();
+      if (conversations.length > 0) await switchConversation(conversations[0].id);
+      return true;
+    }
+    if (lower === "/export") {
+      exportConversation();
+      return true;
+    }
+    return false;
+  }
+
+  function exportConversation() {
+    const messages = [];
+    log.querySelectorAll(".msg-wrap").forEach(wrap => {
+      const msgEl = wrap.querySelector(".msg");
+      if (!msgEl) return;
+      const role = msgEl.classList.contains("user") ? "user" : "assistant";
+      const text = msgEl.dataset.raw || msgEl.textContent;
+      const time = wrap.querySelector(".msg-meta span")?.textContent || "";
+      messages.push(`[${time}] ${role === "user" ? "Toi" : "Jarvis"}: ${text}`);
+    });
+    const blob = new Blob([messages.join("\n\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `jarvis-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+  }
+
+  async function handleSend() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    if (text.startsWith("/")) {
+      const handled = await handleSlashCommand(text);
+      if (handled) { input.value = ""; input.style.height = "auto"; return; }
+    }
+
+    if (!currentConvId || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const div = document.createElement("div");
+    div.className = "msg user";
+    div.textContent = text;
+    log.appendChild(wrapMsg(div, "user", text));
+    streamingConvId = currentConvId;
+    ws.send(JSON.stringify({ text, conversation_id: currentConvId }));
+    input.value = "";
+    input.style.height = "auto";
+    log.scrollTop = log.scrollHeight;
+    showTyping();
+    setStreaming(true);
+  }
+  sendBtn.addEventListener("click", handleSend);
+
+  function showTyping() {
+    removeTyping();
+    const div = document.createElement("div");
+    div.className = "msg assistant typing";
+    div.id = "typing-indicator";
+    div.textContent = "Jarvis réfléchit";
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+  function removeTyping() {
+    document.getElementById("typing-indicator")?.remove();
+  }
+
+  async function refreshConversations() {
+    try {
+      const res = await fetch("/conversations");
+      conversations = await res.json();
+      renderConversations();
+    } catch {}
+  }
+
+  function renderConversations() {
+    convList.innerHTML = "";
+    for (const c of conversations) {
+      const item = document.createElement("div");
+      item.className = "conv-item" + (c.id === currentConvId ? " active" : "");
+      const title = document.createElement("span");
+      title.className = "conv-title";
+      title.textContent = c.title;
+      item.appendChild(title);
+      const del = document.createElement("button");
+      del.className = "conv-delete";
+      del.textContent = "×";
+      del.title = "Supprimer";
+      del.addEventListener("click", async e => {
+        e.stopPropagation();
+        if (!confirm(`Supprimer « ${c.title} » ?`)) return;
+        await fetch(`/conversations/${c.id}`, { method: "DELETE" });
+        if (currentConvId === c.id) { currentConvId = null; log.innerHTML = ""; enableInput(false); }
+        await refreshConversations();
+      });
+      item.appendChild(del);
+      item.addEventListener("click", () => switchConversation(c.id));
+      convList.appendChild(item);
+    }
+  }
+
+  async function switchConversation(id) {
+    if (id === currentConvId) return;
+    if (voiceMode) stopVoiceMode();
+    currentConvId = id;
+    currentDiv = null;
+    streamingConvId = null;
+    setStreaming(false);
+    removeTyping();
+    const conv = conversations.find(c => c.id === id);
+    convTitleDisplay.textContent = conv ? conv.title : "Conversation";
+    log.innerHTML = "";
+    await loadHistory();
+    renderConversations();
+    enableInput(ws && ws.readyState === WebSocket.OPEN);
+    input.focus();
+  }
+
+  async function loadHistory() {
+    try {
+      const url = currentConvId ? `/history?conversation_id=${currentConvId}` : "/history";
+      const res = await fetch(url);
+      const messages = await res.json();
+      for (const m of messages) {
+        const div = document.createElement("div");
+        div.className = `msg ${m.role}`;
+        if (m.role === "assistant") { div.innerHTML = marked.parse(m.content); div.dataset.raw = m.content; }
+        else { div.textContent = m.content; }
+        const ts = m.created_at
+          ? new Date(m.created_at * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+          : null;
+        log.appendChild(wrapMsg(div, m.role, m.content, ts));
+      }
+      log.scrollTop = log.scrollHeight;
+    } catch {}
+  }
+
+  async function refreshFacts() {
+    try {
+      const res = await fetch("/facts");
+      const facts = await res.json();
+      factsList.innerHTML = "";
+      if (!facts.length) {
+        factsList.innerHTML = '<div style="padding:0.4rem;font-size:0.72rem;color:var(--text-hint);">Aucun fait mémorisé.</div>';
+        return;
+      }
+      for (const f of facts) {
+        const item = document.createElement("div");
+        item.className = "fact-item";
+        const key  = document.createElement("span"); key.className  = "fact-key";  key.textContent  = f.key + " :";
+        const val  = document.createElement("span"); val.className  = "fact-val";  val.textContent  = f.value;  val.title = f.value;
+        const del  = document.createElement("button"); del.className = "fact-del"; del.textContent = "✕";
+        del.onclick = async () => {
+          await fetch(`/facts/${encodeURIComponent(f.key)}`, { method: "DELETE" });
+          await refreshFacts();
+        };
+        item.append(key, val, del);
+        factsList.appendChild(item);
+      }
+    } catch {}
+  }
+
+  factsToggleBtn.addEventListener("click", async () => {
+    factsPanel.classList.toggle("open");
+    if (factsPanel.classList.contains("open")) await refreshFacts();
+  });
+  factsClear.addEventListener("click", async () => {
+    if (!confirm("Effacer toute la mémoire de Jarvis ?")) return;
+    await fetch("/facts", { method: "DELETE" });
+    await refreshFacts();
+  });
+
+  if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recog = new SR();
+    recog.lang = "fr-FR"; recog.continuous = false; recog.interimResults = false;
+    recog.onresult = e => { input.value = e.results[0][0].transcript; if (currentConvId) handleSend(); };
+    recog.onend = () => mic.classList.remove("active");
+    mic.onclick = () => {
+      if (mic.classList.contains("active")) { recog.stop(); mic.classList.remove("active"); return; }
+      if (!currentConvId || voiceMode) return;
+      mic.classList.add("active");
+      try { recog.start(); } catch { mic.classList.remove("active"); }
+    };
+  } else {
+    mic.disabled = true;
+    mic.title = "Web Speech non supporté";
+  }
+
+  let voiceMode = false;
+  let voiceRecog = null;
+  let voiceTranscript = "";
+  let voiceInterim = "";
+  let voiceTimer = null;
+  const SILENCE_MS = 700;
+  const MIN_VOICE_LEN = 5;
+
+  function interruptAssistant() {
+    if (ws && ws.readyState === WebSocket.OPEN)
+      ws.send(JSON.stringify({ type: "stop" }));
+    if (currentDiv) { currentDiv._wrap?.remove(); currentDiv = null; }
+    removeTyping();
+    setStreaming(false);
+    isSpeaking = false;
+  }
+
+  function updateInput() {
+    const display = voiceTranscript + (voiceInterim ? " " + voiceInterim : "");
+    input.value = display;
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 150) + "px";
+  }
+
+  function sendVoiceMessage() {
+    if (!voiceTranscript || !currentConvId || !voiceMode) return;
+    const text = voiceTranscript.trim();
+    if (text.length < MIN_VOICE_LEN) { voiceTranscript = ""; voiceInterim = ""; return; }
+    voiceTranscript = "";
+    voiceInterim = "";
+    input.value = "";
+    input.style.height = "auto";
+    streamingConvId = currentConvId;
+    ws.send(JSON.stringify({ text, conversation_id: currentConvId }));
+  }
+
+  function startVoiceRecognition() {
+    if (!voiceMode || !currentConvId || isSpeaking) return;
+    try { if (voiceRecog) voiceRecog.stop(); } catch {}
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    const recog = new SR();
+    voiceRecog = recog;
+    recog.lang = "fr-FR";
+    recog.continuous = true;
+    recog.interimResults = true;
+
+    recog.onresult = (e) => {
+      if (!voiceMode || isSpeaking) return;
+      voiceInterim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) {
+          const t = r[0].transcript.trim();
+          if (t) {
+            voiceTranscript += " " + t;
+            voiceTranscript = voiceTranscript.trim();
+            clearTimeout(voiceTimer);
+            voiceTimer = setTimeout(sendVoiceMessage, SILENCE_MS);
+          }
+        } else {
+          const t = r[0].transcript.trim();
+          if (t && i === e.results.length - 1) voiceInterim = t;
+        }
+      }
+      updateInput();
+    };
+    recog.onerror = () => { setTimeout(() => { if (voiceMode && !isSpeaking) startVoiceRecognition(); }, 500); };
+    recog.onend   = () => { if (voiceMode && voiceRecog === recog && !isSpeaking) setTimeout(() => startVoiceRecognition(), 100); };
+    try { recog.start(); } catch {}
+  }
+
+  function startVoiceMode() {
+    voiceMode = true;
+    voiceTranscript = "";
+    voiceInterim = "";
+    voiceBtn.classList.add("active");
+    voiceStatus.textContent = "🎤 Écoute...";
+    voiceStatus.className = "listening";
+    mic.disabled = true;
+    startVoiceRecognition();
+  }
+  function stopVoiceMode() {
+    voiceMode = false;
+    voiceBtn.classList.remove("active");
+    voiceStatus.textContent = "";
+    voiceStatus.className = "";
+    clearTimeout(voiceTimer);
+    voiceTranscript = "";
+    voiceInterim = "";
+    input.value = "";
+    input.style.height = "auto";
+    try { if (voiceRecog) voiceRecog.stop(); } catch {}
+    voiceRecog = null;
+    mic.disabled = false;
+  }
+
+  voiceBtn.addEventListener("click", () => {
+    if (!currentConvId) return;
+    if (isSpeaking) {
+      interruptAssistant();
+      startVoiceRecognition();
+      voiceStatus.textContent = "🎤 Parle...";
+      voiceStatus.className = "listening";
+      return;
+    }
+    if (voiceMode) {
+      if (voiceTranscript.trim().length >= MIN_VOICE_LEN) {
+        clearTimeout(voiceTimer);
+        sendVoiceMessage();
+        voiceStatus.textContent = "🎤 Envoyé ✓";
+        setTimeout(() => {
+          if (voiceMode) { voiceStatus.textContent = "🎤 Écoute..."; }
+        }, 600);
+      } else {
+        stopVoiceMode();
+      }
+      return;
+    }
+    startVoiceMode();
+  });
+
+  newConvBtn.addEventListener("click", async () => {
+    if (voiceMode) stopVoiceMode();
+    const res = await fetch("/conversations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Nouvelle conversation" })
+    });
+    const conv = await res.json();
+    await refreshConversations();
+    await switchConversation(conv.id);
+  });
+
+  (async () => {
+    await refreshConversations();
+    if (conversations.length > 0) {
+      await switchConversation(conversations[0].id);
+    } else {
+      convTitleDisplay.textContent = "Aucune conversation";
+    }
+    connectWebSocket();
+  })();
+</script>
+</body>
+</html>

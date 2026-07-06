@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>fr_FR</string>
+    <key>CFBundleExecutable</key>
+    <string>JarvisLocal</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.dimitriclaverie.JarvisLocal</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>JarvisLocal</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Jarvis a besoin du microphone pour la reconnaissance vocale.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Jarvis a besoin de la reconnaissance vocale pour le mode conversationnel.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Jarvis a besoin d'accéder au calendrier pour créer des événements.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Jarvis a besoin d'accéder aux rappels pour en créer.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Jarvis a besoin de contrôler d'autres applications via AppleScript.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>Jarvis a besoin d'accéder à vos contacts pour envoyer des messages.</string>
+    <key>NSScreenCaptureDescription</key>
+    <string>Jarvis a besoin de capture d'écran pour prendre des screenshots.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
