@@ -31,7 +31,9 @@ final class Settings {
     var edgeTTSVoice: String {
         didSet { UserDefaults.standard.set(edgeTTSVoice, forKey: "edge_tts_voice") }
     }
-    var edgeTTSAvailable: Bool {
+    private(set) var edgeTTSAvailable = false
+
+    func refreshEdgeTTSAvailability() {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         task.arguments = ["edge-tts"]
@@ -40,7 +42,7 @@ final class Settings {
         task.standardError = Pipe()
         try? task.run()
         task.waitUntilExit()
-        return task.terminationStatus == 0
+        edgeTTSAvailable = task.terminationStatus == 0
     }
 
     /// Coupe-circuit pour le barge-in. À désactiver si le Mac n'a pas de casque et que le micro
@@ -120,6 +122,8 @@ final class Settings {
         self.ttsEngine = TTSEngine(rawValue: defaults.string(forKey: "tts_engine") ?? "") ?? .system
         self.edgeTTSVoice = defaults.string(forKey: "edge_tts_voice") ?? "fr-FR-HenriNeural"
         self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? true
+
+        refreshEdgeTTSAvailability()
     }
 }
 
