@@ -77,31 +77,21 @@ struct InputBarView: View {
 
     @ViewBuilder
     private var textInputField: some View {
-        TextEditor(text: $inputText)
-            .font(.body)
-            .foregroundStyle(JarvisTheme.textPrimary)
-            .focused($isInputFocused)
-            .scrollContentBackground(.hidden)
+        AutoResizingTextView(text: $inputText, height: $editorHeight, maxHeight: 120, font: .systemFont(ofSize: NSFont.systemFontSize))
             .frame(height: editorHeight)
+            .focused($isInputFocused)
             .background(JarvisTheme.panelElevated)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .disabled(vm.isStreaming)
-            .onChange(of: inputText) { _, newValue in
-                let lines = newValue.split(separator: "\n").count
-                let lineH: CGFloat = 18
-                let h = max(34, min(CGFloat(lines) * lineH + 16, 120))
-                editorHeight = h
-            }
             .overlay(alignment: .topLeading) {
                 if inputText.isEmpty {
-                    Text("Message…")
+                    Text("Message...")
                         .foregroundStyle(JarvisTheme.textTertiary)
-                        .padding(.top, 2)
-                        .padding(.leading, 2)
+                        .padding(.top, 6)
+                        .padding(.leading, 6)
                         .allowsHitTesting(false)
                 }
             }
-
     }
 
     @ViewBuilder
