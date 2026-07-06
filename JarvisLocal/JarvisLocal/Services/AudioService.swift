@@ -371,6 +371,15 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         let inputNode = audioEngine.inputNode
         NSLog("STT: engine inputNode=%@", inputNode.description)
 
+        // AEC (Acoustic Echo Cancellation) : cette ligne avait disparu à un moment — sans elle, le
+        // barge-in (micro ouvert pendant que Jarvis parle) capte la propre voix de Jarvis via les
+        // haut-parleurs et se déclenche tout seul en boucle. Best-effort : pas garanti sur tous les
+        // devices audio, d'où le try? silencieux — le debounce + grace period côté AppViewModel est
+        // la deuxième ligne de défense si l'AEC ne suffit pas totalement.
+        if !inputNode.isVoiceProcessingEnabled {
+            try? inputNode.setVoiceProcessingEnabled(true)
+        }
+
         inputNode.installTap(onBus: 0, bufferSize: 16384, format: nil) { buffer, _ in
             request.append(buffer)
         }

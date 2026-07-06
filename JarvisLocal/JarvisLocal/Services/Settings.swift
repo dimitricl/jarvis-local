@@ -132,7 +132,12 @@ final class Settings {
         self.ttsVoiceIdentifier = defaults.string(forKey: "tts_voice") ?? ""
         self.ttsEngine = TTSEngine(rawValue: defaults.string(forKey: "tts_engine") ?? "") ?? .system
         self.edgeTTSVoice = defaults.string(forKey: "edge_tts_voice") ?? "fr-FR-HenriNeural"
-        self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? false
+        // Remis à true par défaut : le déclencheur est maintenant protégé par une fenêtre de grâce
+        // de 600ms + un debounce (2 partials consécutifs requis) côté AppViewModel, ce qui devrait
+        // éliminer la plupart des faux positifs qui avaient probablement motivé le passage à false.
+        // Si ça se déclenche encore tout seul sur haut-parleurs internes, repasse ce flag à false
+        // depuis les Réglages plutôt que de retoucher le code.
+        self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? true
 
         refreshEdgeTTSAvailability()
     }

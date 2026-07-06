@@ -28,6 +28,15 @@ final class AppViewModel {
     var isVoiceMode = false
     var isListening = false
     var isSpeaking = false
+    /// Horodatage du début du TTS courant. Sert de fenêtre de grâce pour le barge-in : le tout
+    /// début d'une phrase est le moment où un écho acoustique mal annulé a le plus de chances de se
+    /// faire passer pour de la parole utilisateur (attaque/relâche du haut-parleur). On ignore les
+    /// déclencheurs de barge-in dans les ~600ms qui suivent.
+    private var speechStartedAt: ContinuousClock.Instant?
+    /// Nombre de résultats partiels consécutifs non-vides reçus pendant que Jarvis parle. On exige
+    /// 2 occurrences avant de couper le TTS, pour ne pas réagir à un unique artefact ponctuel
+    /// (souffle, écho d'un seul mot) — un vrai barge-in humain produit plusieurs partials de suite.
+    private var bargeInStreak = 0
     var confirmationRequest: ToolConfirmationRequest?
 
     private let db = DatabaseService.shared
@@ -41,7 +50,7 @@ final class AppViewModel {
     /// — ou être manipulé par une injection indirecte cachée dans un résultat de search_web.
     /// run_shortcut est inclus : un Raccourci macOS peut chaîner des actions arbitraires
     /// (exécution shell, réseau, contrôle d'autres apps) au même titre qu'un AppleScript.
-    private let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut"]
+    private let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut", "remember_fact"]
 
     private var streamTask: Task<Void, Never>?
     private var voiceTask: Task<Void, Never>?
@@ -230,6 +239,7 @@ final class AppViewModel {
 
                         if Settings.shared.ttsEnabled {
                             isSpeaking = true
+                            speechStartedAt = ContinuousClock.now
                             Task { await audio.speak(finalText); await MainActor.run { self.isSpeaking = false } }
                         }
                     }
@@ -389,6 +399,13 @@ final class AppViewModel {
             let body = (args["body"] as? String ?? "")
             let truncated = body.count > 200 ? String(body.prefix(200)) + "…" : body
             return "Jarvis veut modifier la note « \(args["search_title"] as? String ?? "?") » avec :\n\n\(truncated)"
+        case "remember_fact":
+            // Ajouté par toi, mais sans passer par la confirmation : le modèle pouvait écrire
+            // n'importe quelle clé/valeur en mémoire long-terme (réinjectée dans CHAQUE prompt système
+            // futur via factsContext) sans qu'un humain ne valide jamais rien. Une donnée web piégée
+            // aurait pu suffire à empoisonner la mémoire de façon persistante. Même traitement que
+            // l'extraction heuristique existante : confirmation obligatoire avant écriture.
+            return "Jarvis veut mémoriser : \(args["key"] as? String ?? "?") = \(args["value"] as? String ?? "?")"
         default:
             return "Jarvis veut exécuter l'action « \(tool) »."
         }
@@ -512,28 +529,48 @@ final class AppViewModel {
                             guard let self = self else { return }
                             guard !text.isEmpty else { return }
                             self.inputText = text
-                            // Barge-in : avant, le micro était fermé pendant tout le TTS (boucle qui
-                            // attendait isSpeaking == false avant de relancer transcribe()) — donc
-                            // structurellement impossible d'interrompre Jarvis en parlant. Ici on coupe
-                            // le TTS dès qu'un résultat partiel non trivial arrive pendant qu'il parle.
-                            // Seuil à 2 caractères pour filtrer un peu le bruit ponctuel (souffle, toux
-                            // transcrite en un caractère isolé), pas une garantie contre les faux
-                            // positifs liés à l'écho acoustique si le Mac n'a pas de casque branché.
-                            if Settings.shared.bargeInEnabled, self.audio.isSpeaking, text.count >= 2 {
+
+                            // Barge-in durci après le premier essai (bargeInEnabled désactivé par
+                            // défaut par la version précédente, probablement parce que sans annulation
+                            // d'écho fiable, Jarvis se coupait la parole tout seul en boucle). Deux
+                            // garde-fous ajoutés au lieu d'un seuil brut sur la longueur du texte :
+                            // 1) fenêtre de grâce de 600ms après le début du TTS, où l'écho de
+                            //    l'attaque du haut-parleur est le plus probable ;
+                            // 2) exiger 2 partials consécutifs non-vides (debounce), pas un seul —
+                            //    un artefact ponctuel ne suffit plus, une vraie interruption humaine
+                            //    produit un flux continu de partials.
+                            guard Settings.shared.bargeInEnabled, self.audio.isSpeaking else {
+                                self.bargeInStreak = 0
+                                return
+                            }
+                            if let started = self.speechStartedAt,
+                               ContinuousClock.now - started < .milliseconds(600) {
+                                return
+                            }
+                            self.bargeInStreak += 1
+                            if self.bargeInStreak >= 2 {
                                 self.audio.stopSpeaking()
+                                self.bargeInStreak = 0
                             }
                         }
 
                         isListening = true
                         inputText = ""
+                        bargeInStreak = 0
                         let text = try await stt.transcribe()
                         isListening = false
                         stt.onPartialResult = nil
 
                         guard !text.isEmpty else { continue }
 
-                        // Filtrer le bruit de fond (transcriptions très courtes type souffle)
-                        guard text.count >= 2 else { continue }
+                        // Ancien seuil : text.count >= 2 (2 CARACTÈRES, pas mots). Avec le micro ouvert
+                        // en continu pendant que Jarvis parle (nécessaire pour le barge-in), un souffle,
+                        // une toux ou un mot d'écho mal capté suffisait à déclencher un tour de
+                        // conversation complet — c'est très probablement la cause du ressenti "toujours
+                        // en question-réponse saccadé" : le pipeline répondait à du bruit, pas à de la
+                        // vraie parole. Retour à un seuil en nombre de mots, plus proche de ce qui
+                        // caractérise une vraie phrase.
+                        guard text.split(separator: " ").count >= 2 else { continue }
 
                         try? await Task.sleep(nanoseconds: 200_000_000)
 
