@@ -8,7 +8,7 @@ let package = Package(
         .executableTarget(
             name: "JarvisLocal",
             path: "JarvisLocal",
-            exclude: ["Info.plist"]
+            exclude: ["Info.plist", "Resources"]
         ),
         .testTarget(
             name: "JarvisLocalTests",
