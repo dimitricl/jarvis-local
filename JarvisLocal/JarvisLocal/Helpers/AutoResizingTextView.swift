@@ -6,12 +6,14 @@ struct AutoResizingTextView: NSViewRepresentable {
     @Binding var height: CGFloat
     let maxHeight: CGFloat
     let font: NSFont
+    var onSend: (() -> Void)?
 
-    init(text: Binding<String>, height: Binding<CGFloat>, maxHeight: CGFloat = 120, font: NSFont = .systemFont(ofSize: NSFont.systemFontSize)) {
+    init(text: Binding<String>, height: Binding<CGFloat>, maxHeight: CGFloat = 120, font: NSFont = .systemFont(ofSize: NSFont.systemFontSize), onSend: (() -> Void)? = nil) {
         self._text = text
         self._height = height
         self.maxHeight = maxHeight
         self.font = font
+        self.onSend = onSend
     }
 
     func makeCoordinator() -> Coordinator {
@@ -97,6 +99,17 @@ struct AutoResizingTextView: NSViewRepresentable {
             guard let textView = textView else { return }
             parent.text = textView.string
             parent.computeHeight(textView: textView, notify: true)
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                if NSEvent.modifierFlags.contains(.command) {
+                    return false
+                }
+                parent.onSend?()
+                return true
+            }
+            return false
         }
     }
 }
