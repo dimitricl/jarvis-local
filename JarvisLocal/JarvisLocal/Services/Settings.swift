@@ -111,7 +111,7 @@ final class Settings {
                 isCheckingUpdate = false
                 return
             }
-            let cleanLatest = latest.hasPrefix("v") ? String(latest.dropFirst()) : latest
+            let cleanLatest = latest.lowercased().hasPrefix("v") ? String(latest.dropFirst()) : latest
             updateAvailable = cleanLatest.compare(currentVersion, options: .numeric) == .orderedDescending
             if !updateAvailable {
                 updateCheckError = "Vous avez la dernière version (\(currentVersion))."
