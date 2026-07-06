@@ -62,7 +62,7 @@ struct AutoResizingTextView: NSViewRepresentable {
     }
 
     private func applyTextColor(_ textView: NSTextView) {
-        let color = NSColor.textColor
+        let color = JarvisTheme.nsTextPrimary
         textView.textColor = color
         textView.insertionPointColor = color
         textView.typingAttributes = [
