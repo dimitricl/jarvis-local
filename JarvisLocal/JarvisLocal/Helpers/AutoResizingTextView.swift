@@ -24,8 +24,6 @@ struct AutoResizingTextView: NSViewRepresentable {
         let textView = NSTextView()
         textView.font = font
         textView.string = text
-        textView.textColor = NSColor.labelColor
-        textView.insertionPointColor = NSColor.labelColor
         textView.isEditable = true
         textView.isSelectable = true
         textView.drawsBackground = false
@@ -37,6 +35,7 @@ struct AutoResizingTextView: NSViewRepresentable {
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
         textView.delegate = context.coordinator
+        applyTextColor(textView)
 
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = false
@@ -57,7 +56,21 @@ struct AutoResizingTextView: NSViewRepresentable {
         guard let textView = nsView.documentView as? NSTextView else { return }
         if textView.string != text {
             textView.string = text
+            applyTextColor(textView)
             computeHeight(textView: textView, notify: false)
+        }
+    }
+
+    private func applyTextColor(_ textView: NSTextView) {
+        let color = NSColor.textColor
+        textView.textColor = color
+        textView.insertionPointColor = color
+        textView.typingAttributes = [
+            .font: font,
+            .foregroundColor: color
+        ]
+        if !textView.string.isEmpty {
+            textView.setTextColor(color, range: NSRange(location: 0, length: textView.string.utf16.count))
         }
     }
 
