@@ -53,7 +53,7 @@ final class AppViewModel {
     /// NOTE : visibilité `internal` (pas `private`) volontaire — c'est la seule façon pour les tests
     /// de lire la VRAIE liste via @testable import au lieu d'en recopier une à la main qui finit
     /// forcément par diverger du code réel sans jamais faire échouer aucun test.
-    let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut", "remember_fact"]
+    let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut", "remember_fact", "search_maps", "add_calendar_event", "add_reminder", "set_clipboard"]
 
     private var streamTask: Task<Void, Never>?
     private var voiceTask: Task<Void, Never>?
