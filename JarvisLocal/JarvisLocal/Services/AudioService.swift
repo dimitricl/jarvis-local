@@ -312,11 +312,10 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     private var continuation: CheckedContinuation<String, Error>?
     private var silenceTimer: DispatchSourceTimer?
     private var isRecording = false
-    private var isRestarting = false
     private var restartCount = 0
     private static let maxRestarts = 3
 
-    /// Appelé sur le thread principal à chaque résultat partiel
+
     var onPartialResult: ((String) -> Void)?
 
     private override init() {
@@ -335,7 +334,6 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     func transcribe() async throws -> String {
         let authorized = await requestAuthorization()
         guard authorized else { throw STTError.notAuthorized }
-
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             startRecording()
@@ -343,17 +341,7 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     }
 
     private func startRecording() {
-        NSLog("STT: startRecording begin")
-        if audioEngine.isRunning {
-            audioEngine.stop()
-        }
-        audioEngine.reset()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
-            NSLog("STT: recognizer not available")
             Task { @MainActor in
                 self.continuation?.resume(throwing: STTError.notAvailable)
                 self.continuation = nil
@@ -369,17 +357,6 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
-        NSLog("STT: engine inputNode=%@", inputNode.description)
-
-        // AEC (Acoustic Echo Cancellation) : cette ligne avait disparu à un moment — sans elle, le
-        // barge-in (micro ouvert pendant que Jarvis parle) capte la propre voix de Jarvis via les
-        // haut-parleurs et se déclenche tout seul en boucle. Best-effort : pas garanti sur tous les
-        // devices audio, d'où le try? silencieux — le debounce + grace period côté AppViewModel est
-        // la deuxième ligne de défense si l'AEC ne suffit pas totalement.
-        if !inputNode.isVoiceProcessingEnabled {
-            try? inputNode.setVoiceProcessingEnabled(true)
-        }
-
         inputNode.installTap(onBus: 0, bufferSize: 16384, format: nil) { buffer, _ in
             request.append(buffer)
         }
@@ -387,9 +364,7 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         audioEngine.prepare()
         do {
             try audioEngine.start()
-            NSLog("STT: engine started successfully")
         } catch {
-            NSLog("STT: engine error %@", error.localizedDescription)
             Task { @MainActor in
                 self.continuation?.resume(throwing: STTError.engineError(error.localizedDescription))
                 self.continuation = nil
@@ -399,19 +374,11 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         isRecording = true
 
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            NSLog("STT: cb r=%d e=%d", result != nil, error != nil)
             guard let self = self else { return }
-
             if let error = error {
                 let nsError = error as NSError
                 if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                    guard !self.isRestarting else { return }
-                    self.isRestarting = true
-                    self.stopRecording()
-                    DispatchQueue.main.async {
-                        self.startRecording()
-                        self.isRestarting = false
-                    }
+                    self.restartRecording()
                     return
                 }
                 self.stopRecording()
@@ -421,54 +388,50 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
                 }
                 return
             }
+            guard let result = result else { return }
+            let text = result.bestTranscription.formattedString
 
-            if let result = result {
-                let text = result.bestTranscription.formattedString
-
+            if !result.isFinal {
                 if !text.isEmpty {
-                    if !result.isFinal {
-                        self.scheduleSilenceTimer()
-                        DispatchQueue.main.async { self.onPartialResult?(text) }
-                    }
-                }
-
-                if result.isFinal {
-                    let wordCount = text.split(separator: " ").count
-
-                    if text.isEmpty || wordCount < 1 {
-                        guard !self.isRestarting else { return }
-                        self.restartCount += 1
-                        if self.restartCount >= Self.maxRestarts {
-                            self.stopRecording()
-                            self.restartCount = 0
-                            Task { @MainActor in
-                                self.continuation?.resume(throwing: STTError.noSpeech)
-                                self.continuation = nil
-                            }
-                            return
-                        }
-                        self.isRestarting = true
-                        self.stopRecording()
-                        DispatchQueue.main.async { self.onPartialResult?(text) }
-                        DispatchQueue.main.async {
-                            self.startRecording()
-                            self.isRestarting = false
-                        }
-                        return
-                    }
-
-                    self.restartCount = 0
-                    self.stopRecording()
+                    scheduleSilenceTimer()
                     DispatchQueue.main.async { self.onPartialResult?(text) }
+                }
+                return
+            }
+
+            let wordCount = text.split(separator: " ").count
+            if wordCount < 1 {
+                guard restartCount < Self.maxRestarts else {
+                    stopRecording()
+                    restartCount = 0
                     Task { @MainActor in
-                        self.continuation?.resume(returning: text)
+                        self.continuation?.resume(throwing: STTError.noSpeech)
                         self.continuation = nil
                     }
+                    return
                 }
+                restartCount += 1
+                restartRecording()
+                return
+            }
+
+            restartCount = 0
+            stopRecording()
+            DispatchQueue.main.async { self.onPartialResult?(text) }
+            Task { @MainActor in
+                self.continuation?.resume(returning: text)
+                self.continuation = nil
             }
         }
 
         scheduleSilenceTimer()
+    }
+
+    private func restartRecording() {
+        stopRecording()
+        DispatchQueue.main.async { [weak self] in
+            self?.startRecording()
+        }
     }
 
     private func scheduleSilenceTimer() {
@@ -476,9 +439,8 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + 4.0, repeating: .never)
         timer.setEventHandler { [weak self] in
-            guard let self = self, self.isRecording else { NSLog("STT: timer skipped"); return }
-            NSLog("STT: timer fired, ending audio")
-            self.recognitionRequest?.endAudio()
+            guard let self = self, isRecording else { return }
+            recognitionRequest?.endAudio()
         }
         timer.activate()
         silenceTimer = timer
@@ -492,9 +454,8 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
-        audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
-        audioEngine.reset()
+        audioEngine.inputNode.removeTap(onBus: 0)
     }
 
     func cancel() {
