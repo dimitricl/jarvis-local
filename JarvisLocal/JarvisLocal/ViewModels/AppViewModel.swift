@@ -50,7 +50,10 @@ final class AppViewModel {
     /// — ou être manipulé par une injection indirecte cachée dans un résultat de search_web.
     /// run_shortcut est inclus : un Raccourci macOS peut chaîner des actions arbitraires
     /// (exécution shell, réseau, contrôle d'autres apps) au même titre qu'un AppleScript.
-    private let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut", "remember_fact"]
+    /// NOTE : visibilité `internal` (pas `private`) volontaire — c'est la seule façon pour les tests
+    /// de lire la VRAIE liste via @testable import au lieu d'en recopier une à la main qui finit
+    /// forcément par diverger du code réel sans jamais faire échouer aucun test.
+    let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut", "remember_fact"]
 
     private var streamTask: Task<Void, Never>?
     private var voiceTask: Task<Void, Never>?
