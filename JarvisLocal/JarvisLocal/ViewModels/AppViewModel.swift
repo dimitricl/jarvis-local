@@ -207,7 +207,8 @@ final class AppViewModel {
             Date du jour : \(dateStr).
 
             RÈGLE IMPORTANTE — Utilise TOUJOURS les outils quand c'est pertinent :
-            - Pour une question d'actualité, un résultat sportif, la météo, un prix, une info récente → utilise search_web
+            - Pour une question d'actualité, un résultat sportif, un prix, une info récente → utilise search_web
+            - Pour une question de MÉTÉO → utilise get_weather (pas search_web)
             - Pour toute action (ouvrir une app, créer une note, envoyer un message, etc.) → utilise l'outil dédié
             - Ne réponds JAMAIS de mémoire à une question factuelle qui pourrait être obsolète. Cherche d'abord sur le web.
             - Si un outil échoue, dis-le simplement et propose une alternative.
