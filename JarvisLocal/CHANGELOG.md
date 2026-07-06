@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0] - 2026-07-06
+
+### Ajouts
+- **Champ de saisie multi‑lignes** — TextEditor remplace TextField, Entrée = nouvelle ligne, Cmd+Entrée = envoyer
+- **Scroll auto** au‑delà de 80pt de hauteur
+- **Annulation d'écho (AEC)** — `setVoiceProcessingEnabled(true)` sur le micro, réduit le larsen haut‑parleur → micro
+- **Barge‑in renforcé** — fenêtre de grâce de 600ms après le début du TTS, debounce sur 2 partials consécutifs
+- **`remember_fact`** classé outil sensible (confirmation utilisateur obligatoire)
+- **Tests `sensitiveTools`** — les tests lisent la vraie liste du ViewModel (`internal` au lieu de `private`) + garde‑fou listant tous les outils à effet de bord connus
+
+### Corrections
+- Seuil de transcription vocale repassé de 2 caractères à ≥ 2 mots (moins de faux déclenchements par souffle/bruit)
+- `bargeInEnabled` remis à `true` par défaut (protégé par grace period + debounce)
+
 ## [0.1.0] - 2026-07-06
 
 ### Ajouts
