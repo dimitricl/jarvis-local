@@ -5,6 +5,7 @@ struct InputBarView: View {
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var micPulse = false
+    @State private var editorHeight: CGFloat = 34
 
     var body: some View {
         VStack(spacing: 4) {
@@ -81,10 +82,16 @@ struct InputBarView: View {
             .foregroundStyle(JarvisTheme.textPrimary)
             .focused($isInputFocused)
             .scrollContentBackground(.hidden)
-            .frame(maxHeight: 120)
+            .frame(height: editorHeight)
             .background(JarvisTheme.panelElevated)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .disabled(vm.isStreaming)
+            .onChange(of: inputText) { _, newValue in
+                let lines = newValue.split(separator: "\n").count
+                let lineH: CGFloat = 18
+                let h = max(34, min(CGFloat(lines) * lineH + 16, 120))
+                editorHeight = h
+            }
             .overlay(alignment: .topLeading) {
                 if inputText.isEmpty {
                     Text("Message…")
