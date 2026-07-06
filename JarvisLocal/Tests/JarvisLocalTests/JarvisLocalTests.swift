@@ -402,7 +402,7 @@ final class JarvisLocalOllamaErrorTests: XCTestCase {
     }
 
     func testErrorDescriptionsAreNonEmpty() {
-        let all: [OllamaError] = [.badStatus, .invalidResponse, .interrupted, .invalidURL]
+        let all: [OllamaError] = [.badStatus, .invalidResponse, .interrupted, .invalidURL, .modelError("test")]
         for e in all {
             XCTAssertFalse(e.description.isEmpty, "\(e) should have a description")
         }

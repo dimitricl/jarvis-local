@@ -59,8 +59,16 @@ final class OllamaService: @unchecked Sendable {
                         let dataStr = line.dropFirst(6)
                         if dataStr == "[DONE]" { break }
 
-                        guard let json = try? JSONSerialization.jsonObject(with: Data(dataStr.utf8)) as? [String: Any],
-                              let choices = json["choices"] as? [[String: Any]],
+                        guard let json = try? JSONSerialization.jsonObject(with: Data(dataStr.utf8)) as? [String: Any] else {
+                            continue
+                        }
+
+                        if let err = json["error"] as? String {
+                            continuation.finish(throwing: OllamaError.modelError(err))
+                            return
+                        }
+
+                        guard let choices = json["choices"] as? [[String: Any]],
                               let first = choices.first,
                               let delta = first["delta"] as? [String: Any]
                         else { continue }
@@ -154,6 +162,7 @@ enum OllamaError: Error, CustomStringConvertible {
     case invalidResponse
     case interrupted
     case invalidURL
+    case modelError(String)
 
     var description: String {
         switch self {
@@ -161,6 +170,7 @@ enum OllamaError: Error, CustomStringConvertible {
         case .invalidResponse: "Réponse invalide du serveur Ollama."
         case .interrupted:  "Requête annulée."
         case .invalidURL:   "L'URL Ollama dans les réglages est invalide. Vérifie le champ « URL : » dans les paramètres."
+        case .modelError(let msg): "Erreur Ollama : \(msg)"
         }
     }
 }
