@@ -125,7 +125,7 @@ final class OllamaService: @unchecked Sendable {
                 return d
             },
             "stream": stream,
-            "options": ["temperature": 0.7] as [String: Double]
+            "options": ["temperature": 0.7, "num_predict": 2048] as [String: Any]
         ]
         if let t = tools { body["tools"] = t.map { $0.dictionary } }
         return body
