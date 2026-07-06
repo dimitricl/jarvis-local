@@ -111,7 +111,6 @@ struct InputBarView: View {
                 .foregroundStyle(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? JarvisTheme.textTertiary : JarvisTheme.accent)
         }
         .buttonStyle(.borderless)
-        .keyboardShortcut(KeyEquivalent.return, modifiers: .command)
         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
@@ -145,7 +144,7 @@ struct InputBarView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         } else {
-            Text("Cmd+Entrée pour envoyer · /facts · /clear")
+            Text("Bouton ► pour envoyer · /facts · /clear")
                 .font(JarvisTheme.mono(10))
                 .foregroundStyle(JarvisTheme.textTertiary)
                 .padding(.horizontal, 12)
