@@ -432,15 +432,20 @@ final class AppViewModel {
     /// Extraction heuristique : volontairement simple (regex, pas de NER). Ça va rater des cas et
     /// parfois capturer du bruit — c'est un choix assumé, pas un manque de rigueur : un faux positif
     /// n'a aucune conséquence tant que rien n'est écrit sans confirmation explicite juste après.
-    private let factPatterns: [(key: String, regex: NSRegularExpression)] = [
-        ("user.name", try! NSRegularExpression(pattern: #"(?:je m'appelle|mon nom est)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+)?)"#, options: [])),
-        ("user.city", try! NSRegularExpression(pattern: #"(?:j'habite\s+(?:à|a|au|en)|je vis\s+(?:à|a|au|en))\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+)"#, options: [.caseInsensitive])),
-        ("user.birthday", try! NSRegularExpression(pattern: #"(?:je suis né(?:e)?\s+le|mon anniversaire\s+(?:est|c'est)\s+le)\s+(\d{1,2}(?:er)?\s+[a-zéûôî]+(?:\s+\d{4})?)"#, options: [.caseInsensitive])),
-    ]
+    private static let factPatterns: [(key: String, regex: NSRegularExpression)] = {
+        let patterns: [(String, String)] = [
+            ("user.name", #"(?:je m'appelle|mon nom est)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+)?)"#),
+            ("user.city", #"(?:j'habite\s+(?:à|a|au|en)|je vis\s+(?:à|a|au|en))\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+)"#),
+            ("user.birthday", #"(?:je suis né(?:e)?\s+le|mon anniversaire\s+(?:est|c'est)\s+le)\s+(\d{1,2}(?:er)?\s+[a-zéûôî]+(?:\s+\d{4})?)"#),
+        ]
+        return patterns.compactMap { (key, pattern) in
+            (try? NSRegularExpression(pattern: pattern)).map { (key, $0) }
+        }
+    }()
 
     private func extractCandidateFacts(from text: String) -> [(key: String, value: String)] {
         var found: [(String, String)] = []
-        for (key, regex) in factPatterns {
+        for (key, regex) in Self.factPatterns {
             let range = NSRange(text.startIndex..., in: text)
             guard let match = regex.firstMatch(in: text, range: range),
                   match.numberOfRanges > 1,
