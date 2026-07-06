@@ -77,7 +77,7 @@ struct InputBarView: View {
 
     @ViewBuilder
     private var textInputField: some View {
-        AutoResizingTextView(text: $inputText, height: $editorHeight, maxHeight: 120, font: .systemFont(ofSize: NSFont.systemFontSize))
+        AutoResizingTextView(text: $inputText, height: $editorHeight, maxHeight: 120, font: .systemFont(ofSize: NSFont.systemFontSize), onSend: submitText)
             .frame(height: editorHeight)
             .focused($isInputFocused)
             .background(JarvisTheme.panelElevated)
@@ -144,7 +144,7 @@ struct InputBarView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 4)
         } else {
-            Text("Bouton ► pour envoyer · /facts · /clear")
+            Text("Entrée pour envoyer · Cmd+Entrée pour sauter une ligne · /facts · /clear")
                 .font(JarvisTheme.mono(10))
                 .foregroundStyle(JarvisTheme.textTertiary)
                 .padding(.horizontal, 12)
