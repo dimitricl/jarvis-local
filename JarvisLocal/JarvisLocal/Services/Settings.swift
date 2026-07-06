@@ -88,8 +88,19 @@ final class Settings {
             req.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
             req.timeoutInterval = 10
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            guard let http = resp as? HTTPURLResponse else {
                 updateCheckError = "Impossible de contacter GitHub."
+                isCheckingUpdate = false
+                return
+            }
+            guard http.statusCode == 200 else {
+                if http.statusCode == 404 {
+                    updateCheckError = "Aucune release trouvée sur GitHub. Crée un tag (ex: v1.0) pour activer la vérification."
+                } else if http.statusCode == 403 {
+                    updateCheckError = "Limite de requêtes GitHub dépassée. Réessaie plus tard."
+                } else {
+                    updateCheckError = "GitHub a répondu avec le code \(http.statusCode)."
+                }
                 isCheckingUpdate = false
                 return
             }
