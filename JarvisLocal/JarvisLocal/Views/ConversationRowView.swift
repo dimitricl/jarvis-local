@@ -12,11 +12,13 @@ struct ConversationRowView: View {
                 TextField("Titre", text: $editTitle)
                     .textFieldStyle(.plain)
                     .font(.caption)
+                    .foregroundStyle(JarvisTheme.textPrimary)
                     .onSubmit(commitRename)
                     .onExitCommand { isEditing = false }
             } else {
                 Text(conversation.title)
                     .font(.caption)
+                    .foregroundStyle(JarvisTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -24,12 +26,12 @@ struct ConversationRowView: View {
             if conversation.id == vm.currentConversation?.id {
                 Image(systemName: "chevron.right")
                     .font(.caption2)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(JarvisTheme.accent)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(conversation.id == vm.currentConversation?.id ? Color.accentColor.opacity(0.1) : Color.clear)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(conversation.id == vm.currentConversation?.id ? JarvisTheme.accent.opacity(0.12) : Color.clear)
         .onTapGesture(count: 2) {
             editTitle = conversation.title
             isEditing = true
