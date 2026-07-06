@@ -492,9 +492,7 @@ final class AppViewModel {
         if isVoiceMode {
             isVoiceMode = false
             isListening = false
-            stt.onPartialResult = nil
-            stt.cancel()
-            voiceTask?.cancel()
+            stopStreaming()
         } else {
             isVoiceMode = true
             voiceTask = Task {
