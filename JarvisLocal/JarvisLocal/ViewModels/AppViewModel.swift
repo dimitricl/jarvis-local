@@ -590,11 +590,11 @@ final class AppViewModel {
                             await runConversationTurn(userText: text)
                         }
 
-                        // Avant : on attendait ici la fin complète du TTS (jusqu'à 2 min) avant de
-                        // relancer l'écoute. C'est précisément ce qui empêchait tout barge-in — le
-                        // micro était sourd tant que Jarvis parlait. On relance l'écoute immédiatement ;
-                        // c'est le callback onPartialResult ci-dessus qui coupe le TTS si l'utilisateur
-                        // parle par-dessus.
+                        // Attend la fin du TTS avant de rouvrir le micro — évite que le micro capte
+                        // la propre voix de Jarvis et relance une transcription en boucle.
+                        while isSpeaking && isVoiceMode && !Task.isCancelled {
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+                        }
                     } catch {
                         isListening = false
                         if let sttErr = error as? STTError, sttErr == .cancelled { break }

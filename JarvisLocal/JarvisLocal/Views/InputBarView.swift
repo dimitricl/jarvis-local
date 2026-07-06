@@ -81,7 +81,7 @@ struct InputBarView: View {
             .foregroundStyle(JarvisTheme.textPrimary)
             .focused($isInputFocused)
             .scrollContentBackground(.hidden)
-            .frame(minHeight: 20, maxHeight: 80)
+            .frame(maxHeight: 120)
             .background(JarvisTheme.panelElevated)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .disabled(vm.isStreaming)
