@@ -23,12 +23,13 @@ struct MessageBubbleView: View {
     }
 
     var body: some View {
+        let displayText = isStreaming ? text + " ▌" : text
         HStack(spacing: 0) {
             if role == "user" { Spacer(minLength: 60) }
             if role == "user" {
                 userBubble
             } else {
-                assistantBubble
+                assistantBubble(displayText)
             }
             if role == "assistant" { Spacer(minLength: 60) }
         }
@@ -54,7 +55,7 @@ struct MessageBubbleView: View {
         }
     }
 
-    private var assistantBubble: some View {
+    private func assistantBubble(_ displayText: String) -> some View {
         // Panneau type entrée de log/console (liseré d'accent à gauche) plutôt qu'une bulle de
         // chat classique : plus cohérent avec un assistant système qu'avec une messagerie.
         VStack(alignment: .leading, spacing: 3) {
@@ -62,7 +63,7 @@ struct MessageBubbleView: View {
                 Rectangle()
                     .fill(isStreaming ? JarvisTheme.accent : JarvisTheme.textTertiary.opacity(0.5))
                     .frame(width: 2)
-                richTextContent
+                richTextContent(displayText)
                     .textSelection(.enabled)
                     .foregroundStyle(JarvisTheme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -94,10 +95,10 @@ struct MessageBubbleView: View {
     }
 
     @ViewBuilder
-    private var richTextContent: some View {
-        let blocks = parseBlocks(text)
+    private func richTextContent(_ rawText: String) -> some View {
+        let blocks = parseBlocks(rawText)
         if blocks.isEmpty {
-            Text(text).font(.body)
+            Text(rawText).font(.body)
         } else {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in

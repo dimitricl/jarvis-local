@@ -101,6 +101,33 @@ actor DatabaseService {
         return Message(id: id, role: role, content: content, conversationId: conversationId, createdAt: Date())
     }
 
+    /// Recherche plein-texte dans tous les messages. Retourne les résultats avec le titre
+    /// de la conversation associée pour un affichage direct dans l'UI.
+    struct SearchResult {
+        let message: Message
+        let conversationTitle: String
+    }
+
+    func searchMessages(_ query: String) throws -> [SearchResult] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        let pattern = "%\(query.replacingOccurrences(of: "%", with: "\\%").replacingOccurrences(of: "_", with: "\\_"))%"
+        let rows: [[String: Any]] = try queryRaw("""
+            SELECT m.id, m.role, m.content, m.conversation_id, m.created_at, c.title
+            FROM messages m JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.content LIKE ? ESCAPE '\\' ORDER BY m.id DESC LIMIT 50
+            """, args: [pattern])
+        return rows.compactMap { row in
+            guard let id = row["id"] as? Int,
+                  let role = row["role"] as? String,
+                  let content = row["content"] as? String,
+                  let title = row["title"] as? String else { return nil }
+            let cid = row["conversation_id"] as? Int
+            let ts = (row["created_at"] as? Int).map { Date(timeIntervalSince1970: TimeInterval($0)) } ?? Date()
+            return SearchResult(message: Message(id: id, role: role, content: content, conversationId: cid, createdAt: ts),
+                                conversationTitle: title)
+        }
+    }
+
     // MARK: - Facts
 
     func getAllFacts() throws -> [Fact] {
@@ -230,6 +257,28 @@ actor DatabaseService {
         }
         defer { sqlite3_finalize(stmt) }
         return try block(stmt!)
+    }
+
+    /// Requête générique retournant chaque ligne sous forme de dictionnaire colonne → valeur.
+    private func queryRaw(_ sql: String, args: [Any] = []) throws -> [[String: Any]] {
+        try withStmt(sql) { stmt in
+            bindArgs(stmt, args)
+            var results: [[String: Any]] = []
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                var dict: [String: Any] = [:]
+                let count = sqlite3_column_count(stmt)
+                for i in 0..<count {
+                    let name = String(cString: sqlite3_column_name(stmt, i))
+                    switch sqlite3_column_type(stmt, i) {
+                    case SQLITE_INTEGER: dict[name] = Int(sqlite3_column_int64(stmt, i))
+                    case SQLITE_TEXT: dict[name] = colText(stmt, i)
+                    default: break
+                    }
+                }
+                results.append(dict)
+            }
+            return results
+        }
     }
 
     private func bindArgs(_ stmt: OpaquePointer, _ args: [Any]) {

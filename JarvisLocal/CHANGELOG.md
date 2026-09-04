@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.1] - 2026-09-04
+
+### Ajouts
+- **Fiabilité réseau Ollama** — la fonction de `warmUp` (maintien du modèle chargé) réessaie automatiquement avec un backoff exponentiel (jusqu'à 3 tentatives) en cas d'échec réseau transitoire
+- **Throttling de la vérification de mises à jour** — `checkForUpdates` ne contacte plus GitHub qu'une fois toutes les 24h (date mémorisée dans UserDefaults), pour réduire la charge et les limites de requêtes
+- **Barre de recherche** — nouveau panneau de recherche plein-texte (`/search` ou bouton loupe)
+- **Aide contextuelle** (`/help`) — panneau listant les commandes slash
+- **Tests étoffés** — suite de tests étendue (Ollama, Settings, Search/Export, Audio, STT, AppViewModel, ToolService)
+
+### Corrections
+- **Champ de saisie** — bug corrigé où une saisie rapide pouvait effacer les derniers caractères ou faire sauter le curseur (`AutoResizingTextView`)
+- **Synthèse vocale** — normalisation du texte avant TTS (suppression markdown/émojis, abréviations)
+- **Base de données** — requêtes et gestion d'erreurs plus robustes
+- **Conflits de noms de classes de test** résolus pour permettre l'exécution complète de la suite
+
 ## [0.2.0] - 2026-07-06
 
 ### Ajouts

@@ -16,6 +16,24 @@ final class Settings {
     var fastModel: String {
         didSet { UserDefaults.standard.set(fastModel, forKey: "fast_model") }
     }
+    /// Effort de raisonnement envoyé à Ollama ("none", "low", "medium", "high").
+    /// "none" par défaut : le raisonnement caché de gemma4 ajoutait 20-30s de latence
+    /// invisible par tour (et par itération de tools), sans gain perceptible pour un assistant.
+    var reasoningEffort: String {
+        didSet { UserDefaults.standard.set(reasoningEffort, forKey: "reasoning_effort") }
+    }
+    /// Nombre max de tokens générés par réponse (num_predict côté Ollama).
+    /// AVANT : 2048 codé en dur — en français (~0.7 mot/token) une réponse longue était
+    /// coupée en pleine phrase sans aucun message d'erreur. Réglable depuis les paramètres.
+    var maxTokens: Int {
+        didSet {
+            // Clamp défensif : une valeur absurde (0, négatif, énorme) ne doit jamais
+            // partir vers Ollama ni se persistée telle quelle.
+            let clamped = max(256, min(maxTokens, 32768))
+            if clamped != maxTokens { maxTokens = clamped; return }
+            UserDefaults.standard.set(maxTokens, forKey: "max_tokens")
+        }
+    }
     var ttsEnabled: Bool {
         didSet { UserDefaults.standard.set(ttsEnabled, forKey: "tts_enabled") }
     }
@@ -71,6 +89,7 @@ final class Settings {
     var updateAvailable = false
     var updateCheckError: String?
     var isCheckingUpdate = false
+    var lastCheckDate: Date?
 
     var currentVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -79,6 +98,13 @@ final class Settings {
     /// Vérifie si une nouvelle version est disponible sur GitHub Releases.
     /// Configurez `repoOwner` et `repoName` pour votre dépôt.
     func checkForUpdates(repoOwner: String = "dimitricl", repoName: String = "jarvis-local") async {
+        // Throttling : ne vérifie pas plus souvent qu'une fois par jour
+        if let lastCheck = lastCheckDate,
+           abs(Date().timeIntervalSince(lastCheck)) < 86400 {
+            isCheckingUpdate = false
+            return
+        }
+        lastCheckDate = Date()
         isCheckingUpdate = true
         updateCheckError = nil
         updateAvailable = false
@@ -119,14 +145,21 @@ final class Settings {
         } catch {
             updateCheckError = "Erreur : \(error.localizedDescription)"
         }
+        // Sauvegarde de la date de dernière vérification
+        UserDefaults.standard.set(lastCheckDate?.timeIntervalSince1970, forKey: "last_check_date")
         isCheckingUpdate = false
     }
 
-    private init() {
+private init() {
         let defaults = UserDefaults.standard
         self.ollamaURL = defaults.string(forKey: "ollama_url") ?? "http://localhost:11434"
         self.model = defaults.string(forKey: "model") ?? "gemma4:e4b"
         self.fastModel = defaults.string(forKey: "fast_model") ?? "gemma4:e2b"
+        self.reasoningEffort = defaults.string(forKey: "reasoning_effort") ?? "none"
+        // 8192 : assez large pour une explication technique détaillée sans être coupée,
+        // tout en gardant une garde-fou contre les boucles infinies de génération.
+        let savedMaxTokens = defaults.object(forKey: "max_tokens") as? Int ?? 8192
+        self.maxTokens = max(256, min(savedMaxTokens, 32768))
         self.ttsEnabled = defaults.bool(forKey: "tts_enabled")
         self.voiceEnabled = defaults.bool(forKey: "voice_enabled")
         self.ttsVoiceIdentifier = defaults.string(forKey: "tts_voice") ?? ""
@@ -138,7 +171,11 @@ final class Settings {
         // Si ça se déclenche encore tout seul sur haut-parleurs internes, repasse ce flag à false
         // depuis les Réglages plutôt que de retoucher le code.
         self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? true
-
+        
+        // Restore last check date for update throttling
+        let savedLastCheck = defaults.object(forKey: "last_check_date") as? Double
+        self.lastCheckDate = savedLastCheck.map { Date(timeIntervalSince1970: $0) }
+        
         refreshEdgeTTSAvailability()
     }
 }

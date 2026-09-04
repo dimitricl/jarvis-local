@@ -14,6 +14,10 @@ struct JarvisLocalApp: App {
                 .task {
                     await viewModel.loadConversations()
                     logVersion()
+                    // Précharge le modèle sur le serveur et le maintient en mémoire :
+                    // sans ça, après 5 min d'inactivité, chaque premier message subit
+                    // ~20s de chargement à froid (l'endpoint /v1 ne supporte pas keep_alive).
+                    OllamaService.shared.startKeepAlive()
                 }
         }
         .windowResizability(.contentSize)

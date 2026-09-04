@@ -22,6 +22,18 @@ struct SidebarView: View {
                 .tracking(1.5)
                 .foregroundStyle(JarvisTheme.textPrimary)
             Spacer()
+            Button(action: { vm.showSearch.toggle() }) {
+                Image(systemName: "magnifyingglass")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(JarvisTheme.textSecondary)
+            .help("Rechercher dans les conversations (/search)")
+            Button(action: { vm.showHelp.toggle() }) {
+                Image(systemName: "questionmark.circle")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(JarvisTheme.textSecondary)
+            .help("Aide des commandes (/help)")
             Button(action: { vm.showFacts.toggle() }) {
                 Image(systemName: "brain")
             }

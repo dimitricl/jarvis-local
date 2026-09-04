@@ -4,6 +4,17 @@ import MapKit
 import Speech
 import Contacts
 
+enum ToolServiceError: Error, CustomStringConvertible {
+    case processTimeout(command: String, seconds: TimeInterval)
+
+    var description: String {
+        switch self {
+        case .processTimeout(let command, let seconds):
+            return "La commande « \(command) » n'a pas répondu après \(Int(seconds))s et a été interrompue."
+        }
+    }
+}
+
 actor ToolService {
     static let shared = ToolService()
     private let eventStore = EKEventStore()
@@ -13,7 +24,9 @@ actor ToolService {
     /// Exécute un Process de manière asynchrone sans bloquer l'acteur.
     /// waitUntilExit() est synchrone et bloquerait le file d'exécution de l'actor,
     /// empêchant les autres méthodes de s'exécuter en parallèle.
-    private static func runProcess(executable: String, arguments: [String]) async throws -> (stdout: String, stderr: String) {
+    /// timeout : un process qui pend (raccourci bloqué, dialogue système modal…) ne doit
+    /// jamais geler tout le tour de conversation — il est tué et une erreur est levée.
+    private static func runProcess(executable: String, arguments: [String], timeout: TimeInterval = 45) async throws -> (stdout: String, stderr: String) {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global().async {
                 let proc = Process()
@@ -25,7 +38,15 @@ actor ToolService {
                 proc.standardError = errPipe
                 do {
                     try proc.run()
-                    proc.waitUntilExit()
+                    let deadline = Date().addingTimeInterval(timeout)
+                    while proc.isRunning && Date() < deadline {
+                        Thread.sleep(forTimeInterval: 0.05)
+                    }
+                    if proc.isRunning {
+                        proc.terminate()
+                        continuation.resume(throwing: ToolServiceError.processTimeout(command: (executable as NSString).lastPathComponent, seconds: timeout))
+                        return
+                    }
                     let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
                     let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
                     continuation.resume(returning: (out, err))
@@ -254,8 +275,8 @@ actor ToolService {
         case "run_shortcut": return try await runShortcut(args["name"] as? String ?? "")
         case "send_message": return try await sendMessage(contact: args["contact"] as? String ?? "", message: args["message"] as? String ?? "")
         case "get_system_info": return try await getSystemInfo()
-        case "get_clipboard": return getClipboard()
-        case "set_clipboard": return setClipboard(args["text"] as? String ?? "")
+        case "get_clipboard": return await getClipboard()
+        case "set_clipboard": return await setClipboard(args["text"] as? String ?? "")
         case "take_screenshot": return try await takeScreenshot()
         case "sleep_mac": return try await sleepMac(args["action"] as? String ?? "")
         case "file_search": return try await fileSearch(args["query"] as? String ?? "")
@@ -330,16 +351,27 @@ actor ToolService {
         }
 
         var output = ""
-        for r in results.prefix(3) {
-            // href peut être relatif ("//duckduckgo.com/l/?uddg=...") : on le résout par rapport à l'URL de recherche
-            // au lieu du force-unwrap précédent (URL(string:)! plantait l'app si le lien était malformé).
-            guard let resultURL = URL(string: r.href, relativeTo: searchURL) else { continue }
-            output += "--- \(r.title) ---\n"
-            if let pageHTML = await fetchPage(resultURL, timeout: 20) {
-                let text = pageHTML.htmlToText(maxLength: 3000)
-                if text.count > 100 {
-                    output += "Contenu : \(text)\n"
+        // Les 3 pages sont téléchargées EN PARALLÈLE (TaskGroup) : en séquentiel, une page
+        // lente de 15s retardait d'autant tout le reste du résultat.
+        let topResults = Array(results.prefix(3).enumerated())
+        let pages = await withTaskGroup(of: (Int, String?).self) { group in
+            for (i, r) in topResults {
+                group.addTask { [weak self] in
+                    guard let self, let resultURL = URL(string: r.href, relativeTo: searchURL) else { return (i, nil) }
+                    guard let pageHTML = await self.fetchPage(resultURL, timeout: 15) else { return (i, nil) }
+                    let text = pageHTML.htmlToText(maxLength: 3000)
+                    return (i, text.count > 100 ? text : nil)
                 }
+            }
+            var collected: [Int: String?] = [:]
+            for await (i, text) in group { collected[i] = text }
+            return collected
+        }
+
+        for (i, r) in topResults {
+            output += "--- \(r.title) ---\n"
+            if let text = pages[i], let text {
+                output += "Contenu : \(text)\n"
             }
             output += "\n"
         }
@@ -359,7 +391,15 @@ actor ToolService {
             "musique": "Music", "music": "Music", "photos": "Photos",
             "reglages": "System Settings", "terminal": "Terminal",
             "finder": "Finder", "carte": "Maps", "maps": "Maps",
-            "maison": "Home", "home": "Home"
+            "maison": "Home", "home": "Home",
+            // Alias courants dont le nom usuel diffère du nom du dossier .app
+            "vscode": "Visual Studio Code", "visual studio code": "Visual Studio Code",
+            "code": "Visual Studio Code", "vs code": "Visual Studio Code",
+            "calculatrice": "Calculator", "calc": "Calculator",
+            "apercu": "Preview", "preview": "Preview",
+            "discord": "Discord", "slack": "Slack",
+            "whatsapp": "WhatsApp", "telegram": "Telegram",
+            "notion": "Notion", "figma": "Figma", "steam": "Steam"
         ]
 
         let normalized = app.lowercased().folding(options: .diacriticInsensitive, locale: .current)
@@ -392,10 +432,23 @@ actor ToolService {
         }
 
         let ws = NSWorkspace.shared
-        if let appURL = ws.urlForApplication(withBundleIdentifier: resolved)
-            ?? bundlePath(for: resolved).map({ URL(fileURLWithPath: $0) })
-            ?? appStoreBundlePath(for: resolved).map({ URL(fileURLWithPath: $0) })
-        {
+        // Bundle ID uniquement si la chaîne en a la forme (reverse-DNS) : sinon on passait
+        // des noms d'apps à une API qui attend "com.apple.Safari" et elle échouait.
+        var appURL: URL?
+        if resolved.contains("."), !resolved.contains(" ") {
+            appURL = ws.urlForApplication(withBundleIdentifier: resolved)
+        }
+        if appURL == nil, let path = bundlePath(for: resolved) {
+            appURL = URL(fileURLWithPath: path)
+        }
+        if appURL == nil {
+            appURL = await fuzzyFindApp(resolved)
+        }
+        if appURL == nil, let path = appStoreBundlePath(for: resolved) {
+            appURL = URL(fileURLWithPath: path)
+        }
+
+        if let appURL {
             if let u = url {
                 let urlStr = u.hasPrefix("http") ? u : "https://\(u)"
                 if let urlObj = URL(string: urlStr) {
@@ -413,7 +466,60 @@ actor ToolService {
                 return "URL ouverte."
             }
         }
-        return "Application \(app) introuvable."
+        return "Application \(app) introuvable. Vérifie qu'elle est bien installée (dans /Applications ou ailleurs sur le disque)."
+    }
+
+    /// Recherche tolérante d'une app : scan insensible à la casse/accents des dossiers
+    /// standards (match exact puis partiel), puis Spotlight qui couvre TOUT le disque —
+    /// y compris les apps hors /Applications (Setapp, ~/Applications personnalisé, etc.).
+    /// AVANT : seul un chemin exact case-sensible était testé ; « VS Code » ne trouvait
+    /// jamais « Visual Studio Code.app » et toute app hors des 5 chemins codés en dur
+    /// échouait.
+    private func fuzzyFindApp(_ appName: String) async -> URL? {
+        func fold(_ s: String) -> String {
+            s.lowercased().folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US"))
+        }
+        let target = fold(appName)
+
+        let dirs = [
+            "/Applications",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            "/Applications/Utilities",
+            NSHomeDirectory() + "/Applications"
+        ]
+
+        // DEUX passes : d'abord un match EXACT sur tous les dossiers, ensuite seulement le
+        // partiel. Sinon "Mail" pouvait matcher "Gmail.app" (partiel dans /Applications)
+        // avant même de chercher l'exact dans /System/Applications.
+        for wantPartial in [false, true] {
+            for dir in dirs {
+                let items = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+                let bundles = items.filter { $0.hasSuffix(".app") }
+                if !wantPartial {
+                    if let exact = bundles.first(where: { fold(String($0.dropLast(4))) == target }) {
+                        return URL(fileURLWithPath: dir).appendingPathComponent(exact)
+                    }
+                } else {
+                    // Au partiel, on préfère le nom le plus court (le plus proche de la demande)
+                    let candidates = bundles
+                        .filter { fold(String($0.dropLast(4))).contains(target) }
+                        .sorted { $0.count < $1.count }
+                    if let best = candidates.first {
+                        return URL(fileURLWithPath: dir).appendingPathComponent(best)
+                    }
+                }
+            }
+        }
+
+        // Dernier recours : Spotlight (kMDItemDisplayName avec match insensible 'cd')
+        let query = "kMDItemContentType == 'com.apple.application-bundle' && kMDItemDisplayName == '\(appName)*'cd"
+        if let (out, _) = try? await Self.runProcess(executable: "/usr/bin/mdfind", arguments: [query], timeout: 10) {
+            if let line = out.components(separatedBy: "\n").first(where: { $0.hasSuffix(".app") }) {
+                return URL(fileURLWithPath: line.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        return nil
     }
 
     // MARK: - Notes
@@ -489,7 +595,12 @@ actor ToolService {
             }
         }
         var error: NSDictionary?
-        let result = NSAppleScript(source: script)?.executeAndReturnError(&error)
+        // NSAppleScript est documenté main-thread-only : exécuté depuis l'executor de
+        // l'actor (thread background), il échouait de façon intermittente (errAEEventNotPermitted,
+        // crash). Le hop MainActor garantit un comportement déterministe.
+        let result = try await MainActor.run { () -> NSAppleEventDescriptor? in
+            NSAppleScript(source: script)?.executeAndReturnError(&error)
+        }
         if let e = error {
             return "Erreur AppleScript : \(e)"
         }
@@ -615,16 +726,23 @@ actor ToolService {
             end tell
             """
             var error: NSDictionary?
-            let result = NSAppleScript(source: script)?.executeAndReturnError(&error)
+            let result = try await MainActor.run { () -> NSAppleEventDescriptor? in
+                NSAppleScript(source: script)?.executeAndReturnError(&error)
+            }
             if let addr = result?.stringValue, !addr.isEmpty {
                 let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                NSWorkspace.shared.open(URL(string: "maps://?q=\(encoded)")!)
+                if let mapURL = URL(string: "maps://?q=\(encoded)") {
+                    NSWorkspace.shared.open(mapURL)
+                }
                 return "Adresse trouvée : \"\(addr)\". Passe cette adresse dans le paramètre location."
             }
         }
 
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        NSWorkspace.shared.open(URL(string: "maps://?q=\(encoded)")!)
+        guard let mapURL = URL(string: "maps://?q=\(encoded)") else {
+            return "Recherche invalide : \"\(query)\"."
+        }
+        NSWorkspace.shared.open(mapURL)
         return "Plans ouvert avec la recherche \"\(query)\"."
     }
 
@@ -694,8 +812,12 @@ actor ToolService {
         guard let contact = contacts.first else { return "" }
 
         if let phone = contact.phoneNumbers.first?.value.stringValue {
+            // Le "+" doit être testé sur la chaîne ORIGINALE : le composant digits ci-dessous
+            // retire déjà tous les caractères non-numériques, donc tester hasPrefix("+") sur
+            // digits était toujours false et les numéros internationaux (+32, +41…) perdaient
+            // leur indicatif au profit d'un "+33" erroné.
+            if phone.hasPrefix("+") { return phone }
             var digits = phone.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-            if digits.hasPrefix("+") { return digits }
             digits = String(digits.drop(while: { $0 == "0" }))
             return "+33\(digits)"
         }
@@ -723,12 +845,19 @@ actor ToolService {
         let cpu = try await shell("/usr/sbin/sysctl", ["-n", "machdep.cpu.brand_string"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Battery
-        let battText = try await shell("/usr/sbin/system_profiler", ["SPPowerDataType"])
-        let battLine = battText.components(separatedBy: "\n").first { $0.contains("Charge Remaining") }?
-            .components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces) ?? "N/A"
-        let chargingLine = battText.components(separatedBy: "\n").first { $0.contains("Charging") }?
-            .components(separatedBy: ":").last?.trimmingCharacters(in: .whitespaces) ?? "N/A"
+        // Battery via pmset (réponse instantanée) plutôt que system_profiler SPPowerDataType
+        // qui mettait 2-3s à chaque appel de get_system_info.
+        // Format typique : "Now drawing from 'AC Power' -InternalBattery-0 (id=...) 98%; discharging; 4:11 remaining present: true"
+        let battText = try await shell("/usr/bin/pmset", ["-g", "batt"])
+        let battLine = battText.components(separatedBy: "\n").first { $0.contains("%") } ?? ""
+        let percentStr = battLine.components(separatedBy: "\t").last?
+            .trimmingCharacters(in: .whitespaces)
+        let batteryPercent = percentStr?.split(separator: ";").first?
+            .trimmingCharacters(in: .whitespaces) ?? "N/A"
+        let chargeState = battLine.contains("charging") ? "en charge"
+            : battLine.contains("charged") ? "chargée"
+            : battLine.contains("discharging") ? "sur batterie"
+            : "N/A"
 
         // Uptime
         let bootStr = try await shell("/usr/sbin/sysctl", ["-n", "kern.boottime"])
@@ -740,7 +869,7 @@ actor ToolService {
         CPU : \(cpu)
         RAM : \(ramGB) Go
         Disque : \(freeGB) Go libres / \(totalGB) Go total
-        Batterie : \(battLine) (charge : \(chargingLine))
+        Batterie : \(batteryPercent) (\(chargeState))
         Uptime : \(uptimeDays) jours
         """
     }
@@ -752,18 +881,23 @@ actor ToolService {
 
     // MARK: - Clipboard
 
-    private func getClipboard() -> String {
-        let pb = NSPasteboard.general
-        guard let items = pb.pasteboardItems else { return "Presse-papiers vide." }
-        let text = items.compactMap { $0.string(forType: .string) }.joined(separator: "\n")
-        return text.isEmpty ? "Presse-papiers vide." : text
+    private func getClipboard() async -> String {
+        // AppKit : accès presse-papiers depuis le main thread uniquement
+        await MainActor.run {
+            let pb = NSPasteboard.general
+            guard let items = pb.pasteboardItems else { return "Presse-papiers vide." }
+            let text = items.compactMap { $0.string(forType: .string) }.joined(separator: "\n")
+            return text.isEmpty ? "Presse-papiers vide." : text
+        }
     }
 
-    private func setClipboard(_ text: String) -> String {
-        let pb = NSPasteboard.general
-        pb.clearContents()
-        pb.setString(text, forType: .string)
-        return "Texte copié dans le presse-papiers."
+    private func setClipboard(_ text: String) async -> String {
+        await MainActor.run {
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(text, forType: .string)
+            return "Texte copié dans le presse-papiers."
+        }
     }
 
     // MARK: - take_screenshot

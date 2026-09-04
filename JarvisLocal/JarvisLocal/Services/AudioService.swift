@@ -23,37 +23,47 @@ final class AudioService: NSObject {
 
     // MARK: - TTS Routing
 
-    func speak(_ text: String) async {
+    /// Ajoute du texte à la file SANS attendre la fin de lecture. Utilisé par le mode
+    /// streaming : les phrases sont poussées au fil de l'arrivée des tokens et jouées
+    /// à la suite, pour que la voix démarre dès la première phrase complète.
+    func enqueue(_ text: String) {
         let clean = normalizeForTTS(text)
         guard !clean.isEmpty else { return }
-
-        // Ajouter à la file d'attente
         audioQueue.append(clean)
-        isProcessingQueue = true
-        await processAudioQueue()
+        startQueueProcessorIfNeeded()
     }
-    
+
+    /// Enqueue puis attend que toute la file ait été lue. Comportement historique
+    /// de speak(), utilisé quand l'appelant doit synchroniser sur la fin du TTS
+    /// (annonces de confirmation, fin de tour en mode vocal).
+    func speak(_ text: String) async {
+        enqueue(text)
+        while isProcessingQueue || !audioQueue.isEmpty
+                || synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false) {
+            try? await Task.sleep(nanoseconds: 60_000_000)
+        }
+    }
+
+    private func startQueueProcessorIfNeeded() {
+        guard !isProcessingQueue else { return }
+        isProcessingQueue = true
+        Task { [weak self] in
+            await self?.processAudioQueue()
+        }
+    }
+
     private func processAudioQueue() async {
-        guard !audioQueue.isEmpty else { return }
-        
-        let text = audioQueue.removeFirst()
-        
-        if audioQueue.isEmpty {
-            isProcessingQueue = false
-        }
-        
-        let settings = Settings.shared
-        
-        switch settings.ttsEngine {
-        case .system:
-            await speakSystemTTS(text)
-        case .edgeTTS:
-            await speakEdgeTTS(text)
-        }
-        
-        // Si encore des items dans la file, continuer
-        if !audioQueue.isEmpty {
-            await processAudioQueue()
+        defer { isProcessingQueue = false }
+        while !audioQueue.isEmpty {
+            let text = audioQueue.removeFirst()
+            let settings = Settings.shared
+
+            switch settings.ttsEngine {
+            case .system:
+                await speakSystemTTS(text)
+            case .edgeTTS:
+                await speakEdgeTTS(text)
+            }
         }
     }
 
@@ -147,7 +157,8 @@ final class AudioService: NSObject {
         }
     }
 
-    private func findEdgeTTS() -> URL? {
+    /// NOTE : `internal` pour les tests
+    func findEdgeTTS() -> URL? {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         task.arguments = ["edge-tts"]
@@ -190,7 +201,8 @@ final class AudioService: NSObject {
         synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false) || audioQueue.count > 0
     }
 
-    private func splitIntoSentences(_ text: String) -> [String] {
+    /// NOTE : `internal` pour les tests
+    func splitIntoSentences(_ text: String) -> [String] {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [] }
 
@@ -210,7 +222,8 @@ final class AudioService: NSObject {
         return result.isEmpty ? [trimmed] : result
     }
 
-    private func normalizeForTTS(_ text: String) -> String {
+    /// NOTE : `internal` pour les tests
+    func normalizeForTTS(_ text: String) -> String {
         var t = text
         t = stripMarkdown(t)
         t = stripEmojis(t)
@@ -219,7 +232,8 @@ final class AudioService: NSObject {
         return t
     }
 
-    private func stripMarkdown(_ text: String) -> String {
+    /// NOTE : `internal` pour les tests
+    func stripMarkdown(_ text: String) -> String {
         let regexes: [(pattern: String, replacement: String)] = [
             ( "<think>[\\s\\S]*?<\\/think>", "" ),
             ( "[`*#_~>|]", "" ),
@@ -245,12 +259,14 @@ final class AudioService: NSObject {
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func stripEmojis(_ text: String) -> String {
+    /// NOTE : `internal` pour les tests
+    func stripEmojis(_ text: String) -> String {
         text.replacingOccurrences(of: "[\\p{So}\\p{Cn}]", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
     }
 
-    private func normalizeAbbreviations(_ text: String) -> String {
+    /// NOTE : `internal` pour les tests
+    func normalizeAbbreviations(_ text: String) -> String {
         var t = text
         let replacements: [(String, String)] = [
             ( "M\\. ", "Monsieur " ),
@@ -312,8 +328,9 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     private var continuation: CheckedContinuation<String, Error>?
     private var silenceTimer: DispatchSourceTimer?
     private var isRecording = false
-    private var restartCount = 0
-    private static let maxRestarts = 3
+    // NOTE : `internal` pour les tests
+    var restartCount = 0
+    static let maxRestarts = 3
 
 
     var onPartialResult: ((String) -> Void)?
@@ -353,11 +370,16 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
         request.requiresOnDeviceRecognition = false
+        // Ponctuation automatique : le texte affiché (et l'analyse des phrases pour le TTS)
+        // gagne en qualité sans coût perceptible.
+        request.addsPunctuation = true
         request.contextualStrings = ["Jarvis", "bonjour", "salut", "merci", "oui", "non", "stop", "arrête", "rappel", "note", "message", "calendrier", "recherche", "météo", "raccourci", "heure", "date", "au revoir", "d'accord", "super", "parfait"]
         recognitionRequest = request
 
         let inputNode = audioEngine.inputNode
-        inputNode.installTap(onBus: 0, bufferSize: 16384, format: nil) { buffer, _ in
+        // 4096 frames (~0.26s à 16 kHz) au lieu de 16384 : les résultats partiels arrivent
+        // ~3x plus souvent → transcript live plus fluide et barge-in plus réactif.
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { buffer, _ in
             request.append(buffer)
         }
 
@@ -437,7 +459,11 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     private func scheduleSilenceTimer() {
         silenceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + 4.0, repeating: .never)
+        // 5s après le dernier résultat partiel : à 4s Jarvis coupait souvent en plein
+        // milieu d'une hésitation ou d'une respiration longue. Le timer est réarmé à
+        // chaque partiel, donc c'est bien un détecteur de fin de parole, pas une
+        // durée d'enregistrement fixe.
+        timer.schedule(deadline: .now() + 5.0, repeating: .never)
         timer.setEventHandler { [weak self] in
             guard let self = self, isRecording else { return }
             recognitionRequest?.endAudio()

@@ -13,6 +13,29 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 TextField("Modèle rapide :", text: Bindable(settings).fastModel)
                     .textFieldStyle(.roundedBorder)
+                Picker("Effort de raisonnement :", selection: Bindable(settings).reasoningEffort) {
+                    Text("Aucun (rapide)").tag("none")
+                    Text("Faible").tag("low")
+                    Text("Moyen").tag("medium")
+                    Text("Élevé").tag("high")
+                }
+                .pickerStyle(.menu)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Longueur max de réponse :")
+                        Spacer()
+                        Text("\(settings.maxTokens) tokens (~\(settings.maxTokens * 3 / 4) mots)")
+                            .font(JarvisTheme.mono(10))
+                            .foregroundStyle(JarvisTheme.textSecondary)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(settings.maxTokens) },
+                        set: { settings.maxTokens = Int($0) }
+                    ), in: 512...32768, step: 512)
+                    Text("Augmente cette valeur si les réponses sont coupées en pleine phrase.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Audio") {

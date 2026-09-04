@@ -20,10 +20,24 @@ final class AppViewModel {
     var isStreaming = false
     var isToolRunning = false
     var currentToolName = ""
+    /// Trace des outils appelés pendant le tour en cours, affichée dans le chat :
+    /// "get_weather ✓" / "add_reminder ✗". Rend le tool calling observable au lieu d'un
+    /// trou noir entre la question et la réponse.
+    struct ToolTraceEntry: Identifiable, Equatable {
+        let id = UUID()
+        let name: String
+        var status: String // "…", "✓", "✗"
+    }
+    var toolTrace: [ToolTraceEntry] = []
     var errorMessage: String?
     var facts: [Fact] = []
     var showFacts = false
     var showSettings = false
+    /// Aide contextuelle des commandes slash, affichée via /help.
+    var showHelp = false
+    /// Panneau de recherche dans toutes les conversations.
+    var showSearch = false
+    var searchQuery = ""
     var inputText = ""
     var isVoiceMode = false
     var isListening = false
@@ -39,11 +53,16 @@ final class AppViewModel {
     private var bargeInStreak = 0
     var confirmationRequest: ToolConfirmationRequest?
 
-    private let db = DatabaseService.shared
-    private let ollama = OllamaService.shared
-    private let tools = ToolService.shared
-    private let audio = AudioService.shared
-    private let stt = STTService.shared
+    // NOTE : `internal` pour les tests — permettent d'injecter une DB en mémoire
+    // et d'inspecter l'état interne sans casser l'encapsulation en prod.
+    let db = DatabaseService.shared
+    let ollama = OllamaService.shared
+    let tools = ToolService.shared
+    let audio = AudioService.shared
+    let stt = STTService.shared
+    /// Marque la DB comme déjà ouverte. Internal pour les tests : après injection d'une
+    /// DB :memory:, il faut empêcher ensureDBOpen() de rouvrir la base fichier par défaut.
+    var didOpenDB = false
 
     /// Tools qui modifient l'état réel (système, messages, notes, automatisations) et qui doivent
     /// être confirmés avant exécution, car un petit modèle local peut halluciner un appel non désiré
@@ -57,7 +76,6 @@ final class AppViewModel {
 
     private var streamTask: Task<Void, Never>?
     private var voiceTask: Task<Void, Never>?
-    private var didOpenDB = false
 
     // MARK: - Conversations
 
@@ -140,7 +158,16 @@ final class AppViewModel {
     /// pour que stopStreaming() puisse réellement interrompre l'envoi en cours.
     func sendMessage() async {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isStreaming else { return }
+        guard !text.isEmpty else { return }
+
+        // AVANT : un message envoyé pendant que Jarvis répondait était silencieusement jeté
+        // (guard !isStreaming) — l'utilisateur voyait son message disparaître sans réponse.
+        // Maintenant on coupe la réponse en cours et on traite le nouveau message.
+        if isStreaming {
+            stopStreaming()
+            try? await Task.sleep(nanoseconds: 150_000_000)
+        }
+
         inputText = ""
 
         let task = Task { [weak self] in
@@ -157,6 +184,7 @@ final class AppViewModel {
 
         isStreaming = true
         streamingText = ""
+        toolTrace = []
 
         if currentConversation == nil {
             await newConversation()
@@ -228,7 +256,7 @@ final class AppViewModel {
             for _ in 0..<maxLoops {
                 try Task.checkCancellation()
 
-                let (content, toolCalls) = try await streamOneTurn(messages: ollamaMessages)
+                let (content, toolCalls, spokenCharCount) = try await streamOneTurn(messages: ollamaMessages)
 
                 if !content.isEmpty {
                     ollamaMessages.append(OllamaMessage(role: "assistant", content: content))
@@ -242,9 +270,18 @@ final class AppViewModel {
                         messages.append(assistantMsg)
 
                         if Settings.shared.ttsEnabled {
+                            // TTS en flux : les phrases complètes ont déjà été poussées à
+                            // AudioService pendant le streaming (spokenCount). On ne fait que
+                            // lire le résidu (dernière phrase éventuellement incomplète) — la
+                            // voix a donc démarré plusieurs secondes plus tôt.
                             isSpeaking = true
                             speechStartedAt = ContinuousClock.now
-                            Task { await audio.speak(finalText); await MainActor.run { self.isSpeaking = false } }
+                            let remaining = String(finalText.dropFirst(spokenCharCount))
+                            Task { [weak self] in
+                                guard let self else { return }
+                                await self.audio.speak(remaining)
+                                self.isSpeaking = false
+                            }
                         }
                     }
                     streamingText = ""
@@ -263,15 +300,32 @@ final class AppViewModel {
 
                 ollamaMessages.append(OllamaMessage(role: "assistant", content: nil, toolCalls: toolCalls))
 
+                // Le texte que le modèle écrit AVANT d'appeler ses outils (annonces, transitions)
+                // était perdu : ni affiché ni persisté. On le garde dans l'historique pour que la
+                // conversation reste lisible.
+                let interimText = stripThinking(content)
+                if !interimText.isEmpty {
+                    if let interimMsg = try? await db.insertMessage(role: "assistant", content: interimText, conversationId: cid) {
+                        messages.append(interimMsg)
+                    }
+                }
+
                 for tc in toolCalls {
                     try Task.checkCancellation()
 
-                    let args: [String: Any]
-                    if let data = tc.function.arguments.data(using: .utf8),
-                       let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        args = parsed
-                    } else {
-                        args = [:]
+                    // AVANT : un JSON d'arguments malformé (fréquent avec les petits modèles
+                    // locaux : virgule traînante, clôture markdown, guillemets typographiques)
+                    // était silencieusement remplacé par [:] et l'outil s'exécutait À L'AVEUGLE
+                    // — résultat absurde garanti ("Date invalide", note vide...). Maintenant on
+                    // tente une réparation, et si ça échoue on renvoie une erreur EXPLICITE au
+                    // modèle qui reformate son appel.
+                    guard let args = Self.parseToolArguments(tc.function.arguments) else {
+                        ollamaMessages.append(OllamaMessage(
+                            role: "tool",
+                            content: "ERREUR DE FORMAT : les arguments de \(tc.function.name) ne sont pas un JSON objet valide (« \(tc.function.arguments.prefix(200)) »). Rappelle l'outil avec un JSON valide : {\"param\": \"valeur\"}.",
+                            toolCallId: tc.id
+                        ))
+                        continue
                     }
 
                     if sensitiveTools.contains(tc.function.name) {
@@ -284,6 +338,7 @@ final class AppViewModel {
 
                     isToolRunning = true
                     currentToolName = tc.function.name
+                    toolTrace.append(ToolTraceEntry(name: tc.function.name, status: "…"))
 
                     // Un tool qui échoue (permission refusée, EventKit qui throw, process qui plante)
                     // ne doit pas faire capoter tout le tour de conversation : avant, la moindre erreur
@@ -293,10 +348,12 @@ final class AppViewModel {
                     let resultContent: String
                     do {
                         resultContent = try await tools.execute(name: tc.function.name, args: args)
+                        markLastToolTrace("✓")
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
                         resultContent = "Échec de l'outil \(tc.function.name) : \(error.localizedDescription)"
+                        markLastToolTrace("✗")
                     }
                     isToolRunning = false
 
@@ -330,11 +387,65 @@ final class AppViewModel {
         streamingText = ""
     }
 
+    /// NOTE : `internal` pour les tests — permet de vérifier la mise à jour du tool trace
+    func markLastToolTrace(_ status: String) {
+        if let idx = toolTrace.indices.last {
+            toolTrace[idx].status = status
+        }
+    }
+
+    /// Parse les arguments d'un tool call avec réparations des erreurs courantes des petits
+    /// modèles. Retourne nil si le JSON reste inexploitable (le modèle est alors informé).
+    /// NOTE : `internal` (pas `private`) pour que les tests puissent valider la logique de parsing
+    /// sans avoir à dupliquer le code. C'est la seule méthode exposée pour le test.
+    nonisolated static func parseToolArguments(_ raw: String) -> [String: Any]? {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return [:] }
+
+        // Clôtures markdown ```json ... ``` que certains modèles ajoutent
+        if s.hasPrefix("```") {
+            s = s.replacingOccurrences(of: "^```[a-zA-Z]*\\s*", with: "", options: .regularExpression)
+            s = s.replacingOccurrences(of: "\\s*```\\s*$", with: "", options: .regularExpression)
+        }
+        // Guillemets typographiques (souvent introduits par le français)
+        s = s.replacingOccurrences(of: "[\u{201C}\u{201D}\u{201E}]", with: "\"")
+        s = s.replacingOccurrences(of: "\u{2019}", with: "'")
+
+        func parse(_ str: String) -> [String: Any]? {
+            guard let data = str.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            return obj
+        }
+
+        func noTrailingCommas(_ str: String) -> String {
+            str.replacingOccurrences(of: ",\\s*([}\\]])", with: "$1", options: .regularExpression)
+        }
+
+        guard var obj = parse(s) ?? parse(noTrailingCommas(s)) else { return nil }
+
+        // Certains modèles double-encodent les arguments : {"app": "{\"app\": \"X\"}"}.
+        // Si une valeur est elle-même un objet JSON, on fusionne ses clés (sans écraser).
+        var merged: [String: Any] = [:]
+        for (_, value) in obj {
+            if let str = value as? String, str.hasPrefix("{"), let inner = parse(str) {
+                for (k, v) in inner { merged[k] = v }
+            }
+        }
+        for (k, v) in merged where obj[k] == nil {
+            obj[k] = v
+        }
+        return obj
+    }
+
     /// Consomme un seul appel streamé à Ollama : met à jour streamingText en direct,
-    /// et retourne le texte complet + les tool calls éventuels une fois le flux terminé.
-    private func streamOneTurn(messages: [OllamaMessage]) async throws -> (content: String, toolCalls: [ToolCall]?) {
+    /// pousse chaque phrase complète au TTS dès qu'elle est disponible (latence vocale
+    /// minimale), et retourne le texte complet + les tool calls éventuels.
+    private func streamOneTurn(messages: [OllamaMessage]) async throws -> (content: String, toolCalls: [ToolCall]?, spokenCharCount: Int) {
         var content = ""
         var toolCalls: [ToolCall]?
+        // Nombre de caractères (sur le texte "strippé") déjà envoyés au TTS
+        var spokenCount = 0
 
         let stream = ollama.streamChat(messages: messages, tools: tools.toolDefs)
         for try await event in stream {
@@ -342,7 +453,25 @@ final class AppViewModel {
             switch event {
             case .delta(let text):
                 content += text
-                streamingText = stripThinking(content)
+                let stripped = stripThinking(content)
+                streamingText = stripped
+
+                if Settings.shared.ttsEnabled {
+                    // stableSpeakable évite de lire un bloc <think> encore ouvert
+                    let stable = stableSpeakable(content)
+                    let suffix = stable.dropFirst(spokenCount)
+                    if let idx = suffix.lastIndex(where: { $0 == "." || $0 == "!" || $0 == "?" }) {
+                        let sentence = String(suffix[...idx])
+                        if sentence.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 {
+                            if !isSpeaking {
+                                isSpeaking = true
+                                speechStartedAt = ContinuousClock.now
+                            }
+                            spokenCount += sentence.count
+                            audio.enqueue(sentence)
+                        }
+                    }
+                }
             case .toolCalls(let calls):
                 toolCalls = calls
             }
@@ -354,7 +483,17 @@ final class AppViewModel {
             errorMessage = "Pas de réponse du modèle Ollama. Vérifie que le modèle '\(Settings.shared.model)' existe."
         }
 
-        return (content, toolCalls)
+        return (content, toolCalls, spokenCount)
+    }
+
+    /// Version "sûre" du stripThinking pendant le streaming : si un bloc <think> est ouvert
+    /// mais pas encore fermé, tout ce qui suit son ouverture est instable (peut encore être
+    /// complété par "</think>") — on ne renvoie que ce qui précède.
+    private func stableSpeakable(_ raw: String) -> String {
+        if let open = raw.range(of: "<think>"), raw.range(of: "</think>") == nil {
+            return stripThinking(String(raw[..<open.lowerBound]))
+        }
+        return stripThinking(raw)
     }
 
     /// Affiche une demande de confirmation dans l'UI et suspend jusqu'à la réponse de l'utilisateur.
@@ -439,11 +578,14 @@ final class AppViewModel {
             ("user.birthday", #"(?:je suis né(?:e)?\s+le|mon anniversaire\s+(?:est|c'est)\s+le)\s+(\d{1,2}(?:er)?\s+[a-zéûôî]+(?:\s+\d{4})?)"#),
         ]
         return patterns.compactMap { (key, pattern) in
-            (try? NSRegularExpression(pattern: pattern)).map { (key, $0) }
+            // caseInsensitive : sans lui, "je suis né le 15 Mai 1990" ne matchait pas ([a-zéûôî]
+            // refusait le M majuscule du mois).
+            (try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])).map { (key, $0) }
         }
     }()
 
-    private func extractCandidateFacts(from text: String) -> [(key: String, value: String)] {
+    /// NOTE : `internal` pour les tests — permet de valider l'extraction heuristique sans passer par le flux complet
+    func extractCandidateFacts(from text: String) -> [(key: String, value: String)] {
         var found: [(String, String)] = []
         for (key, regex) in Self.factPatterns {
             let range = NSRange(text.startIndex..., in: text)
@@ -517,6 +659,67 @@ final class AppViewModel {
         }
     }
 
+    // MARK: - Export & Recherche
+
+    /// Recherche plein-texte dans toutes les conversations.
+    struct SearchResultEntry: Identifiable, Equatable {
+        let id: Int
+        let role: String
+        let content: String
+        let conversationTitle: String
+        let conversationId: Int?
+    }
+    var searchResults: [SearchResultEntry] = []
+    var isSearching = false
+
+    func search(_ query: String) async {
+        await ensureDBOpen()
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            searchResults = []
+            return
+        }
+        do {
+            let results = try await db.searchMessages(query)
+            searchResults = results.map { r in
+                SearchResultEntry(id: r.message.id, role: r.message.role,
+                                  content: r.message.content,
+                                  conversationTitle: r.conversationTitle,
+                                  conversationId: r.message.conversationId)
+            }
+        } catch {
+            errorMessage = "Erreur recherche : \(error.localizedDescription)"
+        }
+    }
+
+    /// Exporte la conversation courante en Markdown. Retourne le contenu ou nil si vide/erreur.
+    func exportConversationAsMarkdown() -> String? {
+        guard let conv = currentConversation, !messages.isEmpty else { return nil }
+        let df = DateFormatter()
+        df.dateFormat = "dd/MM/yyyy HH:mm"
+        var out = "# \(conv.title)\n\n"
+        for msg in messages {
+            let who = msg.role == "user" ? "Vous" : "Jarvis"
+            out += "**\(who)** — \(df.string(from: msg.createdAt))\n\n\(msg.content)\n\n---\n\n"
+        }
+        return out
+    }
+
+    /// Exporte la conversation courante en JSON (format structuré, réimportable).
+    func exportConversationAsJSON() -> String? {
+        guard let conv = currentConversation, !messages.isEmpty else { return nil }
+        let df = ISO8601DateFormatter()
+        let payload: [String: Any] = [
+            "title": conv.title,
+            "exported_at": df.string(from: Date()),
+            "messages": messages.map { m in
+                ["role": m.role, "content": m.content, "created_at": df.string(from: m.createdAt)]
+            }
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
+              let str = String(data: data, encoding: .utf8) else { return nil }
+        return str
+    }
+
     // MARK: - Voice
 
     func toggleVoiceMode() async {
@@ -575,16 +778,17 @@ final class AppViewModel {
 
                         guard !text.isEmpty else { continue }
 
-                        // Ancien seuil : text.count >= 2 (2 CARACTÈRES, pas mots). Avec le micro ouvert
-                        // en continu pendant que Jarvis parle (nécessaire pour le barge-in), un souffle,
-                        // une toux ou un mot d'écho mal capté suffisait à déclencher un tour de
-                        // conversation complet — c'est très probablement la cause du ressenti "toujours
-                        // en question-réponse saccadé" : le pipeline répondait à du bruit, pas à de la
-                        // vraie parole. Retour à un seuil en nombre de mots, plus proche de ce qui
-                        // caractérise une vraie phrase.
-                        guard text.split(separator: " ").count >= 1 else { continue }
+                        // Filtre anti-bruit : ignore les transcriptions de 2 caractères ou moins
+                        // ("euh", "ah", souffle mal transcrit) tout en laissant passer les commandes
+                        // courtes mais réelles ("stop", "oui").
+                        // Filtre anti-bruit : ignore les transcriptions de 2 caractères ou moins
+                        // ("euh", "ah", souffle mal transcrit) tout en laissant passer les commandes
+                        // courtes mais réelles ("stop", "oui").
+                        guard text.count > 2 else { continue }
 
-                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        // Délai réduit : 200ms d'attente artificielle avant chaque tour
+                        // donnait une impression de latence en mode vocal.
+                        try? await Task.sleep(nanoseconds: 100_000_000)
 
                         await runConversationTurn(userText: text)
 
@@ -598,7 +802,7 @@ final class AppViewModel {
                         // Attend la fin du TTS avant de rouvrir le micro — évite que le micro capte
                         // la propre voix de Jarvis et relance une transcription en boucle.
                         while isSpeaking && isVoiceMode && !Task.isCancelled {
-                            try? await Task.sleep(nanoseconds: 100_000_000)
+                            try? await Task.sleep(nanoseconds: 60_000_000)
                         }
                     } catch {
                         isListening = false

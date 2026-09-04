@@ -31,6 +31,7 @@ struct AutoResizingTextView: NSViewRepresentable {
         textView.drawsBackground = false
         textView.isRichText = false
         textView.usesFontPanel = false
+        textView.allowsUndo = true
         textView.textContainer?.lineFragmentPadding = 4
         textView.textContainer?.containerSize = NSSize(width: 200, height: CGFloat.greatestFiniteMagnitude)
         textView.isHorizontallyResizable = false
@@ -56,10 +57,41 @@ struct AutoResizingTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         guard let textView = nsView.documentView as? NSTextView else { return }
+        syncContainerWidth(scrollView: nsView, textView: textView)
+
+        // BUG CORRIGÉ : quand on tape vite, SwiftUI peut déclencher updateNSView avec une valeur
+        // du binding EN RETARD sur le contenu réel du NSTextView (le textDidChange d'une frappe
+        // suivante n'a pas encore été propagé). Réécrire textView.string dans ce cas effaçait les
+        // derniers caractères tapés et faisait sauter le curseur — d'où l'impression que la saisie
+        // "bugue". Le flag isEditing marque les changements initiés par la saisie elle-même :
+        // on ne réécrit alors jamais le texte depuis SwiftUI.
+        if context.coordinator.isEditing {
+            return
+        }
+
         if textView.string != text {
+            let selection = textView.selectedRanges
+            let scrollPoint = textView.visibleRect.origin
             textView.string = text
             applyTextColor(textView)
+            // Restaure curseur et position de scroll : un remplacement externe (clear après envoi,
+            // pré-remplissage) ne doit pas téléporter le curseur en fin de texte.
+            if !selection.isEmpty {
+                textView.selectedRanges = selection
+            }
+            textView.scroll(scrollPoint)
             computeHeight(textView: textView, notify: false)
+        }
+    }
+
+    /// Le textContainer garde sinon sa largeur initiale (200pt) : le texte wrappe avant le bord
+    /// réel du champ et cliquer à droite ne place pas le curseur. On cale la largeur du conteneur
+    /// sur celle effective de la vue.
+    private func syncContainerWidth(scrollView: NSScrollView, textView: NSTextView) {
+        guard let container = textView.textContainer else { return }
+        let width = max(scrollView.contentSize.width - container.lineFragmentPadding * 2, 40)
+        if abs(container.containerSize.width - width) > 0.5 {
+            container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         }
     }
 
@@ -90,6 +122,9 @@ struct AutoResizingTextView: NSViewRepresentable {
         var parent: AutoResizingTextView
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
+        /// Vrai entre un textDidChange (saisie utilisateur) et la réconciliation SwiftUI qui suit :
+        /// empêche updateNSView de réécrire textView.string avec une valeur obsolète du binding.
+        var isEditing = false
 
         init(_ parent: AutoResizingTextView) {
             self.parent = parent
@@ -97,8 +132,12 @@ struct AutoResizingTextView: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard let textView = textView else { return }
+            isEditing = true
             parent.text = textView.string
             parent.computeHeight(textView: textView, notify: true)
+            // La réconciliation SwiftUI consomme le flag ; si elle n'arrive pas (pas de re-render),
+            // on le retire au prochain tour de runloop pour ne pas bloquer les mises à jour externes.
+            DispatchQueue.main.async { [weak self] in self?.isEditing = false }
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -115,6 +154,24 @@ struct AutoResizingTextView: NSViewRepresentable {
 }
 
 fileprivate class AutoSizingScrollView: NSScrollView {
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        syncTextContainerWidth()
+    }
+
+    override func tile() {
+        super.tile()
+        syncTextContainerWidth()
+    }
+
+    private func syncTextContainerWidth() {
+        guard let tv = documentView as? NSTextView, let tc = tv.textContainer else { return }
+        let width = max(contentSize.width - tc.lineFragmentPadding * 2, 40)
+        if abs(tc.containerSize.width - width) > 0.5 {
+            tc.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        }
+    }
+
     override func scrollWheel(with event: NSEvent) {
         if let textView = documentView as? NSTextView,
            let layoutManager = textView.layoutManager,

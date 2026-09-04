@@ -28,6 +28,12 @@ struct ChatView: View {
             InputBarView()
         }
         .background(JarvisTheme.background)
+        .sheet(isPresented: Bindable(vm).showHelp) {
+            HelpView()
+        }
+        .sheet(isPresented: Bindable(vm).showSearch) {
+            SearchPanelView()
+        }
     }
 
     private var header: some View {
@@ -38,7 +44,16 @@ struct ChatView: View {
                 .shadow(color: (vm.isStreaming ? JarvisTheme.amber : JarvisTheme.accent).opacity(0.7), radius: 3)
             Text(vm.isStreaming ? "STREAMING" : "CONNECTÉ")
                 .font(JarvisTheme.mono(10, weight: .semibold))
+                .tracking(0.5)
                 .foregroundStyle(JarvisTheme.textSecondary)
+            // Badge modèle : sait toujours quel modèle répond sans ouvrir les réglages.
+            Text(Settings.shared.model)
+                .font(JarvisTheme.mono(9))
+                .foregroundStyle(JarvisTheme.textTertiary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(JarvisTheme.panelElevated)
+                .clipShape(Capsule())
                 .tracking(0.5)
             if let conv = vm.currentConversation {
                 Text(conv.title)
@@ -69,6 +84,25 @@ struct ChatView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                // État d'accueil quand la conversation est vide : l'app ne démarre plus
+                // sur un écran noir silencieux.
+                if vm.messages.isEmpty && vm.streamingText.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "bolt.circle")
+                            .font(.system(size: 44, weight: .light))
+                            .foregroundStyle(JarvisTheme.accent)
+                            .padding(.top, 60)
+                        Text("JARVIS EN LIGNE")
+                            .font(JarvisTheme.mono(11, weight: .semibold))
+                            .tracking(1.2)
+                            .foregroundStyle(JarvisTheme.textSecondary)
+                        Text("Demande-moi la météo, un rappel, une recherche web,\nou tape /facts pour voir ma mémoire.")
+                            .font(.caption)
+                            .foregroundStyle(JarvisTheme.textTertiary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
                 LazyVStack(spacing: 6) {
                     ForEach(vm.messages) { msg in
                         MessageBubbleView(message: msg)
@@ -102,29 +136,53 @@ struct ChatView: View {
                 }
             }
             .onChange(of: vm.streamingText) { _, _ in
-                withAnimation { proxy.scrollTo("streaming", anchor: .bottom) }
+                // Sans animation pendant le stream : withAnimation à chaque delta rendait
+                // le scroll saccadé et retardait l'affichage des nouveaux tokens.
+                proxy.scrollTo("streaming", anchor: .bottom)
+            }
+            .onChange(of: vm.isStreaming) { _, streaming in
+                if !streaming, let last = vm.messages.last {
+                    proxy.scrollTo(last.id, anchor: .bottom)
+                }
             }
         }
     }
 
     @ViewBuilder
     private var toolIndicator: some View {
-        if vm.isToolRunning {
+        if !vm.toolTrace.isEmpty {
             HStack(spacing: 6) {
-                Image(systemName: "wrench.fill")
+                Image(systemName: "wrench.and.screwdriver")
                     .foregroundStyle(JarvisTheme.amber)
                     .font(.caption2)
-                Text("OUTIL · \(vm.currentToolName)")
-                    .font(JarvisTheme.mono(10, weight: .medium))
-                    .foregroundStyle(JarvisTheme.amber)
+                ForEach(vm.toolTrace) { entry in
+                    HStack(spacing: 2) {
+                        Text(entry.name)
+                            .font(JarvisTheme.mono(10, weight: .medium))
+                            .foregroundStyle(JarvisTheme.textSecondary)
+                        Text(entry.status)
+                            .font(JarvisTheme.mono(10))
+                            .foregroundStyle(
+                                entry.status == "✓" ? JarvisTheme.accent
+                                : entry.status == "✗" ? JarvisTheme.danger
+                                : JarvisTheme.amber
+                            )
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(JarvisTheme.panelElevated)
+                    .clipShape(Capsule())
+                }
                 Spacer()
-                ProgressView()
-                    .scaleEffect(0.5)
-                    .tint(JarvisTheme.amber)
+                if vm.isToolRunning {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .tint(JarvisTheme.amber)
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 5)
-            .background(JarvisTheme.amber.opacity(0.08))
+            .background(JarvisTheme.amber.opacity(0.06))
         }
     }
 }

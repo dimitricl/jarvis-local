@@ -41,9 +41,22 @@ Depuis l'icône ⚙️ dans l'interface :
 - Chat avec LLM local (outils : recherche web, météo, Apple Notes, Rappels, Calendrier, iMessage, Shortcuts, etc.)
 - Mémoire de faits personnels (reconnus automatiquement, confirmés par l'utilisateur)
 - Mode vocal mains-libres avec barge-in
+- Recherche plein-texte dans toutes les conversations (`/search` ou bouton loupe)
+- Export de conversation en Markdown ou JSON
 - Routines (ex. routine "morning" : météo + calendrier + infos système)
 - Capture d'écran, presse-papiers, recherche Spotlight
 - Contrôle du Mac (veille, verrouillage, extinction, redémarrage)
+
+### Commandes slash
+
+| Commande | Effet |
+|---|---|
+| `/help` | Affiche la liste des commandes |
+| `/clear` | Nouvelle conversation |
+| `/facts` | Affiche/masque la mémoire de faits |
+| `/search <texte>` | Recherche dans toutes les conversations |
+| `/export md` | Exporte la conversation courante en Markdown |
+| `/export json` | Exporte la conversation courante en JSON |
 
 ## Architecture
 
@@ -61,6 +74,8 @@ JarvisLocal/
 ```bash
 swift test
 ```
+
+173 tests couvrant : modèles, base de données, services (Ollama, tools, audio, STT), ViewModel (conversations, extraction de faits, recherche, export) et sécurité des outils sensibles.
 
 ## Licence
 
