@@ -4,6 +4,8 @@
 ![macOS](https://img.shields.io/badge/macOS-14+-blue)
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange)
 
+Ce projet utilise Ollama en local pour le traitement du langage naturel.
+
 Assistant IA personnel pour macOS — dans l'esprit de Jarvis d'Iron Man. Tourne en local via [Ollama](https://ollama.com), respecte votre vie privée, et contrôle votre Mac (Notes, Rappels, Calendrier, iMessage, AppleScript, etc.).
 
 ## Prérequis
