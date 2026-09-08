@@ -17,6 +17,8 @@ const PORT         = parseInt(process.env.PORT ?? "3000");
 const EDGE_TTS_BIN = process.env.EDGE_TTS_BIN ?? "/Users/dimitriclaverie/.local/share/mise/installs/python/3.13.3/bin/edge-tts";
 const TTS_VOICE    = process.env.TTS_VOICE    ?? "fr-FR-HenriNeural";
 const TTS_RATE     = process.env.TTS_RATE     ?? "+5%";
+const REASONING_EFFORT = process.env.REASONING_EFFORT ?? "none";
+const NUM_CTX          = parseInt(process.env.NUM_CTX ?? "16384");
 const MAX_MSG_LENGTH = 100_000;
 const RATE_LIMIT_WINDOW_MS = 2000;
 const TTS_TEMP_PREFIX = "/tmp/jarvis_tts_";
@@ -58,6 +60,22 @@ if (convCount.c === 0) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+
+const estTokens = (s: unknown) => Math.ceil(((s as string) ?? "").length / 4) + 4;
+
+function windowHistory(messages: { role: string; content: string }[], budget: number, minKeep = 6): { role: string; content: string }[] {
+  const kept: { role: string; content: string }[] = [];
+  let used = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m) break;
+    const t = estTokens(m.content);
+    if (kept.length >= minKeep && used + t > budget) break;
+    kept.unshift(m);
+    used += t;
+  }
+  return kept;
+}
 
 async function runOsascript(script: string, label = "AppleScript"): Promise<string> {
   const proc = Bun.spawn(["osascript", "-e", script], { stdout: "pipe", stderr: "pipe" });
@@ -774,7 +792,7 @@ async function streamToWs(ws: ServerWebSocket, messages: Record<string, unknown>
     const resp = await fetch(OLLAMA_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: MODEL, messages, stream: true, options: { temperature: 0.7, ...opts } }),
+      body: JSON.stringify({ model: MODEL, messages, stream: true, reasoning_effort: REASONING_EFFORT, options: { temperature: 0.7, num_ctx: NUM_CTX, ...opts } }),
       signal: ctrl.signal
     });
 
@@ -835,7 +853,8 @@ async function ollamaCompletion(messages: Record<string, unknown>[], tools?: typ
     model,
     messages,
     stream: false,
-    options: { temperature: 0.7, ...opts }
+    reasoning_effort: REASONING_EFFORT,
+    options: { temperature: 0.7, num_ctx: NUM_CTX, ...opts }
   };
   if (tools) body.tools = tools;
   const resp = await fetch(OLLAMA_URL, {
@@ -847,6 +866,23 @@ async function ollamaCompletion(messages: Record<string, unknown>[], tools?: typ
   const data = await resp.json() as Record<string, unknown>;
   return (data.choices as Record<string, unknown>[])?.[0]?.message as Record<string, unknown> ?? null;
 }
+
+const OLLAMA_BASE = OLLAMA_URL.replace(/\/v1\/chat\/completions.*$/, "");
+async function warmUpOllama() {
+  try {
+    const resp = await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: MODEL, prompt: "", keep_alive: "15m", options: { num_predict: 1 } }),
+      signal: AbortSignal.timeout(30000)
+    });
+    console.log(`[warmup] ${resp.status}`);
+  } catch (err) {
+    console.log("[warmup] échec:", (err as Error).message);
+  }
+}
+warmUpOllama();
+setInterval(warmUpOllama, 4 * 60 * 1000);
 
 // ─── Génération de titre via LLM ─────────────────────────────────────────────
 async function generateTitle(convId: number, firstMessage: string) {
@@ -1001,9 +1037,9 @@ const server = Bun.serve({
       rl.set(rlKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
 
       const safeConvId = conversation_id ?? undefined;
-      const hist: MessageRow[] = safeConvId
-        ? (db.query("SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 20").all(safeConvId) as MessageRow[]).reverse()
-        : (db.query("SELECT role, content FROM messages ORDER BY id DESC LIMIT 20").all() as MessageRow[]).reverse();
+      const rawHist: MessageRow[] = safeConvId
+        ? (db.query("SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 100").all(safeConvId) as MessageRow[]).reverse()
+        : (db.query("SELECT role, content FROM messages ORDER BY id DESC LIMIT 100").all() as MessageRow[]).reverse();
 
       const facts = db.query("SELECT key, value FROM facts").all() as FactRow[];
       const factsContext = facts.length
@@ -1026,9 +1062,12 @@ IMPORTANT : si la demande contient plusieurs actions, appelle tous les outils n�
 
 Quand un outil échoue, lis le message d'erreur et réessaye avec des paramètres corrigés.${factsContext}`;
 
+      const histBudget = Math.max(1024, NUM_CTX - 4096 - estTokens(systemPrompt) - estTokens(text));
+      const hist = windowHistory(rawHist, histBudget);
+
       db.run("INSERT INTO messages (role, content, conversation_id) VALUES (?, ?, ?)", ["user", text, safeConvId ?? null]);
 
-      if (safeConvId && hist.length === 0 && text.length > 3) {
+      if (safeConvId && rawHist.length === 0 && text.length > 3) {
         generateTitle(safeConvId, text);
       }
 

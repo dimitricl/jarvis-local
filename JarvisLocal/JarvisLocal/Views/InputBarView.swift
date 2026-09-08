@@ -9,10 +9,16 @@ enum ExportFormat {
 
 struct InputBarView: View {
     @Environment(AppViewModel.self) private var vm
+    /// Prompt pré-rempli depuis l'extérieur (suggestions de l'écran d'accueil).
+    @Binding var externalPrompt: String
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     @State private var micPulse = false
     @State private var editorHeight: CGFloat = 34
+
+    init(externalPrompt: Binding<String> = .constant("")) {
+        _externalPrompt = externalPrompt
+    }
 
     var body: some View {
         VStack(spacing: 4) {
@@ -39,6 +45,12 @@ struct InputBarView: View {
         .background(JarvisTheme.panel)
         .overlay(Rectangle().fill(JarvisTheme.divider).frame(height: 1), alignment: .top)
         .onAppear { isInputFocused = true }
+        .onChange(of: externalPrompt) { _, new in
+            guard !new.isEmpty else { return }
+            inputText = new
+            externalPrompt = ""
+            isInputFocused = true
+        }
     }
 
     @ViewBuilder

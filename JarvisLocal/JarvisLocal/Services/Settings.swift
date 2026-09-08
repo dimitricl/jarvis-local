@@ -22,6 +22,17 @@ final class Settings {
     var reasoningEffort: String {
         didSet { UserDefaults.standard.set(reasoningEffort, forKey: "reasoning_effort") }
     }
+    /// Fenêtre de contexte envoyée à Ollama (options.num_ctx). Une valeur énorme gonfle le
+    /// KV-cache côté serveur et ralentit chaque tour ; 16384 correspond au plafond réel que le
+    /// serveur distant peut allouer (vérifié via ollama ps — tout ce qui est demandé au-delà
+    /// est silencieusement tronqué).
+    var numCtx: Int {
+        didSet {
+            let clamped = max(2048, min(numCtx, 32768))
+            if clamped != numCtx { numCtx = clamped; return }
+            UserDefaults.standard.set(numCtx, forKey: "num_ctx")
+        }
+    }
     /// Nombre max de tokens générés par réponse (num_predict côté Ollama).
     /// AVANT : 2048 codé en dur — en français (~0.7 mot/token) une réponse longue était
     /// coupée en pleine phrase sans aucun message d'erreur. Réglable depuis les paramètres.
@@ -156,6 +167,8 @@ private init() {
         self.model = defaults.string(forKey: "model") ?? "gemma4:e4b"
         self.fastModel = defaults.string(forKey: "fast_model") ?? "gemma4:e2b"
         self.reasoningEffort = defaults.string(forKey: "reasoning_effort") ?? "none"
+        let savedNumCtx = defaults.object(forKey: "num_ctx") as? Int ?? 16384
+        self.numCtx = max(2048, min(savedNumCtx, 32768))
         // 8192 : assez large pour une explication technique détaillée sans être coupée,
         // tout en gardant une garde-fou contre les boucles infinies de génération.
         let savedMaxTokens = defaults.object(forKey: "max_tokens") as? Int ?? 8192

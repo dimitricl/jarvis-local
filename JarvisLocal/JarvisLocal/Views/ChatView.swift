@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @Environment(AppViewModel.self) private var vm
+    @State private var externalPrompt = ""
     @State private var scrollProxy: ScrollViewProxy?
 
     var body: some View {
@@ -25,7 +26,7 @@ struct ChatView: View {
             }
             messageList
             toolIndicator
-            InputBarView()
+            InputBarView(externalPrompt: $externalPrompt)
         }
         .background(JarvisTheme.background)
         .sheet(isPresented: Bindable(vm).showHelp) {
@@ -87,19 +88,27 @@ struct ChatView: View {
                 // État d'accueil quand la conversation est vide : l'app ne démarre plus
                 // sur un écran noir silencieux.
                 if vm.messages.isEmpty && vm.streamingText.isEmpty {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 14) {
                         Image(systemName: "bolt.circle")
                             .font(.system(size: 44, weight: .light))
                             .foregroundStyle(JarvisTheme.accent)
-                            .padding(.top, 60)
+                            .padding(.top, 56)
                         Text("JARVIS EN LIGNE")
                             .font(JarvisTheme.mono(11, weight: .semibold))
                             .tracking(1.2)
                             .foregroundStyle(JarvisTheme.textSecondary)
-                        Text("Demande-moi la météo, un rappel, une recherche web,\nou tape /facts pour voir ma mémoire.")
+                        Text("Demande-moi la météo, un rappel, une recherche web, ou tape /facts pour voir ma mémoire.")
                             .font(.caption)
                             .foregroundStyle(JarvisTheme.textTertiary)
                             .multilineTextAlignment(.center)
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                            suggestionChip("Quelle est la météo à Paris aujourd'hui ?")
+                            suggestionChip("Rappelle-moi d'appeler le dentiste demain à 10h")
+                            suggestionChip("Crée une note avec ma liste de courses")
+                            suggestionChip("Cherche la dernière actu tech en français")
+                        }
+                        .padding(.horizontal, 40)
+                        .padding(.top, 6)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -184,5 +193,22 @@ struct ChatView: View {
             .padding(.vertical, 5)
             .background(JarvisTheme.amber.opacity(0.06))
         }
+    }
+
+    private func suggestionChip(_ text: String) -> some View {
+        Button { externalPrompt = text } label: {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(JarvisTheme.textSecondary)
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity)
+                .background(JarvisTheme.panelElevated)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(JarvisTheme.divider, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

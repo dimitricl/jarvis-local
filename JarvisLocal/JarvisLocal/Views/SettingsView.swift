@@ -22,6 +22,22 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
+                        Text("Fenêtre de contexte (num_ctx) :")
+                        Spacer()
+                        Text("\(settings.numCtx) tokens")
+                            .font(JarvisTheme.mono(10))
+                            .foregroundStyle(JarvisTheme.textSecondary)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(settings.numCtx) },
+                        set: { settings.numCtx = Int($0) }
+                    ), in: 2048...32768, step: 1024)
+                    Text("Borné à ce que le serveur peut réellement allouer : au-delà, Ollama tronque silencieusement l'historique.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
                         Text("Longueur max de réponse :")
                         Spacer()
                         Text("\(settings.maxTokens) tokens (~\(settings.maxTokens * 3 / 4) mots)")

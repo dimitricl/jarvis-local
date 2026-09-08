@@ -2,10 +2,12 @@ import SwiftUI
 
 struct SidebarView: View {
     @Environment(AppViewModel.self) private var vm
+    @State private var searchText = ""
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            quickActions
             conversationList
             factsPanel
         }
@@ -52,9 +54,59 @@ struct SidebarView: View {
         .overlay(Rectangle().fill(JarvisTheme.divider).frame(height: 1), alignment: .bottom)
     }
 
+    private var quickActions: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(JarvisTheme.textTertiary)
+                TextField("Rechercher…", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(JarvisTheme.textPrimary)
+                    .onSubmit {
+                        let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !q.isEmpty else { return }
+                        vm.searchQuery = q
+                        vm.showSearch.toggle()
+                        Task { await vm.search(q) }
+                    }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(JarvisTheme.panelElevated)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            Button(action: { Task { await vm.newConversation() } }) {
+                Label("Nouvelle conversation", systemImage: "plus")
+                    .font(.caption)
+                    .foregroundStyle(JarvisTheme.textPrimary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(JarvisTheme.accent.opacity(0.12))
+                    .overlay(RoundedRectangle(cornerRadius: 7).stroke(JarvisTheme.accent.opacity(0.3), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
     private var conversationList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
+                if vm.conversations.isEmpty {
+                    VStack(spacing: 6) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .foregroundStyle(JarvisTheme.textTertiary)
+                        Text("Aucune conversation")
+                            .font(.caption)
+                            .foregroundStyle(JarvisTheme.textTertiary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 30)
+                }
                 ForEach(vm.conversations) { conv in
                     ConversationRowView(conversation: conv)
                         .contentShape(Rectangle())
