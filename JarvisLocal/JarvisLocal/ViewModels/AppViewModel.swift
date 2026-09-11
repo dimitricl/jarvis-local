@@ -249,6 +249,7 @@ final class AppViewModel {
             Exemples :
             - "météo à Paris" → get_weather city: Paris
             - "regarde apple.com" → read_url url: https://www.apple.com/fr/
+            - "fais une capture d'écran" → take_screenshot
             - "cherche iPhone" → search_web query: iPhone Apple
             \(factsContext)
             """

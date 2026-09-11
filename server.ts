@@ -457,7 +457,7 @@ const TOOLS = [
     type: "function" as const,
     function: {
       name: "take_screenshot",
-      description: "Prend une capture d'écran de tout l'écran.",
+      description: "Prend une capture d'écran (screenshot) de tout l'écran. À utiliser quand l'utilisateur dit 'capture', 'capture d\'écran', 'screenshot', 'photographie l\'écran'.",
       parameters: { type: "object", properties: {}, required: [] }
     }
   },
@@ -1411,6 +1411,7 @@ Exemples d'appels corrects :
 - "regarde apple.com" → read_url {url:"https://www.apple.com/fr/"}
 - "cherche le dernier iPhone" → search_web {query:"iPhone 16 Apple site:apple.com"}
 - "copie hello" → set_clipboard {text:"hello"}
+- "fais une capture d'écran" → take_screenshot {}
 - "quelle heure est-il" → get_system_info {}
 
 IMPORTANT : si la demande contient plusieurs actions, appelle tous les outils nécessaires. Par exemple, "ajoute un événement et cherche une adresse" = appelle d'abord search_maps (pour obtenir l'adresse), puis add_calendar_event avec le paramètre location mis à l'ADRESSE EXACTE retournée par search_maps (pas le nom du lieu, pas "domicile", l'adresse complète).
@@ -1449,7 +1450,7 @@ Quand un outil échoue, lis le message d'erreur et réessaye avec des paramètre
         if (!toolCalls.length) {
           const content = (msg.content as string) ?? "";
           const hasSubstantiveAnswer = content.trim().length >= 15;
-          if (loop === 0 && !hasSubstantiveAnswer && /(?:ouvre?r?|lance?r?|ajoute?r?|crée?r?|cherche?r?|recherche?r?|supprime?r?|efface?r?|modifie?r?|renomme?r?|exporte?r?|regarde?r?|consulte?r?|visite?r?|navigue?r?|lis|lit|lire|site|apple\.com|url)/i.test(text)) {
+          if (loop === 0 && !hasSubstantiveAnswer && /(?:ouvre?r?|lance?r?|ajoute?r?|crée?r?|cherche?r?|recherche?r?|supprime?r?|efface?r?|modifie?r?|renomme?r?|exporte?r?|regarde?r?|consulte?r?|visite?r?|navigue?r?|lis|lit|lire|site|apple\.com|url|capture|écran|screenshot|photo.*écran)/i.test(text)) {
             allMessages.push({ role: "user", content: "Tu n'as PAS appelé d'outil alors que la demande nécessite une action. Appelle OBLIGATOIREMENT l'outil correspondant maintenant. Ne réponds pas en texte, appelle l'outil." });
             continue;
           }
