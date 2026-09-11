@@ -176,7 +176,9 @@ struct MessageBubbleView: View {
     /// Split raw text into semantic blocks separated by blank lines.
     private func parseBlocks(_ raw: String) -> [ContentBlock] {
         var t = raw
-        t = t.replacingOccurrences(of: "<think>[\\s\\S]*?</think>", with: "", options: .regularExpression)
+        if let rx = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [.dotMatchesLineSeparators]) {
+            t = rx.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: "")
+        }
         t = t.trimmingCharacters(in: .newlines)
         // Collapse multiple blank lines into one
         while t.contains("\n\n\n") { t = t.replacingOccurrences(of: "\n\n\n", with: "\n\n") }
@@ -214,9 +216,9 @@ struct MessageBubbleView: View {
             }
 
             // Check if this block is a list (every line starts with -, *, or digit.)
-            let bulletRegex = try! NSRegularExpression(pattern: "^\\s*[-*]\\s+")
-            let numberRegex = try! NSRegularExpression(pattern: "^\\s*\\d+\\.\\s+")
-            let headingRegex = try! NSRegularExpression(pattern: "^(#{1,3})\\s+")
+            let bulletRegex = (try? NSRegularExpression(pattern: "^\\s*[-*]\\s+")) ?? NSRegularExpression()
+            let numberRegex = (try? NSRegularExpression(pattern: "^\\s*\\d+\\.\\s+")) ?? NSRegularExpression()
+            let headingRegex = (try? NSRegularExpression(pattern: "^(#{1,3})\\s+")) ?? NSRegularExpression()
 
             let allBullet = lines.allSatisfy { line in
                 bulletRegex.firstMatch(in: line, range: NSRange(location: 0, length: line.utf16.count)) != nil
@@ -290,7 +292,7 @@ struct MessageBubbleView: View {
                     newSegments.append(seg)
                     continue
                 }
-                let regex = try! NSRegularExpression(pattern: pattern)
+                guard let regex = try? NSRegularExpression(pattern: pattern) else { newSegments.append(seg); continue }
                 let nsRange = NSRange(seg.text.startIndex..., in: seg.text)
                 var lastEnd = seg.text.startIndex
                 for match in regex.matches(in: seg.text, range: nsRange) {

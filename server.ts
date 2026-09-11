@@ -10,18 +10,22 @@ process.on("uncaughtException", (err) => {
 });
 
 // ─── Config ─────────────────────────────────────────────────────────────────
-const OLLAMA_URL   = process.env.OLLAMA_URL   ?? "http://100.101.108.111:11434/v1/chat/completions";
+const OLLAMA_URL   = process.env.OLLAMA_URL   ?? "http://localhost:11434/v1/chat/completions";
 const MODEL        = process.env.MODEL        ?? "gemma4:e4b";
 const MODEL_FAST   = process.env.MODEL_FAST   ?? "gemma4:e2b";
-const PORT         = parseInt(process.env.PORT ?? "3000");
-const EDGE_TTS_BIN = process.env.EDGE_TTS_BIN ?? "/Users/dimitriclaverie/.local/share/mise/installs/python/3.13.3/bin/edge-tts";
-const TTS_VOICE    = process.env.TTS_VOICE    ?? "fr-FR-HenriNeural";
+const PORT_RAW     = process.env.PORT ?? "3000";
+const PORT         = (() => { const p = parseInt(PORT_RAW, 10); return Number.isNaN(p) || p < 1 || p > 65535 ? 3000 : p; })();
+const EDGE_TTS_BIN = process.env.EDGE_TTS_BIN ?? "edge-tts";
+const TTS_VOICE    = process.env.TTS_VOICE    ?? "fr-FR-DeniseNeural";
 const TTS_RATE     = process.env.TTS_RATE     ?? "+5%";
 const REASONING_EFFORT = process.env.REASONING_EFFORT ?? "none";
-const NUM_CTX          = parseInt(process.env.NUM_CTX ?? "16384");
+const NUM_CTX_RAW  = process.env.NUM_CTX ?? "16384";
+const NUM_CTX      = (() => { const n = parseInt(NUM_CTX_RAW, 10); return Number.isNaN(n) || n < 512 ? 16384 : n; })();
 const MAX_MSG_LENGTH = 100_000;
 const RATE_LIMIT_WINDOW_MS = 2000;
 const TTS_TEMP_PREFIX = "/tmp/jarvis_tts_";
+
+console.log(`[config] OLLAMA_URL=${OLLAMA_URL.replace(/\/\/.*@/, "//***@")} MODEL=${MODEL} PORT=${PORT} NUM_CTX=${NUM_CTX} EDGE_TTS_BIN=${EDGE_TTS_BIN} TTS_VOICE=${TTS_VOICE}`);
 
 const ddgsCheck = Bun.spawnSync(["python3", "-c", "from ddgs import DDGS"]);
 if (ddgsCheck.exitCode !== 0) {
@@ -108,6 +112,10 @@ interface RateLimitState {
   resetAt: number;
 }
 
+function pathIsAbsolute(p: string): boolean {
+  return /^[a-zA-Z]:[\/\\]/.test(p) || p.startsWith("/");
+}
+
 // ─── TTS par connexion ───────────────────────────────────────────────────────
 interface TTSState {
   proc: ReturnType<typeof Bun.spawn> | null;
@@ -192,8 +200,8 @@ function splitSentences(text: string, maxLen = 350): string[] {
 async function speak(text: string, ws: ServerWebSocket) {
   const state = getTTSState(ws);
   state.shouldStop = false;
-  ws.send(JSON.stringify({ type: "tts_start" }));
-
+  try { ws.send(JSON.stringify({ type: "tts_start" })); } catch {}
+  // check ws still open before heavy work
   let clean = text
     .replace(/<think>[\s\S]*?<\/think>/g, "")
     .replace(/[`*#_~]/g, "")
@@ -203,28 +211,35 @@ async function speak(text: string, ws: ServerWebSocket) {
     .replace(/^\s*[\*\-\d+\.]+\s+/gm, "")
     .replace(/\n+/g, " ")
     .trim();
-
-  if (!clean) {
-    ws.send(JSON.stringify({ type: "tts_done" }));
-    return;
-  }
-
+  if (!clean) { try { ws.send(JSON.stringify({ type: "tts_done" })); } catch {} return; }
   clean = normalizeText(clean);
   const chunks = splitSentences(clean, 350);
   console.log(`[tts] ${chunks.length} chunk(s) pour ${clean.length} chars`);
-
-  for (const chunk of chunks) {
-    if (state.shouldStop || !chunk.trim()) continue;
-    const tmpFile = nextTTSFile();
-    state.proc = Bun.spawn([EDGE_TTS_BIN, "--voice", TTS_VOICE, "--rate", TTS_RATE, "--text", chunk, "--write-media", tmpFile]);
-    await state.proc.exited;
-    if (state.shouldStop) break;
-    state.proc = Bun.spawn(["afplay", tmpFile]);
-    await state.proc.exited;
+  // resolve edge-tts binary via which if default
+  let edgeBin = EDGE_TTS_BIN;
+  if (edgeBin === "edge-tts") {
+    try {
+      const which = Bun.spawnSync(["/usr/bin/which", "edge-tts"]);
+      const out = new TextDecoder().decode(which.stdout).trim();
+      if (out) edgeBin = out;
+    } catch {}
   }
-
+  for (const chunk of chunks) {
+    if (state.shouldStop) break;
+    if (!chunk.trim()) continue;
+    const tmpFile = nextTTSFile();
+    try {
+      state.proc = Bun.spawn([edgeBin, "--voice", TTS_VOICE, "--rate", TTS_RATE, "--text", chunk, "--write-media", tmpFile]);
+      await state.proc.exited;
+      if (state.shouldStop) { try { await Bun.file(tmpFile).exists() && (await Bun.write(tmpFile, "")); } catch {} break; }
+      state.proc = Bun.spawn(["afplay", tmpFile]);
+      await state.proc.exited;
+    } catch (e) { console.warn("[tts] chunk error", e); }
+    // cleanup tmp file
+    try { const f = Bun.file(tmpFile); if (await f.exists()) await Bun.write(tmpFile, ""); Bun.spawn(["rm", "-f", tmpFile]); } catch {}
+  }
   state.proc = null;
-  ws.send(JSON.stringify({ type: "tts_done" }));
+  try { ws.send(JSON.stringify({ type: "tts_done" })); } catch {}
 }
 
 // ─── Outils ──────────────────────────────────────────────────────────────────
@@ -935,8 +950,14 @@ const server = Bun.serve({
 
     if (url.pathname === "/history") {
       const cid = url.searchParams.get("conversation_id");
-      const rows: MessageRow[] = cid
-        ? (db.query("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 50").all(parseInt(cid)) as MessageRow[])
+      let convId: number | undefined;
+      if (cid !== null) {
+        const parsed = parseInt(cid, 10);
+        if (Number.isNaN(parsed) || parsed < 1) return new Response("Invalid conversation_id", { status: 400 });
+        convId = parsed;
+      }
+      const rows: MessageRow[] = convId
+        ? (db.query("SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 50").all(convId) as MessageRow[])
         : (db.query("SELECT role, content, created_at FROM messages ORDER BY id DESC LIMIT 50").all() as MessageRow[]);
       rows.reverse();
       return new Response(JSON.stringify(rows), { headers: { "Content-Type": "application/json" } });
@@ -948,8 +969,10 @@ const server = Bun.serve({
         return new Response(JSON.stringify(rows), { headers: { "Content-Type": "application/json" } });
       }
       if (req.method === "POST") {
-        const { title } = await req.json() as { title?: string };
-        const info = db.run("INSERT INTO conversations (title) VALUES (?)", [title || "Nouvelle conversation"]);
+        let body: { title?: string } = {};
+        try { body = await req.json() as { title?: string }; } catch { return new Response("Invalid JSON", { status: 400 }); }
+        const title = (body.title ?? "Nouvelle conversation").slice(0, 200);
+        const info = db.run("INSERT INTO conversations (title) VALUES (?)", [title]);
         const conv = db.query("SELECT * FROM conversations WHERE id = ?").get(info.lastInsertRowid);
         return new Response(JSON.stringify(conv), { headers: { "Content-Type": "application/json" }, status: 201 });
       }
@@ -957,13 +980,19 @@ const server = Bun.serve({
     const convMatch = url.pathname.match(/^\/conversations\/(\d+)$/);
     if (convMatch) {
       const id = parseInt(convMatch[1]!);
+      if (id < 1) return new Response("Invalid id", { status: 400 });
+      const exists = db.query("SELECT 1 FROM conversations WHERE id = ?").get(id);
+      if (!exists) return new Response("Not found", { status: 404 });
       if (req.method === "DELETE") {
         db.run("DELETE FROM messages WHERE conversation_id = ?", [id]);
         db.run("DELETE FROM conversations WHERE id = ?", [id]);
         return new Response("OK");
       }
       if (req.method === "PATCH") {
-        const { title } = await req.json() as { title: string };
+        let body: { title?: string } = {};
+        try { body = await req.json() as { title?: string }; } catch { return new Response("Invalid JSON", { status: 400 }); }
+        const title = (body.title ?? "").slice(0, 200);
+        if (!title) return new Response("Title required", { status: 400 });
         db.run("UPDATE conversations SET title = ?, updated_at = unixepoch() WHERE id = ?", [title, id]);
         return new Response("OK");
       }
@@ -981,12 +1010,21 @@ const server = Bun.serve({
     }
     const factMatch = url.pathname.match(/^\/facts\/(.+)$/);
     if (factMatch && req.method === "DELETE") {
-      db.run("DELETE FROM facts WHERE key = ?", [decodeURIComponent(factMatch[1] as string)]);
+      const key = decodeURIComponent(factMatch[1] as string);
+      if (key.length > 200) return new Response("Key too long", { status: 400 });
+      db.run("DELETE FROM facts WHERE key = ?", [key]);
       return new Response("OK");
     }
 
-    const file = url.pathname === "/" ? "/index.html" : url.pathname;
-    const f = Bun.file(`./public${file}`);
+    // Static files with path traversal protection
+    let file = url.pathname === "/" ? "/index.html" : url.pathname;
+    // Normalize and prevent directory traversal
+    file = file.replace(/\.\./g, "").replace(/%2e%2e/gi, "").replace(/%2e/gi, ".");
+    if (file.startsWith("/")) file = file.slice(1);
+    if (file.includes("..") || file.startsWith(".") || pathIsAbsolute(file)) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    const f = Bun.file(`./public/${file}`);
     return (await f.exists()) ? new Response(f) : new Response("Not found", { status: 404 });
   },
 
@@ -1161,6 +1199,8 @@ Quand un outil échoue, lis le message d'erreur et réessaye avec des paramètre
       if (ctrl) ctrl.abort();
       activeStreams.delete(ws);
       cleanupTTS(ws);
+      const rl = (server as any)._rateLimit as Map<any, any> | undefined;
+      if (rl) rl.delete(ws);
     }
   }
 });

@@ -178,22 +178,24 @@ final class AudioService: NSObject {
     }
 
     func stopSpeaking() {
-        // Vider la file d'attente (annuler les textes en attente)
         audioQueue.removeAll()
         isProcessingQueue = false
-        
-        // Arrêter AVSpeechSynthesizer
         synthesizer.stopSpeaking(at: .immediate)
-        speechContinuation?.resume()
-        speechContinuation = nil
-        
-        // Arrêter AVAudioPlayer (edge-tts)
+        if let c = speechContinuation {
+            speechContinuation = nil
+            c.resume()
+        }
         if let player = audioPlayer {
             player.stop()
             player.currentTime = 0
-            audioPlayerContinuation?.resume()
-            audioPlayerContinuation = nil
+            if let c2 = audioPlayerContinuation {
+                audioPlayerContinuation = nil
+                c2.resume()
+            }
             audioPlayer = nil
+        } else if let c2 = audioPlayerContinuation {
+            audioPlayerContinuation = nil
+            c2.resume()
         }
     }
 
@@ -234,12 +236,14 @@ final class AudioService: NSObject {
 
     /// NOTE : `internal` pour les tests
     func stripMarkdown(_ text: String) -> String {
+        var t = text
+        if let rx = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?<\\/think>", options: [.dotMatchesLineSeparators]) {
+            t = rx.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: "")
+        }
         let regexes: [(pattern: String, replacement: String)] = [
-            ( "<think>[\\s\\S]*?<\\/think>", "" ),
             ( "[`*#_~>|]", "" ),
             ( "\\n{3,}", "\n\n" ),
         ]
-        var t = text
         for (pattern, replacement) in regexes {
             t = t.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
         }
@@ -295,23 +299,29 @@ extension AudioService: AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
     // les lit aussi depuis MainActor. On dispatch sur MainActor pour éviter la race.
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
         Task { @MainActor in
-            audioPlayerContinuation?.resume()
-            audioPlayerContinuation = nil
-            audioPlayer = nil
+            if let c = self.audioPlayerContinuation {
+                self.audioPlayerContinuation = nil
+                c.resume()
+            }
+            self.audioPlayer = nil
         }
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
-            speechContinuation?.resume()
-            speechContinuation = nil
+            if let c = self.speechContinuation {
+                self.speechContinuation = nil
+                c.resume()
+            }
         }
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in
-            speechContinuation?.resume()
-            speechContinuation = nil
+            if let c = self.speechContinuation {
+                self.speechContinuation = nil
+                c.resume()
+            }
         }
     }
 }

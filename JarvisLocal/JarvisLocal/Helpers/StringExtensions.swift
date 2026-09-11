@@ -17,12 +17,12 @@ extension String {
         text = text.replacingOccurrences(of: "<script[^>]*>[\\s\\S]*?</script>", with: "", options: [.regularExpression, .caseInsensitive])
         text = text.replacingOccurrences(of: "<style[^>]*>[\\s\\S]*?</style>", with: "", options: [.regularExpression, .caseInsensitive])
         text = text.replacingOccurrences(of: "<br\\s*/>", with: "\n", options: [.regularExpression, .caseInsensitive])
-        let blockTags = try! NSRegularExpression(pattern: "</(p|h[1-6]|li|div|tr|blockquote|section|article|td|th)>", options: [.caseInsensitive])
+        let blockTags = (try? NSRegularExpression(pattern: "</(p|h[1-6]|li|div|tr|blockquote|section|article|td|th)>", options: [.caseInsensitive])) ?? NSRegularExpression()
         text = blockTags.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "\n")
         text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
         let entities = ["&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&nbsp;": " "]
         for (k, v) in entities { text = text.replacingOccurrences(of: k, with: v) }
-        let numericEntity = try! NSRegularExpression(pattern: "&#(\\d+);", options: [])
+        let numericEntity = (try? NSRegularExpression(pattern: "&#(\\d+);", options: [])) ?? NSRegularExpression()
         let nsText = NSMutableString(string: text)
         var offset = 0
         let matches = numericEntity.matches(in: text, range: NSRange(text.startIndex..., in: text))

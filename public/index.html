@@ -360,13 +360,15 @@
   });
 
   function connectWebSocket() {
-    if (ws) { ws.close(); ws = null; }
+    if (ws) { try{ ws.onclose=null; ws.close(); }catch{} ws = null; }
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer=null; }
     setStatus("connecting");
-    ws = new WebSocket(`ws://${location.host}/ws`);
-    ws.onopen = () => { setStatus("connected"); reconnectAttempt = 0; enableInput(true); };
-    ws.onmessage = ({ data }) => handleWsMessage(JSON.parse(data));
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${wsProto}//${location.host}/ws`);
+    ws.onopen = () => { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer=null; } setStatus("connected"); reconnectAttempt = 0; enableInput(true); };
+    ws.onmessage = ({ data }) => { try { handleWsMessage(JSON.parse(data)); } catch(e){ console.warn('[ws] bad json', e); } };
     ws.onerror   = () => setStatus("disconnected");
-    ws.onclose   = () => { setStatus("disconnected"); enableInput(false); scheduleReconnect(); };
+    ws.onclose   = () => { setStatus("disconnected"); enableInput(false); setStreaming(false); removeTyping(); scheduleReconnect(); };
   }
 
   function handleWsMessage(msg) {
@@ -397,7 +399,9 @@
         log.appendChild(currentDiv._wrap);
       }
       currentDiv.dataset.raw = (currentDiv.dataset.raw || "") + msg.text;
-      currentDiv.innerHTML = marked.parse(currentDiv.dataset.raw);
+      let html = marked.parse(currentDiv.dataset.raw);
+      html = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/ on\w+="[^"]*"/gi, '');
+      currentDiv.innerHTML = html;
       log.scrollTop = log.scrollHeight;
     }
 
@@ -472,11 +476,14 @@
     renameInput.focus();
     renameInput.select();
   });
+  let renameCommitting = false;
   async function commitRename() {
+    if (renameCommitting) return;
+    renameCommitting = true;
     const newTitle = renameInput.value.trim();
     renameInput.style.display = "none";
     convTitleDisplay.style.display = "";
-    if (!newTitle || !currentConvId) return;
+    if (!newTitle || !currentConvId) { renameCommitting=false; return; }
     await fetch(`/conversations/${currentConvId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -484,6 +491,7 @@
     });
     convTitleDisplay.textContent = newTitle;
     await refreshConversations();
+    renameCommitting=false;
   }
   renameInput.addEventListener("keydown", e => {
     if (e.key === "Enter") commitRename();
@@ -631,7 +639,7 @@
       for (const m of messages) {
         const div = document.createElement("div");
         div.className = `msg ${m.role}`;
-        if (m.role === "assistant") { div.innerHTML = marked.parse(m.content); div.dataset.raw = m.content; }
+        if (m.role === "assistant") { let h=marked.parse(m.content); h=h.replace(/<script[^>]*>[\s\S]*?<\/script>/gi,'').replace(/ on\w+="[^"]*"/gi,''); div.innerHTML=h; div.dataset.raw = m.content; }
         else { div.textContent = m.content; }
         const ts = m.created_at
           ? new Date(m.created_at * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
@@ -699,7 +707,7 @@
   let voiceTranscript = "";
   let voiceInterim = "";
   let voiceTimer = null;
-  const SILENCE_MS = 700;
+  const SILENCE_MS = 1200;
   const MIN_VOICE_LEN = 5;
 
   function interruptAssistant() {

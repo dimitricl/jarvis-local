@@ -285,15 +285,22 @@ actor DatabaseService {
         for (i, arg) in args.enumerated() {
             let idx = Int32(i + 1)
             if let n = arg as? Int {
-                sqlite3_bind_int(stmt, idx, Int32(n))
+                sqlite3_bind_int64(stmt, idx, Int64(n))
+            } else if let d = arg as? Double {
+                sqlite3_bind_double(stmt, idx, d)
+            } else if let n = arg as? Int64 {
+                sqlite3_bind_int64(stmt, idx, n)
             } else if let s = arg as? String {
                 sqlite3_bind_text(stmt, idx, (s as NSString).utf8String, -1, nil)
+            } else if arg is NSNull {
+                sqlite3_bind_null(stmt, idx)
             }
         }
     }
 
     private func colText(_ stmt: OpaquePointer, _ idx: Int32) -> String {
-        String(cString: sqlite3_column_text(stmt, idx))
+        guard let ptr = sqlite3_column_text(stmt, idx) else { return "" }
+        return String(cString: ptr)
     }
 }
 
