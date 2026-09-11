@@ -245,6 +245,11 @@ final class AppViewModel {
             - Si un outil échoue, dis-le simplement et propose une alternative.
             
             \(toolList)
+
+            Exemples :
+            - "météo à Paris" → get_weather city: Paris
+            - "regarde apple.com" → read_url url: https://www.apple.com/fr/
+            - "cherche iPhone" → search_web query: iPhone Apple
             \(factsContext)
             """
 

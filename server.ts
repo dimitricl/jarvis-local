@@ -408,6 +408,158 @@ const TOOLS = [
         required: ["url"]
       }
     }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_weather",
+      description: "Donne la météo ACTUELLE d'une ville précise (température, conditions, vent). Utilise TOUJOURS cet outil pour toute question météo — jamais search_web.",
+      parameters: {
+        type: "object",
+        properties: {
+          city: { type: "string", description: "Nom de la ville, ex: Muret, Toulouse, Paris" }
+        },
+        required: ["city"]
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_system_info",
+      description: "Retourne infos système : RAM, CPU, disque, batterie, uptime, nom du Mac.",
+      parameters: { type: "object", properties: {}, required: [] }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_clipboard",
+      description: "Lit le contenu actuel du presse-papiers.",
+      parameters: { type: "object", properties: {}, required: [] }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "set_clipboard",
+      description: "Écrit du texte dans le presse-papiers.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Texte à copier" }
+        },
+        required: ["text"]
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "take_screenshot",
+      description: "Prend une capture d'écran de tout l'écran.",
+      parameters: { type: "object", properties: {}, required: [] }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "sleep_mac",
+      description: "Action sur le Mac : sleep (veille), lock (verrouille), shutdown (éteint), restart (redémarre).",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", description: "'sleep'|'lock'|'shutdown'|'restart'" }
+        },
+        required: ["action"]
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "file_search",
+      description: "Recherche des fichiers sur le Mac par nom (Spotlight).",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Nom du fichier à chercher" }
+        },
+        required: ["query"]
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_upcoming_events",
+      description: "Liste les prochains événements du calendrier (défaut 7 jours).",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Nombre de jours (défaut 7)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_reminders",
+      description: "Liste les rappels en attente.",
+      parameters: {
+        type: "object",
+        properties: {
+          list: { type: "string", description: "Nom de la liste (optionnel)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "send_message",
+      description: "Envoie un message iMessage/SMS à un contact.",
+      parameters: {
+        type: "object",
+        properties: {
+          contact: { type: "string", description: "Prénom/nom du destinataire" },
+          message: { type: "string", description: "Contenu du message" }
+        },
+        required: ["contact", "message"]
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "remember_fact",
+      description: "Stocke une info personnelle (nom, ville, préférences...). Ne remplace jamais les autres actions.",
+      parameters: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "Clé ex: user.name" },
+          value: { type: "string", description: "Valeur ex: Dimitri" }
+        },
+        required: ["key", "value"]
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "run_routine",
+      description: "Exécute une routine enregistrée (morning/matin).",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Nom de la routine" }
+        },
+        required: ["name"]
+      }
+    }
   }
 ];
 
@@ -774,6 +926,110 @@ async function readUrl(url: string): Promise<string> {
   } catch (err) { return `Erreur lecture URL : ${err}`; }
 }
 
+const weatherCodeMap: Record<number, string> = {0:"ciel dégagé",1:"plutôt dégagé",2:"partiellement nuageux",3:"couvert",45:"brouillard",48:"brouillard givrant",51:"bruine légère",53:"bruine modérée",55:"bruine dense",61:"pluie légère",63:"pluie modérée",65:"pluie forte",71:"neige légère",73:"neige modérée",75:"neige forte",80:"averses légères",81:"averses modérées",82:"averses violentes",95:"orage",96:"orage avec grêle légère",99:"orage avec grêle forte"};
+async function getWeather(city: string): Promise<string> {
+  try {
+    const trimmed = city.trim();
+    if (!trimmed) return "Aucune ville fournie.";
+    const geoResp = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(trimmed)}&count=1&language=fr&format=json`, { signal: AbortSignal.timeout(8000) });
+    const geo = await geoResp.json() as any;
+    const first = geo?.results?.[0];
+    if (!first?.latitude) return `Ville "${trimmed}" introuvable.`;
+    const lat = first.latitude; const lon = first.longitude; const name = first.name; const country = first.country ?? "";
+    const fResp = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,wind_speed_10m_max&timezone=auto`, { signal: AbortSignal.timeout(8000) });
+    const fj = await fResp.json() as any;
+    const cur = fj?.current;
+    if (!cur) return `Météo indisponible pour ${name}.`;
+    const cond = weatherCodeMap[cur.weather_code] ?? "conditions inconnues";
+    let out = `Météo à ${name}${country?`, ${country}`:""} : actuellement ${cond}, ${Math.round(cur.temperature_2m)}°C (ressenti ${Math.round(cur.apparent_temperature)}°C), humidité ${Math.round(cur.relative_humidity_2m)}%, vent ${Math.round(cur.wind_speed_10m)} km/h.`;
+    const daily = fj?.daily;
+    if (daily?.time) {
+      for(let i=1;i<Math.min(daily.time.length,3);i++){
+        const d = daily.time[i]; const c = weatherCodeMap[daily.weather_code[i]] ?? "inconnu";
+        out += ` | ${i===1?"Demain":"Le "+d} : ${c}, ${Math.round(daily.temperature_2m_min[i])}~${Math.round(daily.temperature_2m_max[i])}°C, précip ${daily.precipitation_sum[i]}mm, vent ${Math.round(daily.wind_speed_10m_max[i])} km/h.`;
+      }
+    }
+    return out;
+  } catch(e){ return `Erreur météo : ${e}`; }
+}
+async function getSystemInfo(): Promise<string> {
+  try {
+    const host = Bun.spawnSync(["hostname"]).stdout ? new TextDecoder().decode(Bun.spawnSync(["hostname"]).stdout).trim() : "Mac";
+    const ramOut = await new Response(Bun.spawn(["/usr/sbin/sysctl","-n","hw.memsize"],{stdout:"pipe"}).stdout).text(); const ramGB = Math.round((parseInt(ramOut.trim())||0)/1e9);
+    const cpuOut = await new Response(Bun.spawn(["/usr/sbin/sysctl","-n","machdep.cpu.brand_string"],{stdout:"pipe"}).stdout).text();
+    const diskStat = await Bun.spawn(["df","-k","/"],{stdout:"pipe"}).stdout ? "" : "";
+    // disk via df
+    const dfProc = Bun.spawn(["df","-k","/"],{stdout:"pipe"}); await dfProc.exited; const dfTxt = await new Response(dfProc.stdout).text();
+    const dfLines = dfTxt.split("\n")[1]?.split(/\s+/) ?? []; const totalGB = Math.round((parseInt(String(dfLines[1] ?? "0"))||0)/1e6); const freeGB = Math.round((parseInt(String(dfLines[3] ?? "0"))||0)/1e6);
+    const battProc = Bun.spawn(["/usr/bin/pmset","-g","batt"],{stdout:"pipe"}); await battProc.exited; const battTxt = await new Response(battProc.stdout).text(); const battLine = battTxt.split("\n").find(l=>l.includes("%")) ?? ""; const battPct = battLine.split("\t").pop()?.split(";")[0]?.trim() ?? "N/A";
+    return `Mac : ${host}\nCPU : ${cpuOut.trim()}\nRAM : ${ramGB} Go\nDisque : ${freeGB} Go libres / ${totalGB} Go total\nBatterie : ${battPct}`;
+  } catch(e){ return `Erreur système : ${e}`; }
+}
+async function getClipboard(): Promise<string> {
+  try { const p = Bun.spawn(["/usr/bin/pbpaste"],{stdout:"pipe"}); await p.exited; const t = (await new Response(p.stdout).text()).trim(); return t || "Presse-papiers vide."; } catch(e){ return `Erreur presse-papiers : ${e}`; }
+}
+async function setClipboard(text: string): Promise<string> {
+  try { const p = Bun.spawn(["/usr/bin/pbcopy"],{stdin:"pipe"}); p.stdin?.write(text); p.stdin?.end(); await p.exited; return "Texte copié dans le presse-papiers."; } catch(e){ return `Erreur presse-papiers : ${e}`; }
+}
+async function takeScreenshot(): Promise<string> {
+  try {
+    const tmp = `/tmp/Capture d'écran ${new Date().toISOString().slice(0,19).replace(/:/g,".")}.png`;
+    const p = Bun.spawn(["/usr/sbin/screencapture","-x",tmp],{stdout:"pipe",stderr:"pipe"}); await p.exited; const err = await new Response(p.stderr).text();
+    if (err.trim()) return `Erreur capture : ${err.trim()}`;
+    return `Capture d'écran enregistrée : ${tmp}`;
+  } catch(e){ return `Erreur capture : ${e}`; }
+}
+async function sleepMac(action: string): Promise<string> {
+  const a = action.toLowerCase();
+  if (a==="sleep"||a==="veille"){ Bun.spawn(["/usr/bin/pmset","sleepnow"]); return "Mise en veille."; }
+  if (a==="lock"||a==="verrouiller"){ Bun.spawn(["/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession","-suspend"]); return "Mac verrouillé."; }
+  if (a==="shutdown"||a==="eteindre"){ Bun.spawn(["/sbin/shutdown","-h","now"]); return "Extinction."; }
+  if (a==="restart"||a==="redemarrer"){ await runOsascript('tell application "System Events" to restart'); return "Redémarrage."; }
+  return "Action inconnue. Utilise sleep, lock, shutdown ou restart.";
+}
+async function fileSearch(query: string): Promise<string> {
+  try { const p = Bun.spawn(["/usr/bin/mdfind","-literal",query],{stdout:"pipe",stderr:"pipe"}); await p.exited; const out = (await new Response(p.stdout).text()).trim(); const err = (await new Response(p.stderr).text()).trim(); if(err) return `Erreur : ${err}`; const lines = out.split("\n").filter(Boolean).slice(0,10); if(!lines.length) return `Aucun fichier trouvé pour "${query}".`; return "Résultats :\n"+lines.join("\n"); } catch(e){ return `Erreur recherche : ${e}`; }
+}
+async function getUpcomingEvents(days: number = 7): Promise<string> {
+  try {
+    const script = `tell application "Calendar"\nset out to ""\nset startD to (current date)\nset endD to startD + (${days} * days)\nrepeat with c in (every calendar)\nset evs to (every event of c whose start date is greater than startD and start date is less than endD)\nrepeat with e in evs\nset out to out & (start date of e as string) & " - " & summary of e & "\n"\nend repeat\nend repeat\nreturn out\nend tell`;
+    const r = await runOsascript(script);
+    return r.trim() || `Aucun événement dans les ${days} prochains jours.`;
+  } catch(e){ return `Erreur calendrier : ${e}`; }
+}
+async function listReminders(list?: string): Promise<string> {
+  try {
+    let script: string;
+    if (list) {
+      script = `tell application "Reminders"\nset out to ""\nrepeat with l in lists\nif name of l contains "${esc(list)}" then\nrepeat with r in (every reminder of l whose completed is false)\nset out to out & name of r & "\n"\nend repeat\nend if\nend repeat\nreturn out\nend tell`;
+    } else {
+      script = `tell application "Reminders"\nset out to ""\nrepeat with l in lists\nrepeat with r in (every reminder of l whose completed is false)\nset out to out & name of r & "\n"\nend repeat\nend repeat\nreturn out\nend tell`;
+    }
+    const r = await runOsascript(script);
+    return r.trim() || "Aucun rappel en attente.";
+  } catch(e){ return `Erreur rappels : ${e}`; }
+}
+async function sendMessage(contact: string, message: string): Promise<string> {
+  try {
+    const script = `tell application "Messages"\ntry\nset targetService to 1st service whose service type = iMessage\nsend "${esc(message)}" to buddy "${esc(contact)}" of targetService\nreturn "Message envoyé par iMessage."\non error\ntry\nset targetService to 1st service whose service type = SMS\nsend "${esc(message)}" to buddy "${esc(contact)}" of targetService\nreturn "Message envoyé par SMS."\non error\nreturn "Impossible d'envoyer."\nend try\nend try\nend tell`;
+    return await runOsascript(script);
+  } catch(e){ return `Erreur message : ${e}`; }
+}
+async function rememberFact(key: string, value: string): Promise<string> {
+  if (!key||!value) return "Erreur : clé et valeur requis.";
+  db.run("INSERT OR REPLACE INTO facts (key, value, updated_at) VALUES (?, ?, unixepoch())", [key, value]);
+  return `Fait mémorisé : ${key} = ${value}`;
+}
+async function runRoutine(name: string): Promise<string> {
+  if (["morning","matin"].includes(name.toLowerCase())){
+    const ev = await getUpcomingEvents(1).catch(()=> "Aucun événement");
+    const sys = await getSystemInfo().catch(()=> "");
+    return ev + "\n\n" + sys;
+  }
+  return `Routine "${name}" inconnue. Disponible : morning.`;
+}
+
+
 // ─── Validation des arguments d'outils ────────────────────────────────────────
 const TOOL_SCHEMAS: Record<string, { required: string[]; properties: Record<string, { type: string }> }> = {
   search_web:          { required: ["query"],        properties: { query: { type: "string" } } },
@@ -787,6 +1043,18 @@ const TOOL_SCHEMAS: Record<string, { required: string[]; properties: Record<stri
   search_maps:         { required: ["query"],        properties: { query: { type: "string" } } },
   run_shortcut:        { required: ["name"],          properties: { name: { type: "string" } } },
   read_url:            { required: ["url"],           properties: { url: { type: "string" } } },
+  get_weather:         { required: ["city"],          properties: { city: { type: "string" } } },
+  get_system_info:     { required: [],                properties: {} },
+  get_clipboard:       { required: [],                properties: {} },
+  set_clipboard:       { required: ["text"],          properties: { text: { type: "string" } } },
+  take_screenshot:     { required: [],                properties: {} },
+  sleep_mac:           { required: ["action"],        properties: { action: { type: "string" } } },
+  file_search:         { required: ["query"],         properties: { query: { type: "string" } } },
+  get_upcoming_events: { required: [],                properties: { days: { type: "number" } } },
+  list_reminders:      { required: [],                properties: { list: { type: "string" } } },
+  send_message:        { required: ["contact","message"], properties: { contact: { type: "string" }, message: { type: "string" } } },
+  remember_fact:       { required: ["key","value"],   properties: { key: { type: "string" }, value: { type: "string" } } },
+  run_routine:         { required: ["name"],          properties: { name: { type: "string" } } },
 };
 
 function validateToolArgs(name: string, args: Record<string, unknown>): string | null {
@@ -819,6 +1087,18 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   if (name === "search_maps") return searchMaps(args.query as string);
   if (name === "run_shortcut") return runShortcut(args.name as string);
   if (name === "read_url") return readUrl(args.url as string);
+  if (name === "get_weather") return getWeather(String(args.city ?? ""));
+  if (name === "get_system_info") return getSystemInfo();
+  if (name === "get_clipboard") return getClipboard();
+  if (name === "set_clipboard") return setClipboard(args.text as string);
+  if (name === "take_screenshot") return takeScreenshot();
+  if (name === "sleep_mac") return sleepMac(args.action as string);
+  if (name === "file_search") return fileSearch(args.query as string);
+  if (name === "get_upcoming_events") return getUpcomingEvents(args.days as number);
+  if (name === "list_reminders") return listReminders(args.list as string | undefined);
+  if (name === "send_message") return sendMessage(String(args.contact ?? ""), String(args.message ?? ""));
+  if (name === "remember_fact") return rememberFact(args.key as string, args.value as string);
+  if (name === "run_routine") return runRoutine(args.name as string);
   return `Outil inconnu : ${name}`;
 }
 
@@ -1125,6 +1405,13 @@ RÈGLE STRICTE : quand search_web ou read_url retourne des résultats, tu as TOU
 RÈGLE STRICTE pour create_note et edit_note : quand tu écris un texte professionnel (lettre, email, annonce), tu DOIS reformuler et corriger la grammaire/orthographe. Ne copie PAS bêtement le texte brut de l'utilisateur — écris-le correctement en français. Pour MODIFIER une note existante, utilise edit_note (pas create_note).
 
 ${toolList}
+
+Exemples d'appels corrects :
+- "météo à Paris" → get_weather {city:"Paris"}
+- "regarde apple.com" → read_url {url:"https://www.apple.com/fr/"}
+- "cherche le dernier iPhone" → search_web {query:"iPhone 16 Apple site:apple.com"}
+- "copie hello" → set_clipboard {text:"hello"}
+- "quelle heure est-il" → get_system_info {}
 
 IMPORTANT : si la demande contient plusieurs actions, appelle tous les outils nécessaires. Par exemple, "ajoute un événement et cherche une adresse" = appelle d'abord search_maps (pour obtenir l'adresse), puis add_calendar_event avec le paramètre location mis à l'ADRESSE EXACTE retournée par search_maps (pas le nom du lieu, pas "domicile", l'adresse complète).
 
