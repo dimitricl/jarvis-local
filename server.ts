@@ -394,6 +394,20 @@ const TOOLS = [
         required: ["name"]
       }
     }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "read_url",
+      description: "Lit le contenu d'une URL (page web, doc Apple, etc.). Utilise cet outil dès que l'utilisateur demande de consulter un site précis (apple.com, etc.) ou de vérifier une source.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "URL complète à lire (ex: https://www.apple.com/fr/iphone/)" }
+        },
+        required: ["url"]
+      }
+    }
   }
 ];
 
@@ -747,6 +761,19 @@ async function runShortcut(name: string): Promise<string> {
   }
 }
 
+async function readUrl(url: string): Promise<string> {
+  try {
+    if (!/^https?:\/\//i.test(url)) return `URL invalide : doit commencer par http:// ou https://`;
+    if (url.length > 2000) return `URL trop longue`;
+    const resp = await fetch(url, { headers: { "User-Agent": "Jarvis/1.0" }, signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) return `Erreur HTTP ${resp.status} en lisant ${url}`;
+    const html = await resp.text();
+    const text = htmlToText(html);
+    if (!text || text.length < 100) return `Page vide ou non lisible : ${url}`;
+    return text.slice(0, 6000);
+  } catch (err) { return `Erreur lecture URL : ${err}`; }
+}
+
 // ─── Validation des arguments d'outils ────────────────────────────────────────
 const TOOL_SCHEMAS: Record<string, { required: string[]; properties: Record<string, { type: string }> }> = {
   search_web:          { required: ["query"],        properties: { query: { type: "string" } } },
@@ -759,6 +786,7 @@ const TOOL_SCHEMAS: Record<string, { required: string[]; properties: Record<stri
   get_calendars:       { required: [],                properties: {} },
   search_maps:         { required: ["query"],        properties: { query: { type: "string" } } },
   run_shortcut:        { required: ["name"],          properties: { name: { type: "string" } } },
+  read_url:            { required: ["url"],           properties: { url: { type: "string" } } },
 };
 
 function validateToolArgs(name: string, args: Record<string, unknown>): string | null {
@@ -790,6 +818,7 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
   if (name === "get_calendars") return getCalendars();
   if (name === "search_maps") return searchMaps(args.query as string);
   if (name === "run_shortcut") return runShortcut(args.name as string);
+  if (name === "read_url") return readUrl(args.url as string);
   return `Outil inconnu : ${name}`;
 }
 
@@ -1089,9 +1118,10 @@ const server = Bun.serve({
       const systemPrompt = `Tu es Jarvis, assistant personnel de Dimitri. Date : ${today}. Tu réponds TOUJOURS en français, exclusivement en français, quelle que soit la langue de la requête ou des résultats de recherche. Tutoiement ("tu", "toi", "tes"). Pas de markdown, pas d'émojis. Sois concis.
 
 Tu as des outils à ta disposition. Pour chaque demande, tu DOIS appeler TOUS les outils nécessaires — ne décris JAMAIS une action sans l'exécuter via un outil. Si l'utilisateur dit "ouvre l'app X", appelle OBLIGATOIREMENT open_app, ne réponds pas en texte. Si tu peux répondre directement sans outil, réponds, mais si une action est demandée (ouvrir, créer, chercher, ajouter), utilise l'outil correspondant.
+JAMAIS dire "je ne peux pas naviguer" ou "je n'ai pas d'accès web" : tu AS les outils search_web et read_url, tu DOIS les utiliser. Si l'utilisateur demande de consulter un site (apple.com, etc.), appelle OBLIGATOIREMENT read_url avec l'URL exacte ou search_web avec "site:apple.com ..." puis read_url sur le premier résultat.
 
 RÈGLE STRICTE pour search_web : le paramètre "query" doit REPRENDRE EXACTEMENT les termes de l'utilisateur. N'invente PAS de mots, ne change PAS le lieu, ne change PAS la date. Si l'utilisateur demande "météo aujourd'hui à Muret", la query doit être "météo aujourd'hui Muret" — PAS "météo Toulouse", PAS "météo demain".
-RÈGLE STRICTE : quand search_web retourne des résultats, tu as TOUT ce qu'il te faut pour répondre. Ne rappelle PAS search_web pour le même sujet. Ne cherche PAS des restaurants si l'utilisateur demande la météo. Réponds directement avec les infos obtenues.
+RÈGLE STRICTE : quand search_web ou read_url retourne des résultats, tu as TOUT ce qu'il te faut pour répondre. Ne rappelle PAS search_web pour le même sujet. Ne cherche PAS des restaurants si l'utilisateur demande la météo. Réponds directement avec les infos obtenues. Ne JAMAIS inventer de faits : si tu n'as pas de résultat outil, dis que la recherche a échoué et propose de réessayer.
 RÈGLE STRICTE pour create_note et edit_note : quand tu écris un texte professionnel (lettre, email, annonce), tu DOIS reformuler et corriger la grammaire/orthographe. Ne copie PAS bêtement le texte brut de l'utilisateur — écris-le correctement en français. Pour MODIFIER une note existante, utilise edit_note (pas create_note).
 
 ${toolList}

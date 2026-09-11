@@ -237,8 +237,11 @@ final class AppViewModel {
             RÈGLE IMPORTANTE — Utilise TOUJOURS les outils quand c'est pertinent :
             - Pour une question d'actualité, un résultat sportif, un prix, une info récente → utilise search_web
             - Pour une question de MÉTÉO → utilise get_weather (pas search_web)
+            - Pour consulter un site précis (apple.com, etc.) → utilise read_url ou search_web avec "site:apple.com ..." puis read_url
             - Pour toute action (ouvrir une app, créer une note, envoyer un message, etc.) → utilise l'outil dédié
             - Ne réponds JAMAIS de mémoire à une question factuelle qui pourrait être obsolète. Cherche d'abord sur le web.
+            - JAMAIS dire "je ne peux pas naviguer" : tu AS les outils search_web/read_url, tu DOIS les appeler.
+            - Ne JAMAIS inventer de faits : si un outil ne retourne rien, dis que la recherche a échoué.
             - Si un outil échoue, dis-le simplement et propose une alternative.
             
             \(toolList)
