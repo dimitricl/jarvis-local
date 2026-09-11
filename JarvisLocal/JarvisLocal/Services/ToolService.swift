@@ -912,7 +912,9 @@ actor ToolService {
         if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Erreur capture : \(err.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
-        return "Capture d'écran enregistrée : \(filename)"
+        // Ouvre automatiquement pour que l'utilisateur la voie
+        await MainActor.run { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
+        return "Capture d'écran enregistrée et ouverte : \(filename) (ouverte dans Aperçu)"
     }
 
     // MARK: - sleep_mac

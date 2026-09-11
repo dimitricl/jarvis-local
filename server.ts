@@ -976,7 +976,9 @@ async function takeScreenshot(): Promise<string> {
     const tmp = `/tmp/Capture d'écran ${new Date().toISOString().slice(0,19).replace(/:/g,".")}.png`;
     const p = Bun.spawn(["/usr/sbin/screencapture","-x",tmp],{stdout:"pipe",stderr:"pipe"}); await p.exited; const err = await new Response(p.stderr).text();
     if (err.trim()) return `Erreur capture : ${err.trim()}`;
-    return `Capture d'écran enregistrée : ${tmp}`;
+    // Ouvre automatiquement pour que l'utilisateur la voie
+    Bun.spawn(["open", tmp], {stdout:"pipe", stderr:"pipe"});
+    return `Capture d'écran enregistrée et ouverte : ${tmp} (ouverte dans Aperçu)`;
   } catch(e){ return `Erreur capture : ${e}`; }
 }
 async function sleepMac(action: string): Promise<string> {
