@@ -240,7 +240,7 @@ final class AppViewModel {
             - Pour consulter un site précis (apple.com, etc.) → utilise read_url ou search_web avec "site:apple.com ..." puis read_url
             - Pour toute action (ouvrir une app, créer une note, envoyer un message, etc.) → utilise l'outil dédié
             - Ne réponds JAMAIS de mémoire à une question factuelle qui pourrait être obsolète. Cherche d'abord sur le web.
-            - JAMAIS dire "je ne peux pas naviguer" : tu AS les outils search_web/read_url, tu DOIS les appeler.
+            - JAMAIS dire "je ne peux pas naviguer" : tu AS les outils search_web/read_url, tu DOIS les appeler IMMÉDIATEMENT SANS demander confirmation. Si l'utilisateur dit "regarde sur le site d'Apple", tu appelles DIRECTEMENT read_url avec https://www.apple.com/fr/ et tu réponds avec le contenu.
             - Ne JAMAIS inventer de faits : si un outil ne retourne rien, dis que la recherche a échoué.
             - Si un outil échoue, dis-le simplement et propose une alternative.
             
