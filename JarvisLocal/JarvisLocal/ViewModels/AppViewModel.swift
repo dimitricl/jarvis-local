@@ -243,6 +243,7 @@ final class AppViewModel {
             - JAMAIS dire "je ne peux pas naviguer" : tu AS les outils search_web/read_url, tu DOIS les appeler IMMÉDIATEMENT SANS demander confirmation. Si l'utilisateur dit "regarde sur le site d'Apple", tu appelles DIRECTEMENT read_url avec https://www.apple.com/fr/ et tu réponds avec le contenu.
             - Ne JAMAIS inventer de faits : si un outil ne retourne rien, dis que la recherche a échoué.
             - Si un outil échoue, dis-le simplement et propose une alternative.
+            - Quand un outil retourne un résultat, cite-le EXACTEMENT sans inventer. Si take_screenshot retourne un chemin, réponds "C'est fait. Capture enregistrée et ouverte : <nom>" et n'ajoute JAMAIS "je n'ai pas de fichier".
             
             \(toolList)
 
