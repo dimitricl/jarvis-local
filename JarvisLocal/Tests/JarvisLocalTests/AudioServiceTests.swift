@@ -259,6 +259,14 @@ final class JarvisLocalAudioServiceQueueTests: XCTestCase {
         audioService.stopSpeaking()
     }
 
+    /// Le singleton est partagé entre tous les tests : sans ce nettoyage, une parole encore
+    /// en cours à la fin d'un test fuit dans le suivant (ordre-dépendant, fantômes en CI).
+    /// Le setUp seul ne suffit pas — c'est l'état LAISSÉ qui contamine, pas l'état trouvé.
+    override func tearDown() async throws {
+        audioService.stopSpeaking()
+        try await super.tearDown()
+    }
+
     func testEnqueueMultipleItems() async {
         audioService.enqueue("Item 1")
         audioService.enqueue("Item 2")
@@ -282,5 +290,51 @@ final class JarvisLocalAudioServiceQueueTests: XCTestCase {
         await audioService.speak("")
         // Should handle empty string gracefully
         XCTAssertTrue(true)
+    }
+
+    /// Non-régression du warning CI "SWIFT TASK CONTINUATION MISUSE: speakSystemTTS(_:)
+    /// leaked its continuation without resuming it" : couper (stopSpeaking) en pleine lecture
+    /// d'un texte multi-phrases doit arrêter la boucle de phrases.
+    /// Mécanisme du leak (avant fix) : stopSpeaking() reprenait la continuation de la phrase
+    /// en cours, mais la boucle speakSystemTTS — qui ne testait que Task.isCancelled —
+    /// enchaînait quand même la phrase suivante (speak() après stopSpeaking(at: .immediate),
+    /// jamais honoré → continuation abandonnée).
+    /// NOTE : pas de capture stderr ici — le runtime loggue la fuite avec un retard variable,
+    /// inexploitable de façon déterministe. Le contrat observable est équivalent : après un
+    /// stop mid-speech, speak() revient vite ET la lecture ne repart pas.
+    func testStopSpeakingMidSpeechHaltsSentenceLoop() async throws {
+        audioService.stopSpeaking()
+        let speech = (1...10).map {
+            "Ceci est la phrase numéro \($0) que Jarvis doit lire à voix haute lentement et distinctement"
+        }.joined(separator: ". ") + "."
+        let speakTask = Task { await audioService.speak(speech) }
+        // Attend qu'une phrase soit VRAIMENT en cours de lecture (continuation en vol) :
+        // sans ça, le stop pourrait frapper avant le premier speak et n'exercer aucun chemin.
+        let started = Date().addingTimeInterval(5)
+        while !audioService.isSpeaking && Date() < started {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let wasSpeaking = audioService.isSpeaking
+        audioService.stopSpeaking()
+
+        // speak() doit revenir vite (le vidage d'état le garantit, même avec le bug).
+        let done = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await speakTask.value; return true }
+            group.addTask { try? await Task.sleep(nanoseconds: 5_000_000_000); return false }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        XCTAssertTrue(done, "speak() n'est pas revenu 5 s après stopSpeaking()")
+        // ...et la lecture ne doit PAS repartir (boucle de phrases bien arrêtée : avant le
+        // fix, elle lançait la phrase suivante malgré le stop, ou abandonnait sa continuation).
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        XCTAssertFalse(audioService.isSpeaking,
+                       "La synthèse a redémarré après stopSpeaking() (boucle de phrases non arrêtée).")
+        // Environnement sans sortie audio (la synthèse ne démarre jamais) : le chemin
+        // mid-speech n'était pas exerçable, on le signale au lieu de valider à vide.
+        if !wasSpeaking {
+            throw XCTSkip("Synthèse vocale inactive dans cet environnement : chemin mid-speech non exercé.")
+        }
     }
 }

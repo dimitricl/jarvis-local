@@ -12,9 +12,78 @@ final class AudioService: NSObject {
     private var audioPlayerContinuation: CheckedContinuation<Void, Never>?
     private var audioPlayer: AVAudioPlayer?
     
-    // File d'attente pour éviter les conflits TTS
-    private var audioQueue: [String] = []
-    private var isProcessingQueue = false
+    // État TTS partagé entre la boucle de lecture (Task héritant d'un contexte quelconque),
+    // stopSpeaking()/enqueue()/speak() (MainActor, tests) et les delegates audio (hop MainActor) :
+    // TOUJOURS manipulé sous ttsStateLock, jamais hors-verrou. Le verrou n'est jamais tenu
+    // pendant un await (sections synchrones uniquement) et les continuations sont toujours
+    // reprises HORS verrou (le code réveillé reverrouille — NSLock non réentrant).
+    // Deux pièces complémentaires contre le leak "leaked its continuation" :
+    // - stopRequested : signal "stop demandé", remis à false par chaque enqueue (une nouvelle
+    //   parole annule le stop). Sortie immédiate de la boucle de phrases, sans attendre.
+    // - speechGeneration : "époque" incrémentée à chaque stop. Une boucle ne crée des
+    //   continuations que si sa génération est toujours courante. Combiné au démarrage
+    //   atomique (une seule boucle vivante à la fois), UN SEUL créateur existe à tout
+    //   instant → le slot partagé speechContinuation ne peut jamais être écrasé avec une
+    //   continuation en vol, et stopSpeaking reprend toujours LA continuation en cours.
+    //   (Constat CI : deux boucles concurrentes — item résiduel d'un tour précédent + item
+    //   courant — partageaient le slot ; le stop ne reprenait que l'une des deux.)
+    // NOTE : audioQueue est sous le même verrou pour fermer aussi le crash latent
+    // removeFirst-sur-file-vide (stop vidait la file pendant que la boucle dépilait).
+    private let ttsStateLock = NSLock()
+    private var _audioQueue: [String] = []
+    private var _isProcessingQueue = false
+    private var _stopRequested = false
+    private var _speechGeneration = 0
+
+    /// Helpers verrouillés (sections synchrones, jamais d'await sous verrou).
+    /// Règle : les `_vars` bruts ne sont touchés QUE dans ces helpers ou dans des blocs
+    /// ttsStateLock explicites — jamais directement depuis le reste de la classe.
+    private func ttsQueueAppend(_ text: String) {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        _stopRequested = false // une nouvelle parole annule l'état "stop"
+        _audioQueue.append(text)
+    }
+    private func ttsQueueIsEmpty() -> Bool {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        return _audioQueue.isEmpty
+    }
+    private func ttsQueuePop() -> String? {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        return _audioQueue.isEmpty ? nil : _audioQueue.removeFirst()
+    }
+    private func ttsQueueCount() -> Int {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        return _audioQueue.count
+    }
+    private func ttsIsProcessing() -> Bool {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        return _isProcessingQueue
+    }
+    private func ttsStopRequested() -> Bool {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        return _stopRequested
+    }
+    private func ttsIsCurrentGeneration(_ gen: Int) -> Bool {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        return gen == _speechGeneration
+    }
+    /// Prend la continuation en cours (take-and-clear) : garantit une reprise UNIQUE même
+    /// si stopSpeaking() et un callback delegate se croisent. Reprendre HORS verrou.
+    private func ttsTakeSpeechContinuation() -> CheckedContinuation<Void, Never>? {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        let c = speechContinuation
+        speechContinuation = nil
+        return c
+    }
+    /// Sortie de boucle processeur : efface le flag "vivant" et dit s'il reste du travail
+    /// à confier à une boucle de génération courante (relauch, voir processAudioQueue).
+    /// Helper synchrone dédié car NSLock.lock/unlock est interdit textuellement dans un
+    /// contexte async (warning Swift 6) — le defer de processAudioQueue l'appelle.
+    private func ttsFinishProcessorPass() -> Bool {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        _isProcessingQueue = false
+        return !_audioQueue.isEmpty
+    }
 
     private override init() {
         super.init()
@@ -29,7 +98,9 @@ final class AudioService: NSObject {
     func enqueue(_ text: String) {
         let clean = normalizeForTTS(text)
         guard !clean.isEmpty else { return }
-        audioQueue.append(clean)
+        // ttsQueueAppend remet aussi stopRequested à false : sans ça, un stop suivi d'un
+        // enqueue rejouerait... rien (la boucle sortirait aussitôt sur le flag encore levé).
+        ttsQueueAppend(clean)
         startQueueProcessorIfNeeded()
     }
 
@@ -38,29 +109,45 @@ final class AudioService: NSObject {
     /// (annonces de confirmation, fin de tour en mode vocal).
     func speak(_ text: String) async {
         enqueue(text)
-        while isProcessingQueue || !audioQueue.isEmpty
+        while ttsIsProcessing() || !ttsQueueIsEmpty()
                 || synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false) {
             try? await Task.sleep(nanoseconds: 60_000_000)
         }
     }
 
     private func startQueueProcessorIfNeeded() {
-        guard !isProcessingQueue else { return }
-        isProcessingQueue = true
+        // Démarrage atomique sous verrou : deux enqueue concurrents ne doivent jamais
+        // lancer deux boucles (deux créateurs de continuations sur le même slot = leak).
+        // La génération capturée ici est la "carte d'identité" de cette boucle.
+        ttsStateLock.lock()
+        guard !_isProcessingQueue else { ttsStateLock.unlock(); return }
+        _isProcessingQueue = true
+        let gen = _speechGeneration
+        ttsStateLock.unlock()
         Task { [weak self] in
-            await self?.processAudioQueue()
+            await self?.processAudioQueue(generation: gen)
         }
     }
 
-    private func processAudioQueue() async {
-        defer { isProcessingQueue = false }
-        while !audioQueue.isEmpty {
-            let text = audioQueue.removeFirst()
+    private func processAudioQueue(generation gen: Int) async {
+        defer {
+            // Fin de boucle : file vide OU boucle périmée par un stop ultérieur. S'il reste
+            // du travail, une boucle de génération courante doit prendre le relais — sinon
+            // une parole enfilée pendant la fenêtre de sortie resterait sans lecteur
+            // (cas réel : enqueue arrivé entre le réveil d'une boucle périmée et sa sortie,
+            // avec isProcessingQueue encore à true → aucun redémarrage).
+            if ttsFinishProcessorPass() { startQueueProcessorIfNeeded() }
+        }
+        while !ttsQueueIsEmpty() {
+            // Boucle périmée par un stop ultérieur : on sort SANS dépiler ni créer de
+            // continuation (le relaunch du defer confie la suite à une boucle courante).
+            guard ttsIsCurrentGeneration(gen) else { break }
+            guard let text = ttsQueuePop() else { break }
             let settings = Settings.shared
 
             switch settings.ttsEngine {
             case .system:
-                await speakSystemTTS(text)
+                await speakSystemTTS(text, generation: gen)
             case .edgeTTS:
                 await speakEdgeTTS(text)
             }
@@ -73,7 +160,19 @@ final class AudioService: NSObject {
         Settings.shared.selectedVoice
     }
 
-    private func speakSystemTTS(_ text: String) async {
+    /// Lit un item de la file phrase par phrase. `generation` est la carte d'identité de la
+    /// boucle processeur appelante (nil = appel hors boucle, cas du fallback edge-tts : pas
+    /// de contrôle de génération, comportement historique).
+    /// Protocole anti-leak, vérifié à CHAQUE itération AVANT toute création de continuation :
+    /// Task non annulé + pas de stop demandé + génération toujours courante. L'enregistrement
+    /// dans le slot partagé est atomique avec ce test (même verrou que le bump de génération
+    /// de stopSpeaking) : soit le stop nous voit et reprend cette continuation, soit on se
+    /// voit périmé avant de la créer — jamais de continuation créée après un stop sans reprise.
+    /// Et si un stop passe entre l'enregistrement et le speak(), le test post-speak coupe le
+    /// synthé aussitôt : le didCancel/didFinish qui suit reprend NOTRE continuation (toujours
+    /// dans le slot — créateur unique). Sans ça, un speak() ignoré par le synthé après un stop
+    /// laissait la continuation en vol (le warning CI).
+    private func speakSystemTTS(_ text: String, generation gen: Int? = nil) async {
         let voice = selectedVoice
         let baseRate: Float
 
@@ -85,7 +184,7 @@ final class AudioService: NSObject {
 
         let sentences = splitIntoSentences(text)
         for (i, sentence) in sentences.enumerated() {
-            guard !Task.isCancelled else { break }
+            guard !Task.isCancelled, !ttsStopRequested(), gen.map(ttsIsCurrentGeneration) ?? true else { break }
 
             let utterance = AVSpeechUtterance(string: sentence)
             utterance.voice = voice
@@ -97,8 +196,27 @@ final class AudioService: NSObject {
             utterance.preUtteranceDelay = i == 0 ? 0 : 0.15
 
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                speechContinuation = continuation
+                // Enregistrement atomique : si un stop nous a périmés entre la gate et ici,
+                // on reprend aussitôt cette continuation (créée pour rien) au lieu de parler
+                // — retourner du body sans reprise = leak, d'où le resume explicite.
+                // (Reprendre une continuation de façon synchrone dans le body est légal :
+                // l'await se termine alors immédiatement.)
+                ttsStateLock.lock()
+                let fresh = gen.map { $0 == _speechGeneration } ?? true
+                    && !_stopRequested
+                if fresh { speechContinuation = continuation }
+                ttsStateLock.unlock()
+                guard fresh else {
+                    continuation.resume()
+                    return
+                }
                 synthesizer.speak(utterance)
+                // Un stop a pu passer entre l'enregistrement et le speak : cette phrase est
+                // déjà périmée, on coupe le synthé pour que le callback qui suit (didCancel
+                // ou didFinish) reprenne cette continuation au lieu de l'abandonner.
+                if ttsStopRequested() || gen.map({ !ttsIsCurrentGeneration($0) }) ?? false {
+                    synthesizer.stopSpeaking(at: .immediate)
+                }
             }
         }
     }
@@ -178,13 +296,22 @@ final class AudioService: NSObject {
     }
 
     func stopSpeaking() {
-        audioQueue.removeAll()
-        isProcessingQueue = false
+        // Bump de génération + reprise du slot SOUS LE MÊME verrou que l'enregistrement des
+        // créateurs (ordre total) : soit ce stop voit la continuation en cours et la reprend,
+        // soit le créateur concurrent se voit périmé avant de la créer — jamais de
+        // continuation créée après un stop sans reprise. Reprise HORS verrou (le code
+        // réveillé reverrouille). NOTE : isProcessingQueue n'est VOLONTAIREMENT plus remis
+        // à false ici (voir sa déclaration) : seule la boucle elle-même constate sa sortie,
+        // sinon un enqueue suivant démarre une deuxième boucle concurrente (le leak CI).
+        ttsStateLock.lock()
+        _stopRequested = true
+        _speechGeneration += 1
+        _audioQueue.removeAll()
+        let c = speechContinuation
+        speechContinuation = nil
+        ttsStateLock.unlock()
         synthesizer.stopSpeaking(at: .immediate)
-        if let c = speechContinuation {
-            speechContinuation = nil
-            c.resume()
-        }
+        if let c { c.resume() }
         if let player = audioPlayer {
             player.stop()
             player.currentTime = 0
@@ -200,7 +327,7 @@ final class AudioService: NSObject {
     }
 
     var isSpeaking: Bool {
-        synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false) || audioQueue.count > 0
+        synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false) || ttsQueueCount() > 0
     }
 
     /// NOTE : `internal` pour les tests
@@ -309,8 +436,10 @@ extension AudioService: AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
-            if let c = self.speechContinuation {
-                self.speechContinuation = nil
+            // Take-and-clear sous le même verrou que le grab de stopSpeaking : une
+            // continuation n'est reprise qu'UNE fois même si les deux se croisent
+            // (un 2e resume trap). Reprise hors verrou.
+            if let c = self.ttsTakeSpeechContinuation() {
                 c.resume()
             }
         }
@@ -318,8 +447,7 @@ extension AudioService: AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in
-            if let c = self.speechContinuation {
-                self.speechContinuation = nil
+            if let c = self.ttsTakeSpeechContinuation() {
                 c.resume()
             }
         }

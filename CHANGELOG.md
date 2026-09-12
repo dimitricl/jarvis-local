@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (2026-09-12)
+
+- Fix synthèse vocale : correctif d'un blocage rare lors d'une interruption en pleine lecture
+  (la voix pouvait continuer malgré le stop, ou rester muette par la suite) — la lecture
+  s'arrête désormais de façon fiable et ne redémarre plus toute seule
+- Tests : `stopSpeaking()` en tearDown des tests TTS pour ne plus laisser de parole en cours
+  fuiter d'un test à l'autre
+
 ## 0.3.0 (2026-09-12)
 
 - Fix critique SQLite : `sqlite3_bind_text` utilisait `nil` (SQLITE_STATIC) sur des pointeurs
