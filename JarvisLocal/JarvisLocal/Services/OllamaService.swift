@@ -211,8 +211,119 @@ final class OllamaService: @unchecked Sendable {
         }
     }
 
-    func makeRequestBody(model: String, messages: [OllamaMessage], stream: Bool, tools: [ToolDef]?) -> [String: Any] {
-        var body: [String: Any] = [
+    /// Budget en caractères pour l'historique COMPLET envoyé au modèle (prompt système +
+    /// conversation + résultats de tools), dérivé de num_ctx. AVANT : seul le NOMBRE de messages
+    /// était borné (50 derniers) — quelques résultats search_web volumineux suffisaient à dépasser
+    /// num_ctx, et Ollama tronquait alors silencieusement le DÉBUT du contexte (dont le prompt
+    /// système) sans aucune erreur. Ici on réserve maxTokens (génération) + une marge (~1500
+    /// tokens : prompt système, définitions de tools, overhead) et on convertit le reste en
+    /// caractères (~4 caractères/token, même heuristique que l'ancien prototype TS). Le plancher
+    /// évite un budget absurde quand numCtx est petit et maxTokens grand.
+    /// NOTE : `internal`/`static` pour les tests — fonction pure, sans état.
+    static let historyCharsPerToken = 4
+    static let historyReservedTokens = 1500
+    static let historyMinChars = 4000
+    /// Seuil au-delà duquel UN message "tool" est tronqué (passe 1 du trim) : les résultats
+    /// search_web/read_url sont les principaux gonfleurs d'historique.
+    static let maxToolMessageChars = 3000
+
+    static func historyCharBudget(numCtx: Int, maxTokens: Int) -> Int {
+        let usableTokens = numCtx - maxTokens - historyReservedTokens
+        return max(historyMinChars, usableTokens * historyCharsPerToken)
+    }
+
+    /// Réduit un historique sous maxChars en dégrandant le moins utile d'abord. Passe 1 :
+    /// tronque les contenus "tool" volumineux les plus anciens (avec marqueur explicite pour
+    /// que le modèle sache qu'il voit un extrait). Passe 2 : remplace les contenus "tool"
+    /// restants par un résumé d'une ligne (le message et son tool_call_id sont GARDÉS pour ne
+    /// pas casser l'appariement appel ↔ résultat côté backend). Passe 3 (dernier recours) :
+    /// supprime les messages les plus anciens. Puis réparation d'appariement systématique
+    /// (dropOrphanedToolLinkage) : la passe 3 pouvant retirer un assistant porteur de
+    /// tool_calls sans retirer ses messages "tool", on ne laisse jamais l'un sans l'autre
+    /// en sortie — un tool_call_id orphelin ferait rejeter la requête suivante par les
+    /// backends OpenAI-compatibles. Les 2 derniers messages ne sont JAMAIS touchés :
+    /// dans la boucle de tools, ce sont les résultats qui viennent d'être produits et dont la
+    /// prochaine itération a besoin. Fonction pure — AppViewModel l'applique à l'historique
+    /// initial ET après chaque ajout de résultats de tools dans la boucle.
+    static func trimMessagesForContext(_ messages: [OllamaMessage], maxChars: Int) -> [OllamaMessage] {
+        guard !messages.isEmpty else { return messages }
+        var out = messages
+        func totalChars() -> Int { out.reduce(0) { $0 + ($1.content?.count ?? 0) } }
+        if totalChars() > maxChars {
+            // Queue intouchable : les résultats frais du tour en cours.
+            let keepTail = min(2, out.count)
+
+            // Passe 1 — tronque les "tool" volumineux, plus anciens d'abord (hors queue).
+            for i in out.indices where out[i].role == "tool" && i < out.count - keepTail {
+                guard let content = out[i].content, content.count > maxToolMessageChars else { continue }
+                out[i].content = String(content.prefix(maxToolMessageChars))
+                    + "\n…[extrait tronqué : \(content.count) caractères d'origine, réduit à \(maxToolMessageChars) pour tenir dans la fenêtre de contexte]"
+                if totalChars() <= maxChars { break }
+            }
+
+            // Passe 2 — résume d'une ligne les "tool" restants (hors queue), en gardant le
+            // message + tool_call_id pour ne pas casser l'appariement côté backend.
+            if totalChars() > maxChars {
+                for i in out.indices where out[i].role == "tool" && i < out.count - keepTail {
+                    guard let content = out[i].content,
+                          !content.hasPrefix("[résultat d'outil ancien omis") else { continue }
+                    out[i].content = "[résultat d'outil ancien omis pour tenir dans la fenêtre de contexte (\(content.count) caractères)] : \(content.prefix(200))"
+                    if totalChars() <= maxChars { break }
+                }
+            }
+
+            // Passe 3 — dernier recours : supprime les messages les plus anciens, en gardant
+            // le prompt système initial et au moins 10 messages au total.
+            // NOTE : on supprime message par message depuis le début, donc un assistant
+            // porteur de tool_calls peut disparaître sans ses messages "tool" (la boucle
+            // s'arrête dès que le budget est atteint, possiblement entre les deux) — c'est
+            // la réparation ci-dessous qui rétablit l'appariement, pas la passe 3 elle-même.
+            if totalChars() > maxChars {
+                let minKeep = min(10, out.count)
+                var idx = out.startIndex
+                // Ne jamais supprimer le system prompt en tête.
+                if out[idx].role == "system" { idx = out.index(after: idx) }
+                while totalChars() > maxChars && out.count > minKeep && idx < out.count - keepTail {
+                    out.remove(at: idx)
+                    // Pas d'incrément : les suivants ont glissé d'un cran ; idx pointe déjà
+                    // sur le prochain candidat.
+                }
+            }
+        }
+        // Toujours appliquée (identité sur historique déjà sain) : garantit l'invariant
+        // "aucun tool_call_id orphelin" quel que soit le chemin emprunté ci-dessus.
+        return dropOrphanedToolLinkage(out)
+    }
+
+    /// Réparation d'appariement appel ↔ résultat. Retire avec sa paire manquante :
+    /// - un message "tool" dont l'appel parent (assistant portant son tool_call_id)
+    ///   a disparu est retiré ;
+    /// - un tool_call sans message "tool" est retiré de son message assistant, et le
+    ///   message lui-même est retiré s'il devient vide (ni texte ni appels restants).
+    /// Les appels partiellement répondus sont conservés pour leur partie répondue.
+    /// NOTE : `internal`/`static` pour les tests — fonction pure, sans état.
+    static func dropOrphanedToolLinkage(_ messages: [OllamaMessage]) -> [OllamaMessage] {
+        let calledIds = Set(messages.filter { $0.role == "assistant" }
+            .flatMap { $0.toolCalls?.map { $0.id } ?? [] })
+        let answeredIds = Set(messages.filter { $0.role == "tool" }.compactMap { $0.toolCallId })
+        return messages.compactMap { msg in
+            if msg.role == "tool" {
+                guard let tcid = msg.toolCallId, calledIds.contains(tcid) else { return nil }
+                return msg
+            }
+            var msg = msg
+            if let calls = msg.toolCalls, !calls.isEmpty {
+                let kept = calls.filter { answeredIds.contains($0.id) }
+                if kept.isEmpty, (msg.content?.isEmpty ?? true) {
+                    return nil
+                }
+                msg.toolCalls = kept.isEmpty ? nil : kept
+            }
+            return msg
+        }
+    }
+
+    func makeRequestBody(model: String, messages: [OllamaMessage], stream: Bool, tools: [ToolDef]?) -> [String: Any] {        var body: [String: Any] = [
             "model": model,
             "messages": messages.map { msg in
                 var d: [String: Any] = ["role": msg.role]

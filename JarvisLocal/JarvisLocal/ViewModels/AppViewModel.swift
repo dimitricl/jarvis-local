@@ -69,10 +69,13 @@ final class AppViewModel {
     /// — ou être manipulé par une injection indirecte cachée dans un résultat de search_web.
     /// run_shortcut est inclus : un Raccourci macOS peut chaîner des actions arbitraires
     /// (exécution shell, réseau, contrôle d'autres apps) au même titre qu'un AppleScript.
+    /// take_screenshot aussi : une capture lit TOUT l'écran (onglets bancaires, messages privés,
+    /// mots de passe affichés) et écrit un fichier PNG qu'elle ouvre aussitôt — effet sensible
+    /// au même titre que set_clipboard, qui expose lui aussi du contenu potentiellement privé.
     /// NOTE : visibilité `internal` (pas `private`) volontaire — c'est la seule façon pour les tests
     /// de lire la VRAIE liste via @testable import au lieu d'en recopier une à la main qui finit
     /// forcément par diverger du code réel sans jamais faire échouer aucun test.
-    let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut", "remember_fact", "search_maps", "add_calendar_event", "add_reminder", "set_clipboard"]
+    let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "applescript", "edit_note", "run_shortcut", "remember_fact", "search_maps", "add_calendar_event", "add_reminder", "set_clipboard", "take_screenshot"]
 
     private var streamTask: Task<Void, Never>?
     private var voiceTask: Task<Void, Never>?
@@ -259,6 +262,12 @@ final class AppViewModel {
             for msg in history {
                 ollamaMessages.append(OllamaMessage(role: msg.role, content: msg.content))
             }
+            // Plafond de contexte : l'historique DB (50 derniers messages) peut à lui seul
+            // dépasser num_ctx avec quelques gros résultats search_web — Ollama tronquerait
+            // alors silencieusement le début (dont ce prompt système). On réduit les contenus
+            // "tool" anciens AVANT l'envoi, et on refait de même après chaque ajout de
+            // résultats en bas de boucle.
+            ollamaMessages = trimmedForContext(ollamaMessages)
 
             let maxLoops = 5
             var toolCallHistory = Set<String>()
@@ -381,6 +390,11 @@ final class AppViewModel {
                     }
                 }
 
+                // Les résultats de tools accumulés à chaque itération regonflent l'historique
+                // (search_web surtout) : on re-plafonne avant le prochain appel modèle pour
+                // rester sous num_ctx au lieu de laisser Ollama couper en silence.
+                ollamaMessages = trimmedForContext(ollamaMessages)
+
                 streamingText = ""
             }
 
@@ -446,6 +460,14 @@ final class AppViewModel {
             obj[k] = v
         }
         return obj
+    }
+
+    /// Applique le plafond de contexte (dérivé de num_ctx, voir OllamaService) à un
+    /// historique avant envoi au modèle. Petit wrapper pour ne pas dupliquer le calcul
+    /// du budget aux deux points d'appel (historique initial + fin d'itération de tools).
+    private func trimmedForContext(_ messages: [OllamaMessage]) -> [OllamaMessage] {
+        let budget = OllamaService.historyCharBudget(numCtx: Settings.shared.numCtx, maxTokens: Settings.shared.maxTokens)
+        return OllamaService.trimMessagesForContext(messages, maxChars: budget)
     }
 
     /// Consomme un seul appel streamé à Ollama : met à jour streamingText en direct,
@@ -552,6 +574,11 @@ final class AppViewModel {
             let body = (args["body"] as? String ?? "")
             let truncated = body.count > 200 ? String(body.prefix(200)) + "…" : body
             return "Jarvis veut modifier la note « \(args["search_title"] as? String ?? "?") » avec :\n\n\(truncated)"
+        case "take_screenshot":
+            // Capture plein écran : l'image peut contenir des infos privées visibles à ce
+            // moment-là (messages, onglets, documents). On le dit explicitement pour que
+            // l'utilisateur jette un œil à son écran avant de valider, comme pour set_clipboard.
+            return "Jarvis veut prendre une capture de TOUT l'écran (le contenu actuellement affiché — messages, onglets, documents — sera enregistré dans un fichier PNG et ouvert dans Aperçu)."
         case "remember_fact":
             // Ajouté par toi, mais sans passer par la confirmation : le modèle pouvait écrire
             // n'importe quelle clé/valeur en mémoire long-terme (réinjectée dans CHAQUE prompt système
@@ -788,9 +815,6 @@ final class AppViewModel {
 
                         guard !text.isEmpty else { continue }
 
-                        // Filtre anti-bruit : ignore les transcriptions de 2 caractères ou moins
-                        // ("euh", "ah", souffle mal transcrit) tout en laissant passer les commandes
-                        // courtes mais réelles ("stop", "oui").
                         // Filtre anti-bruit : ignore les transcriptions de 2 caractères ou moins
                         // ("euh", "ah", souffle mal transcrit) tout en laissant passer les commandes
                         // courtes mais réelles ("stop", "oui").

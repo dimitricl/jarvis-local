@@ -1174,6 +1174,61 @@ async function streamToWs(ws: ServerWebSocket, messages: Record<string, unknown>
 }
 
 // ─── Ollama helper non-streaming ──────────────────────────────────────────────
+function tryParseToolFromContent(content: string): { id: string; type: string; function: { name: string; arguments: string } } | null {
+  const trimmed = content.trim();
+  // Pattern: toolName {json} or toolName(query="...") or toolName({...})
+  const toolNames = TOOLS.map(t=> (t.function as any).name);
+  for (const name of toolNames) {
+    // JSON style: get_weather {"city": "Paris"} or get_weather {city: "Paris"}
+    const jsonPattern = new RegExp(`${name}\\s*\\{([^}]*)}`, "i");
+    const m = trimmed.match(jsonPattern);
+    if (m) {
+      let argsStr = "{" + m[1] + "}";
+      // Try to normalize single quotes and unquoted keys
+      try {
+        // Attempt to parse as JSON after fixing
+        let normalized = argsStr.replace(/'/g, '"').replace(/(\w+)\s*:/g, '"$1":');
+        JSON.parse(normalized);
+        return { id: "call_"+Math.random().toString(36).slice(2), type: "function", function: { name, arguments: normalized } };
+      } catch {
+        // Try query="..." style
+      }
+    }
+    // Parentheses style: search_web(query="...") or search_web("...")
+    const parenPattern = new RegExp(`${name}\\s*\\(\\s*([^)]*)`, "i");
+    const pm = trimmed.match(parenPattern);
+    if (pm) {
+      let inside = pm[1]?.trim() ?? "";
+      // Try to extract query="..." or city="..."
+      const argMatch = inside.match(/(\w+)\s*=\s*["']([^"']+)["']/);
+      if (argMatch) {
+        const key = argMatch[1]; const val = argMatch[2];
+        const args = JSON.stringify({ [key]: val });
+        return { id: "call_"+Math.random().toString(36).slice(2), type: "function", function: { name, arguments: args } };
+      }
+      // If just a quoted string
+      const quoted = inside.match(/["']([^"']+)["']/);
+      if (quoted) {
+        const key = name==="get_weather" ? "city" : name==="search_web" ? "query" : name==="read_url" ? "url" : "query";
+        const args = JSON.stringify({ [key]: quoted[1] });
+        return { id: "call_"+Math.random().toString(36).slice(2), type: "function", function: { name, arguments: args } };
+      }
+    }
+    // Simple mention: content contains tool name and we can try to extract city/query
+    if (trimmed.toLowerCase().includes(name)) {
+      // For get_weather, try to extract city name after "météo à" or city param
+      if (name==="get_weather") {
+        const cityM = trimmed.match(/city\s*[:=]\s*["']?([^"'},)]+)/i) || trimmed.match(/météo[^\w]*([A-ZÀ-ÿa-z]+)/i);
+        if (cityM) return { id: "call_"+Math.random().toString(36).slice(2), type: "function", function: { name, arguments: JSON.stringify({ city: cityM[1].trim() }) } };
+      }
+      if (name==="search_web") {
+        const qM = trimmed.match(/query\s*[:=]\s*["']?([^"'},)]+)/i);
+        if (qM) return { id: "call_"+Math.random().toString(36).slice(2), type: "function", function: { name, arguments: JSON.stringify({ query: qM[1].trim() }) } };
+      }
+    }
+  }
+  return null;
+}
 async function ollamaCompletion(messages: Record<string, unknown>[], tools?: typeof TOOLS, model = MODEL, opts: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> {
   const body: Record<string, unknown> = {
     model,
@@ -1447,8 +1502,14 @@ Quand un outil échoue, lis le message d'erreur et réessaye avec des paramètre
           return;
         }
 
-        const toolCalls = (msg.tool_calls ?? []) as { id: string; type: string; function: { name: string; arguments: string } }[];
-        console.log(`[loop ${loop}] model:`, JSON.stringify({ role: msg.role, content: ((msg.content as string) ?? "").slice(0, 80), tool_calls: toolCalls.map((tc: any) => tc.function.name) }));
+        let toolCalls = (msg.tool_calls ?? []) as { id: string; type: string; function: { name: string; arguments: string } }[];
+        // Fallback: modèle génère parfois l'appel dans content au lieu de tool_calls (gemma)
+        if (!toolCalls.length) {
+          const content = (msg.content as string) ?? "";
+          const fallback = tryParseToolFromContent(content);
+          if (fallback) toolCalls = [fallback];
+        }
+        console.log(`[loop ${loop}] model:`, JSON.stringify({ role: msg.role, content: ((msg.content as string) ?? "").slice(0, 80), tool_calls: toolCalls.map((tc: any) => tc.function?.name ?? (tc as any).name) }));
 
         if (!toolCalls.length) {
           const content = (msg.content as string) ?? "";

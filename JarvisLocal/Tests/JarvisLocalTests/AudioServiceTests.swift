@@ -39,6 +39,13 @@ final class JarvisLocalAudioServiceTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    // NOTE (flaky connu, non lié à une régression) : ce test pilote le VRAI singleton
+    // AVSpeechSynthesizer partagé entre les tests, avec une boucle d'attente de 5 s.
+    // Si un autre test a laissé de la parole en cours (ou si le moteur TTS système met
+    // plus de 5 s à s'arrêter sur la machine), isSpeaking peut encore être vrai au bout
+    // du délai et le test échoue. Relancé en isolé ou en suite complète, il passe.
+    // Ne pas conclure à une régression STT/TTS sur ce seul échec : vérifier d'abord
+    // qu'il se reproduit en isolé (`swift test --filter testIsSpeakingProperty`).
     func testIsSpeakingProperty() async {
         // Le singleton est partagé entre les tests : on attend que la file se vide
         // plutôt que de supposer un état initial propre.

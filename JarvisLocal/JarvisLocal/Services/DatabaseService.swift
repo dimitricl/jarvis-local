@@ -1,6 +1,14 @@
 import Foundation
 import SQLite3
 
+// SQLITE_TRANSIENT (-1) : demande à SQLite de COPIER la chaîne liée avant le retour
+// de sqlite3_bind_text. Sans ça (nil = SQLITE_STATIC), SQLite garde le pointeur tel quel
+// et le déréférence plus tard au sqlite3_step — or ici le pointeur vient d'un NSString
+// temporaire ((value as NSString).utf8String) qui peut être libéré entre-temps, d'où un
+// risque réel de corruption / crash sur les chaînes longues ou unicode.
+// Référence : https://www.sqlite.org/c3ref/c_static.html
+private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
 actor DatabaseService {
     static let shared = DatabaseService()
     private var db: OpaquePointer?
@@ -81,12 +89,15 @@ actor DatabaseService {
     }
 
     func updateConversationTitle(id: Int, title: String) throws {
-        try exec("UPDATE conversations SET title = ?, updated_at = unixepoch() WHERE id = ?", params: [title, "\(id)"])
+        // NOTE : id passé en Int directement (bind en INTEGER via sqlite3_bind_int64),
+        // comme getConversation — pas de conversion "\(id)" en TEXT.
+        try exec("UPDATE conversations SET title = ?, updated_at = unixepoch() WHERE id = ?", params: [title as Any?, id as Any?])
     }
 
     func deleteConversation(id: Int) throws {
-        try exec("DELETE FROM messages WHERE conversation_id = ?", params: ["\(id)"])
-        try exec("DELETE FROM conversations WHERE id = ?", params: ["\(id)"])
+        // NOTE : id passé en Int directement (bind en INTEGER), pas en String.
+        try exec("DELETE FROM messages WHERE conversation_id = ?", params: [id as Any?])
+        try exec("DELETE FROM conversations WHERE id = ?", params: [id as Any?])
     }
 
     // MARK: - Messages
@@ -96,7 +107,9 @@ actor DatabaseService {
     }
 
     func insertMessage(role: String, content: String, conversationId: Int?) throws -> Message {
-        try exec("INSERT INTO messages (role, content, conversation_id) VALUES (?, ?, ?)", params: [role, content, conversationId.map { "\($0)" }])
+        // NOTE : conversationId passé en Int? directement (bind en INTEGER ou NULL),
+        // pas converti en String — SQLite compare INTEGER = INTEGER sans coercition surprise.
+        try exec("INSERT INTO messages (role, content, conversation_id) VALUES (?, ?, ?)", params: [role as Any?, content as Any?, conversationId as Any?])
         let id = Int(sqlite3_last_insert_rowid(db))
         return Message(id: id, role: role, content: content, conversationId: conversationId, createdAt: Date())
     }
@@ -148,13 +161,26 @@ actor DatabaseService {
 
     // MARK: - Query helpers
 
-    private func exec(_ sql: String, params: [String?]) throws {
+    // NOTE : params est [Any?] (et plus [String?]) pour que les id INTEGER soient liés
+    // en INTEGER via sqlite3_bind_int64 plutôt que convertis en TEXT. Les chaînes sont
+    // liées avec SQLITE_TRANSIENT (copie immédiate par SQLite) — jamais nil/SQLITE_STATIC
+    // sur un pointeur temporaire, voir le commentaire en tête de fichier.
+    private func exec(_ sql: String, params: [Any?]) throws {
         try withStmt(sql) { stmt in
             for (i, p) in params.enumerated() {
                 let idx = Int32(i + 1)
-                if let value = p {
-                    sqlite3_bind_text(stmt, idx, (value as NSString).utf8String, -1, nil)
-                } else {
+                switch p {
+                case nil:
+                    sqlite3_bind_null(stmt, idx)
+                case let n as Int:
+                    sqlite3_bind_int64(stmt, idx, Int64(n))
+                case let n as Int64:
+                    sqlite3_bind_int64(stmt, idx, n)
+                case let d as Double:
+                    sqlite3_bind_double(stmt, idx, d)
+                case let value as String:
+                    sqlite3_bind_text(stmt, idx, (value as NSString).utf8String, -1, SQLITE_TRANSIENT)
+                default:
                     sqlite3_bind_null(stmt, idx)
                 }
             }
@@ -291,7 +317,10 @@ actor DatabaseService {
             } else if let n = arg as? Int64 {
                 sqlite3_bind_int64(stmt, idx, n)
             } else if let s = arg as? String {
-                sqlite3_bind_text(stmt, idx, (s as NSString).utf8String, -1, nil)
+                // SQLITE_TRANSIENT : SQLite copie la chaîne immédiatement. Avec nil
+                // (SQLITE_STATIC), le pointeur temporaire d'NSString pouvait être libéré
+                // avant sqlite3_step → corruption mémoire sur chaînes longues/unicode.
+                sqlite3_bind_text(stmt, idx, (s as NSString).utf8String, -1, SQLITE_TRANSIENT)
             } else if arg is NSNull {
                 sqlite3_bind_null(stmt, idx)
             }

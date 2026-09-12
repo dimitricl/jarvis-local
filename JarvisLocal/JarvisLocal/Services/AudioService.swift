@@ -332,18 +332,41 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     static let shared = STTService()
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "fr-FR"))
+    private let audioEngine = AVAudioEngine()
+    static let maxRestarts = 3
+
+    // THREAD-SAFETY : tout l'état mutable ci-dessous n'est lu/modifié que sur stateQueue,
+    // une file sérielle unique. La closure de recognitionTask tourne sur un thread arbitraire
+    // (queue interne du framework Speech), transcribe()/cancel() sont appelés depuis MainActor
+    // (AppViewModel), le silenceTimer tire sur .main : avant, isRecording, recognitionRequest,
+    // silenceTimer, restartCount et continuation étaient touchés depuis ces trois contextes sans
+    // synchronisation (data race : double resume de continuation, timer annulé après réarmement,
+    // restartCount incrémenté en concurrence). Chaque point d'entrée y redirige son travail
+    // (stateQueue.async/sync) et les méthodes suffixées Locked supposent qu'on y est déjà.
+    private let stateQueue = DispatchQueue(label: "com.jarvislocal.stt-state")
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
     private var continuation: CheckedContinuation<String, Error>?
     private var silenceTimer: DispatchSourceTimer?
     private var isRecording = false
-    // NOTE : `internal` pour les tests
-    var restartCount = 0
-    static let maxRestarts = 3
+    private var restartCountValue = 0
+    private var partialHandler: ((String) -> Void)?
 
+    // NOTE : `internal` pour les tests — accès synchronisé sur stateQueue pour rester
+    // thread-safe malgré l'exposition.
+    var restartCount: Int {
+        get { stateQueue.sync { restartCountValue } }
+        set { stateQueue.sync { restartCountValue = newValue } }
+    }
 
-    var onPartialResult: ((String) -> Void)?
+    /// Callback de transcript partiel. Posé/lu depuis MainActor (AppViewModel) mais INVOQUÉ
+    /// depuis la closure de recognitionTask : le getter/setter passent par stateQueue et
+    /// l'invocation se fait sur une copie capturée, dispatchée sur .main (comportement
+    /// historique : l'UI met à jour inputText).
+    var onPartialResult: ((String) -> Void)? {
+        get { stateQueue.sync { partialHandler } }
+        set { stateQueue.sync { partialHandler = newValue } }
+    }
 
     private override init() {
         super.init()
@@ -362,17 +385,28 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         let authorized = await requestAuthorization()
         guard authorized else { throw STTError.notAuthorized }
         return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            startRecording()
+            // La continuation est stockée sur stateQueue avec le démarrage : poser l'une
+            // sans l'autre depuis deux threads aurait permis un resume sur nil ou un double
+            // démarrage concurrent.
+            stateQueue.async { [weak self] in
+                guard let self else {
+                    continuation.resume(throwing: STTError.cancelled)
+                    return
+                }
+                self.continuation = continuation
+                self.startRecordingLocked()
+            }
         }
     }
 
     private func startRecording() {
+        stateQueue.async { [weak self] in self?.startRecordingLocked() }
+    }
+
+    private func startRecordingLocked() {
+        dispatchPrecondition(condition: .onQueue(stateQueue))
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
-            Task { @MainActor in
-                self.continuation?.resume(throwing: STTError.notAvailable)
-                self.continuation = nil
-            }
+            resumeLocked(throwing: STTError.notAvailable)
             return
         }
 
@@ -397,76 +431,126 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         do {
             try audioEngine.start()
         } catch {
-            Task { @MainActor in
-                self.continuation?.resume(throwing: STTError.engineError(error.localizedDescription))
-                self.continuation = nil
-            }
+            let message = error.localizedDescription
+            resumeLocked(throwing: STTError.engineError(message))
             return
         }
         isRecording = true
 
+        // NOTE : cette closure est invoquée sur un thread arbitraire du framework Speech.
+        // On rebascule immédiatement sur stateQueue : tout ce qui suit (restartCount,
+        // stop, timer, continuation) s'exécute sous exclusion mutuelle avec transcribe(),
+        // cancel() et le silenceTimer.
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            guard let self = self else { return }
-            if let error = error {
-                let nsError = error as NSError
-                if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
-                    self.restartRecording()
-                    return
-                }
-                self.stopRecording()
-                Task { @MainActor in
-                    self.continuation?.resume(throwing: error)
-                    self.continuation = nil
-                }
-                return
-            }
-            guard let result = result else { return }
-            let text = result.bestTranscription.formattedString
-
-            if !result.isFinal {
-                if !text.isEmpty {
-                    scheduleSilenceTimer()
-                    DispatchQueue.main.async { self.onPartialResult?(text) }
-                }
-                return
-            }
-
-            let wordCount = text.split(separator: " ").count
-            if wordCount < 1 {
-                guard restartCount < Self.maxRestarts else {
-                    stopRecording()
-                    restartCount = 0
-                    Task { @MainActor in
-                        self.continuation?.resume(throwing: STTError.noSpeech)
-                        self.continuation = nil
-                    }
-                    return
-                }
-                restartCount += 1
-                restartRecording()
-                return
-            }
-
-            restartCount = 0
-            stopRecording()
-            DispatchQueue.main.async { self.onPartialResult?(text) }
-            Task { @MainActor in
-                self.continuation?.resume(returning: text)
-                self.continuation = nil
+            guard let self else { return }
+            // Copie locale : result/error sont des objets du callback, sûrs à transférer
+            // vers stateQueue (un seul hop, pas de lecture différée depuis l'autre thread).
+            let capturedResult = result
+            let capturedError = error
+            self.stateQueue.async {
+                self.handleRecognitionEventLocked(result: capturedResult, error: capturedError)
             }
         }
 
-        scheduleSilenceTimer()
+        scheduleSilenceTimerLocked()
     }
 
-    private func restartRecording() {
-        stopRecording()
+    /// Traite un événement de recognitionTask. Appelé UNIQUEMENT sur stateQueue
+    /// (voir le hop dans startRecordingLocked) — restartCountValue, isRecording,
+    /// continuation et le timer y sont donc manipulés sans concurrence.
+    private func handleRecognitionEventLocked(
+        result: SFSpeechRecognitionResult?,
+        error: Error?
+    ) {
+        dispatchPrecondition(condition: .onQueue(stateQueue))
+        if let error {
+            let nsError = error as NSError
+            if nsError.domain == "kAFAssistantErrorDomain" && nsError.code == 216 {
+                restartRecordingLocked()
+                return
+            }
+            stopRecordingLocked()
+            resumeLocked(throwing: error)
+            return
+        }
+        guard let result else { return }
+        let text = result.bestTranscription.formattedString
+
+        if !result.isFinal {
+            if !text.isEmpty {
+                scheduleSilenceTimerLocked()
+                emitPartialLocked(text)
+            }
+            return
+        }
+
+        let wordCount = text.split(separator: " ").count
+        if wordCount < 1 {
+            guard restartCountValue < Self.maxRestarts else {
+                stopRecordingLocked()
+                restartCountValue = 0
+                resumeLocked(throwing: STTError.noSpeech)
+                return
+            }
+            restartCountValue += 1
+            restartRecordingLocked()
+            return
+        }
+
+        restartCountValue = 0
+        stopRecordingLocked()
+        emitPartialLocked(text)
+        resumeLocked(returning: text)
+    }
+
+    /// Reprend la continuation en attente (exactement une fois : take-and-clear sous
+    /// stateQueue) puis effectue le resume HORS queue — le code réveillé (boucle vocale)
+    /// peut rappeler cancel(), et on ne veut pas de réentrance sur stateQueue.
+    private func resumeLocked(returning value: String) {
+        let cont = takeContinuationLocked()
+        resumeOnMain(cont) { $0.resume(returning: value) }
+    }
+
+    private func resumeLocked(throwing error: Error) {
+        let cont = takeContinuationLocked()
+        resumeOnMain(cont) { $0.resume(throwing: error) }
+    }
+
+    private func takeContinuationLocked() -> CheckedContinuation<String, Error>? {
+        dispatchPrecondition(condition: .onQueue(stateQueue))
+        let cont = continuation
+        continuation = nil
+        return cont
+    }
+
+    private func resumeOnMain(
+        _ cont: CheckedContinuation<String, Error>?,
+        _ body: @escaping (CheckedContinuation<String, Error>) -> Void
+    ) {
+        guard let cont else { return }
+        Task { @MainActor in body(cont) }
+    }
+
+    /// Invoque le handler de partiels sur une copie capturée sous stateQueue, dispatchée
+    /// sur .main (l'UI met à jour inputText — comportement historique inchangé).
+    private func emitPartialLocked(_ text: String) {
+        let handler = partialHandler
+        DispatchQueue.main.async { handler?(text) }
+    }
+
+    private func restartRecordingLocked() {
+        dispatchPrecondition(condition: .onQueue(stateQueue))
+        stopRecordingLocked()
+        // Le redémarrage repasse par .main puis startRecording() : AVAudioEngine
+        // (installTap/start) était historiquement démarré depuis ce contexte, on garde
+        // l'ordre stop-puis-start sans changer le threading du moteur audio.
         DispatchQueue.main.async { [weak self] in
             self?.startRecording()
         }
     }
 
-    private func scheduleSilenceTimer() {
+    private func scheduleSilenceTimerLocked() {
+        dispatchPrecondition(condition: .onQueue(stateQueue))
         silenceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: .main)
         // 5s après le dernier résultat partiel : à 4s Jarvis coupait souvent en plein
@@ -475,14 +559,20 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         // durée d'enregistrement fixe.
         timer.schedule(deadline: .now() + 5.0, repeating: .never)
         timer.setEventHandler { [weak self] in
-            guard let self = self, isRecording else { return }
-            recognitionRequest?.endAudio()
+            // Le timer tire sur .main : on rebascule sur stateQueue avant de lire
+            // isRecording/recognitionRequest (ancien code les lisait ici en race).
+            guard let self else { return }
+            self.stateQueue.async {
+                guard self.isRecording else { return }
+                self.recognitionRequest?.endAudio()
+            }
         }
         timer.activate()
         silenceTimer = timer
     }
 
-    private func stopRecording() {
+    private func stopRecordingLocked() {
+        dispatchPrecondition(condition: .onQueue(stateQueue))
         isRecording = false
         silenceTimer?.cancel()
         silenceTimer = nil
@@ -495,10 +585,15 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     }
 
     func cancel() {
-        restartCount = 0
-        stopRecording()
-        continuation?.resume(throwing: STTError.cancelled)
-        continuation = nil
+        // Synchrone (comportement historique : stopStreaming() suppose l'arrêt immédiat
+        // au retour). Le resume de la continuation se fait hors queue via take-and-clear
+        // pour ne jamais reprendre deux fois ni se réengager sur stateQueue.
+        let cont: CheckedContinuation<String, Error>? = stateQueue.sync {
+            restartCountValue = 0
+            stopRecordingLocked()
+            return takeContinuationLocked()
+        }
+        resumeOnMain(cont) { $0.resume(throwing: STTError.cancelled) }
     }
 }
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0 (2026-09-12)
+
+- Fix critique SQLite : `sqlite3_bind_text` utilisait `nil` (SQLITE_STATIC) sur des pointeurs
+  NSString temporaires → passage à SQLITE_TRANSIENT dans `exec` et `bindArgs` (risque de
+  corruption mémoire sur chaînes longues/unicode) ; `exec` accepte désormais `[Any?]` et les
+  id sont liés en INTEGER (`updateConversationTitle`, `deleteConversation`, `insertMessage`
+  ne convertissent plus en String)
+- Fix thread-safety `STTService` : tout l'état mutable (`isRecording`, `recognitionRequest`,
+  `silenceTimer`, `restartCount`, continuation, `onPartialResult`) est sérialisé sur une file
+  unique — la closure Speech (thread arbitraire), MainActor et le timer ne se marchent plus dessus
+- Sécurité : `take_screenshot` rejoint les `sensitiveTools` (capture plein écran = contenu privé,
+  fichier PNG ouvert aussitôt) avec un résumé de confirmation dédié
+- Robustesse contexte : plafond d'historique dérivé de `num_ctx` (réserve génération + marge,
+  plancher 4000 car.) appliqué avant chaque appel modèle ; troncature des résultats "tool"
+  anciens en 3 passes (extrait marqué → résumé 1 ligne → suppression) + réparation systématique
+  d'appariement assistant/tool_calls ↔ tool (aucun `tool_call_id` orphelin, sinon rejet backend)
+- Nettoyage repo : prototype Bun/TS (`server.ts`, `public/`, `package.json`, `bun.lock`,
+  `tsconfig.json`, `.env`, `memory.db`) déplacé dans `legacy/` avec README (projet actif =
+  app Swift, seule cible de la CI) ; commentaire dupliqué supprimé dans `AppViewModel`
+- Note : `testIsSpeakingProperty` est sensible au timing (singleton TTS réel + délai de 5 s) et
+  peut flaker en suite complète — vert en isolé, sans lien avec cette session
+
 ## 0.2.2 (2026-09-12)
 
 - Fix anti-crash Swift : `DatabaseService.colText` NULL guard, `bindArgs` Double/Int64
