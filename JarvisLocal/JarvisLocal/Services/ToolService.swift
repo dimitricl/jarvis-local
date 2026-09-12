@@ -1168,7 +1168,15 @@ actor ToolService {
 
     private func rememberFact(key: String, value: String) async -> String {
         guard !key.isEmpty, !value.isEmpty else { return "Erreur : clé et valeur requis." }
-        try? await DatabaseService.shared.upsertFact(key: key, value: value)
+        // AVANT : `try?` jetait l'erreur DB puis on retournait QUAND MÊME "Fait mémorisé" —
+        // le modèle annonçait à l'utilisateur que c'était noté alors que rien n'était écrit
+        // (base non ouverte, disque, verrou…). Maintenant l'échec est explicite pour que le
+        // modèle le dise au lieu de confabuler un succès.
+        do {
+            try await DatabaseService.shared.upsertFact(key: key, value: value)
+        } catch {
+            return "Échec de mémorisation (\(key)) : \(error.localizedDescription). Tu n'as RIEN enregistré : dis-le clairement et ne prétends pas le contraire."
+        }
         return "Fait mémorisé : \(key) = \(value)"
     }
 }

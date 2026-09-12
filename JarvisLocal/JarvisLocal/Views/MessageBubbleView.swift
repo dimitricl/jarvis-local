@@ -40,6 +40,9 @@ struct MessageBubbleView: View {
             Text(text)
                 .font(.body)
                 .foregroundStyle(JarvisTheme.textPrimary)
+                // Sans ça, les messages utilisateur n'étaient pas sélectionnables du tout
+                // (seule la bulle assistant avait .textSelection) : copier-coller impossible.
+                .textSelection(.enabled)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .background(JarvisTheme.accent.opacity(0.14))
@@ -48,8 +51,20 @@ struct MessageBubbleView: View {
                         .stroke(JarvisTheme.accent.opacity(0.25), lineWidth: 1)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 10))
+                // La sélection SwiftUI reste fragmentée par Text : le menu contextuel
+                // garantit la copie du message ENTIER dans tous les cas.
+                .contextMenu {
+                    Button("Copier") { copyText(text) }
+                }
             if let ts = timestamp {
-                Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
+                HStack(spacing: 6) {
+                    Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
+                    Button(action: { copyText(text) }) {
+                        Image(systemName: "doc.on.doc").font(.caption2)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
+                    .help("Copier le message")
+                }
             }
         }
         .frame(maxWidth: 560, alignment: .trailing)
@@ -66,10 +81,11 @@ struct MessageBubbleView: View {
                     if let ts = timestamp {
                         HStack(spacing: 6) {
                             Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
-                            Button(action: copyText) {
+                            Button(action: { copyText(displayText) }) {
                                 Image(systemName: "doc.on.doc").font(.caption2)
                             }
                             .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
+                            .help("Copier le message")
                         }
                         .padding(.leading, 2)
                     }
@@ -97,6 +113,9 @@ struct MessageBubbleView: View {
                 .frame(width: 2)
             richTextContent(displayText)
                 .textSelection(.enabled)
+                .contextMenu {
+                    Button("Copier le message") { copyText(displayText) }
+                }
                 .foregroundStyle(JarvisTheme.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
@@ -327,9 +346,12 @@ struct MessageBubbleView: View {
         return result
     }
 
-    private func copyText() {
+    /// Copie intégrale, indépendante de la sélection SwiftUI : le rendu riche découpe
+    /// le message en N vues Text (paragraphes, listes, code) entre lesquelles la sélection
+    /// ne traverse pas — sans ça, Cmd+C ne copiait qu'un seul bloc.
+    private func copyText(_ string: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        NSPasteboard.general.setString(string, forType: .string)
     }
 }
 

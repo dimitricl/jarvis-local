@@ -1,5 +1,25 @@
 # Changelog
 
+## Non publié
+
+- Fix copier-coller : les messages utilisateur sont de nouveau sélectionnables, chaque bulle
+  a un menu contextuel « Copier » + un bouton copier qui copie le message ENTIER (le rendu
+  riche découpe le texte en N vues entre lesquelles la sélection ne traverse pas)
+- Fix mémoire : `remember_fact` ne prétend plus avoir mémorisé quand l'écriture DB échoue
+  (erreur propagée au modèle au lieu du `try?` silencieux + succès mensonger) ; idem pour
+  la confirmation heuristique (erreur visible au lieu d'être avalée) ; un `remember_fact`
+  identique à un fait déjà stocké est auto-approuvé (fini la double popup)
+- Fix outils : le garde anti-doublon ne jette plus tout le batch quand un seul appel est
+  un doublon — les appels inédits s'exécutent, seuls les vrais doublons sont refusés (avec
+  réponse `tool` pour garder l'appariement appel ↔ résultat) ; refus et échecs d'outils
+  formulés explicitement (« tu n'as RIEN exécuté ») + règle système anti-hallucination
+  (ne jamais affirmer une action sans l'avoir appelée)
+- Fix blocage : Stop pendant une confirmation en attente la résout en refus au lieu de
+  laisser le tour suspendu pour toujours ; `ToolConfirmationRequest.resolve` idempotent
+  (double clic/dismiss = une seule reprise de continuation)
+- Tests : dédupe par appel, resolve unique, Stop libère la confirmation, `remember_fact`
+  vide rejeté (202 verts)
+
 ## 0.3.1 (2026-09-12)
 
 - Fix synthèse vocale : correctif d'un blocage rare lors d'une interruption en pleine lecture

@@ -7,7 +7,32 @@ struct ToolConfirmationRequest: Identifiable {
     let id = UUID()
     let toolName: String
     let summary: String
-    let resolve: (Bool) -> Void
+    /// Closure idempotente : un double appel (clic Confirmer + dismiss système quasi
+    /// simultanés) reprenait deux fois la même continuation — trap au runtime. Le garde
+    /// garantit une résolution unique, le second appel est ignoré.
+    private let box: ResolveBox
+
+    init(toolName: String, summary: String, resolve: @escaping (Bool) -> Void) {
+        self.toolName = toolName
+        self.summary = summary
+        self.box = ResolveBox(resolve)
+    }
+
+    func resolve(_ approved: Bool) { box.resolve(approved) }
+
+    private final class ResolveBox: @unchecked Sendable {
+        private var done = false
+        private let lock = NSLock()
+        private let inner: (Bool) -> Void
+        init(_ inner: @escaping (Bool) -> Void) { self.inner = inner }
+        func resolve(_ approved: Bool) {
+            lock.lock()
+            guard !done else { lock.unlock(); return }
+            done = true
+            lock.unlock()
+            inner(approved)
+        }
+    }
 }
 
 @MainActor
@@ -246,6 +271,7 @@ final class AppViewModel {
             - JAMAIS dire "je ne peux pas naviguer" : tu AS les outils search_web/read_url, tu DOIS les appeler IMMÉDIATEMENT SANS demander confirmation. Si l'utilisateur dit "regarde sur le site d'Apple", tu appelles DIRECTEMENT read_url avec https://www.apple.com/fr/ et tu réponds avec le contenu.
             - Ne JAMAIS inventer de faits : si un outil ne retourne rien, dis que la recherche a échoué.
             - Si un outil échoue, dis-le simplement et propose une alternative.
+            - N'affirme JAMAIS avoir exécuté une action (page ouverte, message envoyé, note créée, rappel ajouté…) sans avoir réellement appelé l'outil correspondant dans cette réponse. Si aucun appel d'outil n'a eu lieu, dis ce que tu n'as PAS fait au lieu de prétendre le contraire.
             - Quand un outil retourne un résultat, cite-le EXACTEMENT sans inventer. Si take_screenshot retourne un chemin, réponds "C'est fait. Capture enregistrée et ouverte : <nom>" et n'ajoute JAMAIS "je n'ai pas de fichier".
             
             \(toolList)
@@ -308,16 +334,27 @@ final class AppViewModel {
                     return
                 }
 
-                let alreadyCalled = toolCalls.contains { tc in
-                    let sig = "\(tc.function.name):\(tc.function.arguments)"
-                    return !toolCallHistory.insert(sig).inserted
+                ollamaMessages.append(OllamaMessage(role: "assistant", content: nil, toolCalls: toolCalls))
+
+                // AVANT : garde anti-boucle "tout ou rien" — si le modèle batchait UN appel
+                // inédit avec UN appel déjà vu, TOUT le batch était jeté (dont l'appel inédit,
+                // jamais exécuté) et remplacé par "Même outil déjà appelé". Résultat observable :
+                // le modèle croyait avoir agi alors que rien ne s'était exécuté. Maintenant on
+                // filtre par appel : les inédits s'exécutent, seuls les vrais doublons sont
+                // refusés — avec quand même un message "tool" pour chaque doublon, sinon le
+                // tool_call_id resterait sans réponse et le backend rejetterait la requête.
+                let (freshCalls, duplicateCalls) = Self.partitionFreshToolCalls(toolCalls, seen: &toolCallHistory)
+                for dup in duplicateCalls {
+                    ollamaMessages.append(OllamaMessage(
+                        role: "tool",
+                        content: "Appel ignoré : \(dup.function.name) a déjà été appelé avec ces arguments exacts dans ce tour. Réutilise son résultat précédent au lieu de le rappeler.",
+                        toolCallId: dup.id
+                    ))
                 }
-                if alreadyCalled {
-                    ollamaMessages.append(OllamaMessage(role: "user", content: "Même outil déjà appelé. Réponds maintenant."))
+                if freshCalls.isEmpty {
+                    ollamaMessages.append(OllamaMessage(role: "user", content: "Même outil déjà appelé. Réponds maintenant avec les résultats déjà obtenus."))
                     continue
                 }
-
-                ollamaMessages.append(OllamaMessage(role: "assistant", content: nil, toolCalls: toolCalls))
 
                 // Le texte que le modèle écrit AVANT d'appeler ses outils (annonces, transitions)
                 // était perdu : ni affiché ni persisté. On le garde dans l'historique pour que la
@@ -329,7 +366,7 @@ final class AppViewModel {
                     }
                 }
 
-                for tc in toolCalls {
+                for tc in freshCalls {
                     try Task.checkCancellation()
 
                     // AVANT : un JSON d'arguments malformé (fréquent avec les petits modèles
@@ -350,7 +387,10 @@ final class AppViewModel {
                     if sensitiveTools.contains(tc.function.name) {
                         let approved = await requestConfirmation(tool: tc.function.name, args: args)
                         if !approved {
-                            ollamaMessages.append(OllamaMessage(role: "tool", content: "Action refusée par l'utilisateur.", toolCallId: tc.id))
+                            // Formulation explicite anti-hallucination : l'ancien "Action refusée
+                            // par l'utilisateur." laissait le modèle répondre "C'est fait !" alors
+                            // que RIEN ne s'était exécuté.
+                            ollamaMessages.append(OllamaMessage(role: "tool", content: "Action REFUSÉE par l'utilisateur : tu n'as RIEN exécuté. Dis-le clairement à l'utilisateur et ne prétends surtout pas que l'action a réussi.", toolCallId: tc.id))
                             continue
                         }
                     }
@@ -371,7 +411,7 @@ final class AppViewModel {
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
-                        resultContent = "Échec de l'outil \(tc.function.name) : \(error.localizedDescription)"
+                        resultContent = "Échec de l'outil \(tc.function.name) : \(error.localizedDescription). L'action n'a PAS été effectuée : dis-le clairement et ne prétends pas le contraire."
                         markLastToolTrace("✗")
                     }
                     isToolRunning = false
@@ -416,6 +456,24 @@ final class AppViewModel {
         if let idx = toolTrace.indices.last {
             toolTrace[idx].status = status
         }
+    }
+
+    /// Filtre anti-boucle par appel (et non par batch) : sépare les appels inédits de ce tour
+    /// de ceux déjà exécutés avec exactement les mêmes arguments. Les inédits sont marqués
+    /// vus et retournés dans `fresh`, les doublons dans `duplicates` SANS toucher `seen`.
+    /// Fonction pure — `internal` pour les tests.
+    nonisolated static func partitionFreshToolCalls(_ calls: [ToolCall], seen: inout Set<String>) -> (fresh: [ToolCall], duplicates: [ToolCall]) {
+        var fresh: [ToolCall] = []
+        var duplicates: [ToolCall] = []
+        for tc in calls {
+            let sig = "\(tc.function.name):\(tc.function.arguments)"
+            if seen.insert(sig).inserted {
+                fresh.append(tc)
+            } else {
+                duplicates.append(tc)
+            }
+        }
+        return (fresh, duplicates)
     }
 
     /// Parse les arguments d'un tool call avec réparations des erreurs courantes des petits
@@ -532,6 +590,17 @@ final class AppViewModel {
     /// En mode voix, l'utilisateur n'a pas forcément les yeux sur l'écran : on annonce vocalement
     /// qu'une confirmation est nécessaire, sinon la conversation semble juste s'arrêter sans raison.
     private func requestConfirmation(tool: String, args: [String: Any]) async -> Bool {
+        // Dédupe mémoire : si le modèle redemande exactement un fait déjà stocké (cas courant
+        // après la confirmation heuristique de extractAndConfirmFacts sur le même message),
+        // on approuve sans re-popper une sheet — sinon l'utilisateur, qui vient déjà de
+        // valider, ignore/annule le doublon et le modèle croit à tort avoir mémorisé.
+        if tool == "remember_fact",
+           let key = args["key"] as? String,
+           let value = args["value"] as? String,
+           let known = try? await db.getAllFacts(),
+           known.first(where: { $0.key == key })?.value == value {
+            return true
+        }
         let summary = confirmationSummary(tool: tool, args: args)
         if isVoiceMode {
             await audio.speak("J'ai besoin d'une confirmation à l'écran avant de continuer.")
@@ -599,6 +668,14 @@ final class AppViewModel {
         isStreaming = false
         isToolRunning = false
         streamingText = ""
+        // AVANT : une confirmation en attente (withCheckedContinuation, non annulable par
+        // Task.cancel) survivait au Stop — le tour restait suspendu pour toujours et la
+        // suite semblait "ne plus fonctionner". Résoudre en refus débloque la boucle, qui
+        // constate ensuite l'annulation au prochain Task.checkCancellation.
+        if let pending = confirmationRequest {
+            confirmationRequest = nil
+            pending.resolve(false)
+        }
         audio.stopSpeaking()
         stt.cancel()
     }
@@ -664,10 +741,16 @@ final class AppViewModel {
         }
         guard approved else { return }
 
-        for c in toConfirm {
-            try? await db.upsertFact(key: c.key, value: c.value)
+        // AVANT : `try?` silencieux — un échec d'écriture (base non ouverte…) ne se voyait
+        // nulle part alors que l'utilisateur venait de cliquer "Confirmer".
+        do {
+            for c in toConfirm {
+                try await db.upsertFact(key: c.key, value: c.value)
+            }
+            facts = try await db.getAllFacts()
+        } catch {
+            errorMessage = "Mémoire : écriture impossible (\(error.localizedDescription)). L'info n'a PAS été mémorisée."
         }
-        facts = (try? await db.getAllFacts()) ?? facts
     }
 
     func loadFacts() async {

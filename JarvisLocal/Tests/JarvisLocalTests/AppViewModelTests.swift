@@ -264,3 +264,96 @@ final class JarvisLocalAppViewModelFactExtractionEdgeCasesTests: XCTestCase {
         XCTAssertTrue(facts.isEmpty)
     }
 }
+
+@MainActor
+final class JarvisLocalToolBatchDedupTests: XCTestCase {
+
+    private func makeCall(id: String = UUID().uuidString, name: String, args: String) -> ToolCall {
+        ToolCall(id: id, type: "function", function: ToolCallFunction(name: name, arguments: args))
+    }
+
+    func testAllFreshCallsPassThrough() {
+        var seen = Set<String>()
+        let calls = [
+            makeCall(name: "get_weather", args: #"{"city":"Paris"}"#),
+            makeCall(name: "read_url", args: #"{"url":"https://example.com"}"#),
+        ]
+        let (fresh, dups) = AppViewModel.partitionFreshToolCalls(calls, seen: &seen)
+        XCTAssertEqual(fresh.count, 2)
+        XCTAssertTrue(dups.isEmpty)
+        XCTAssertEqual(seen.count, 2)
+    }
+
+    /// Non-régression du bug "batch jeté en entier" : un appel inédit batché avec un
+    /// doublon doit QUAND MÊME s'exécuter — seul le doublon est écarté.
+    func testFreshCallSurvivesBatchedDuplicate() {
+        var seen = Set<String>()
+        let first = makeCall(name: "get_weather", args: #"{"city":"Paris"}"#)
+        let (fresh1, _) = AppViewModel.partitionFreshToolCalls([first], seen: &seen)
+        XCTAssertEqual(fresh1.count, 1)
+
+        let retry = makeCall(name: "get_weather", args: #"{"city":"Paris"}"#)
+        let newCall = makeCall(name: "read_url", args: #"{"url":"https://example.com"}"#)
+        let (fresh, dups) = AppViewModel.partitionFreshToolCalls([retry, newCall], seen: &seen)
+        XCTAssertEqual(fresh.map { $0.id }, [newCall.id])
+        XCTAssertEqual(dups.map { $0.id }, [retry.id])
+    }
+
+    func testAllDuplicatesYieldsEmptyFresh() {
+        var seen = Set<String>()
+        let call = makeCall(name: "get_weather", args: #"{"city":"Paris"}"#)
+        _ = AppViewModel.partitionFreshToolCalls([call], seen: &seen)
+        let again = makeCall(name: "get_weather", args: #"{"city":"Paris"}"#)
+        let (fresh, dups) = AppViewModel.partitionFreshToolCalls([again], seen: &seen)
+        XCTAssertTrue(fresh.isEmpty)
+        XCTAssertEqual(dups.count, 1)
+    }
+
+    func testSameToolDifferentArgsIsFresh() {
+        var seen = Set<String>()
+        _ = AppViewModel.partitionFreshToolCalls([makeCall(name: "get_weather", args: #"{"city":"Paris"}"#)], seen: &seen)
+        let (fresh, dups) = AppViewModel.partitionFreshToolCalls([makeCall(name: "get_weather", args: #"{"city":"Lyon"}"#)], seen: &seen)
+        XCTAssertEqual(fresh.count, 1)
+        XCTAssertTrue(dups.isEmpty)
+    }
+}
+
+@MainActor
+final class JarvisLocalConfirmationResolutionTests: XCTestCase {
+
+    var viewModel: AppViewModel!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        viewModel = AppViewModel()
+        try await viewModel.db.open(path: ":memory:")
+    }
+
+    /// Un double resolve (clic + dismiss système) ne doit reprendre qu'une fois :
+    /// le second appel est ignoré au lieu de trapper la continuation.
+    func testDoubleResolveResumesOnlyOnce() {
+        var resolutions: [Bool] = []
+        let request = ToolConfirmationRequest(toolName: "test", summary: "test") { approved in
+            resolutions.append(approved)
+        }
+        request.resolve(true)
+        request.resolve(false)
+        XCTAssertEqual(resolutions, [true])
+    }
+
+    /// Stop pendant une confirmation en attente : la demande est refusée et nettoyée,
+    /// le tour ne reste pas suspendu pour toujours.
+    func testStopStreamingResolvesPendingConfirmation() {
+        var resolutions: [Bool] = []
+        viewModel.confirmationRequest = ToolConfirmationRequest(toolName: "sleep_mac", summary: "test") { approved in
+            resolutions.append(approved)
+        }
+        viewModel.isStreaming = true
+
+        viewModel.stopStreaming()
+
+        XCTAssertNil(viewModel.confirmationRequest)
+        XCTAssertEqual(resolutions, [false])
+        XCTAssertFalse(viewModel.isStreaming)
+    }
+}

@@ -50,6 +50,12 @@ final class JarvisLocalToolServiceTests: XCTestCase {
         XCTAssertTrue(result.contains("introuvable"))
     }
 
+    func testRememberFactRequiresKeyAndValue() async throws {
+        let tools = ToolService.shared
+        let result = try await tools.execute(name: "remember_fact", args: ["key": "", "value": ""])
+        XCTAssertTrue(result.contains("Erreur"), "Un remember_fact vide doit retourner une erreur explicite, pas un succès.")
+    }
+
     func testCreateNoteRequiresTitleAndBody() async throws {
         let tools = ToolService.shared
         let result = try await tools.execute(name: "create_note", args: ["title": "", "body": ""])
