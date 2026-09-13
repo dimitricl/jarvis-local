@@ -1,5 +1,61 @@
 # Changelog
 
+## [Non publié]
+
+### Ajouts
+- **Recherche web robuste** — cascade API officielle DuckDuckGo Instant Answer → parsing
+  DOM SwiftSoup → fallback regex legacy avec mention de mode dégradé (`WebSearchService`)
+- **Découpage ToolService** — `execute(name:args:)` route vers `CalendarTools`,
+  `RemindersTools`, `MessagingTools`, `SystemTools`, `WebTools`, `NotesTools`,
+  `MemoryTools` ; extraction des faits en `FactExtractor` pur et testable
+- **Client MCP** — `MCPToolProvider` (stdio JSON-RPC) fusionne les outils iMCP et route
+  `execute()` ; binaire résolu dynamiquement, flag `mcpEnabled` + champ `imcpPath`
+  dans Réglages ; outils sensibles/rapides (`sleep_mac`, `applescript`, captures,
+  presse-papiers, `search_web`) restent natifs
+
+## [0.3.1] - 2026-09-12
+
+### Corrections
+- **Synthèse vocale** — stop fiable en pleine lecture (plus de voix qui continue malgré
+  le stop ni de TTS muet ensuite)
+- **Copier-coller** — messages sélectionnables + menu contextuel « Copier » et bouton
+  copiant le message ENTIER
+- **Mémoire** — `remember_fact` propage l'erreur DB au lieu d'un succès mensonger ;
+  fait identique déjà stocké auto-approuvé (fini la double popup)
+- **Outils** — dédupe par appel (le batch n'est plus jeté pour un seul doublon),
+  refus/échecs formulés explicitement + règle système anti-hallucination
+- **Blocage** — Stop pendant une confirmation la résout en refus ; `resolve` idempotent
+- **Mémoire « je suis Dimitri »** — heuristique `je suis / moi c'est / c'est moi /
+  mon prénom est` + filtre anti-bruit + élagage des liaisons finales
+- **Auditabilité web** — `search_web`/`read_url` renvoient la Source URL, ligne
+  « Sources : » exigée puis ajoutée d'office si oubliée
+- **Audit persistant** — table `tool_runs` + commande `/tools`
+- **Température LLM réglable** (Réglages, 0–2, défaut 0,7)
+
+## [0.3.0] - 2026-09-12
+
+### Corrections
+- **SQLite critique** — `SQLITE_TRANSIENT` + ids liés en INTEGER (risque de corruption
+  mémoire sur chaînes longues/unicode)
+- **Thread-safety STTService** — état mutable sérialisé sur file unique
+- **Contexte** — plafond d'historique dérivé de `num_ctx` + troncature des résultats
+  « tool » en 3 passes + réparation d'appariement assistant/tool_calls
+
+### Ajouts
+- **Sécurité** — `take_screenshot` rejoint les `sensitiveTools`
+- **Repo** — prototype Bun/TS déplacé dans `legacy/` avec README (projet actif = Swift)
+
+## [0.2.2] - 2026-09-12
+
+### Corrections
+- **Anti-crash Swift** — `colText` NULL guard, `bindArgs` Double/Int64,
+  `stripThinking` multiline, `try!` → `try?`, double-resume `CheckedContinuation`
+- **Serveur** — validation `PORT`/`NUM_CTX`, fallback `EDGE_TTS_BIN`, fix path traversal,
+  validation API (400/404), purge leak rate-limit, TTS hybride robuste
+- **Web** — `wss` auto, `JSON.parse` guard, fix streaming `onclose`, XSS strip,
+  `SILENCE 700→1200`, anti double PATCH rename
+- **Sécurité** — purge `memory.db` de l'historique git, `.env.example` documenté
+
 ## [0.2.1] - 2026-09-04
 
 ### Ajouts

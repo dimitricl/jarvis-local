@@ -38,6 +38,19 @@ struct SettingsView: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
+                        Text("Température (créativité) :")
+                        Spacer()
+                        Text(String(format: "%.1f", settings.temperature))
+                            .font(JarvisTheme.mono(10))
+                            .foregroundStyle(JarvisTheme.textSecondary)
+                    }
+                    Slider(value: Bindable(settings).temperature, in: 0...2, step: 0.1)
+                    Text("Bas (~0,2) = factuel et fidèle (recommandé contre les chiffres inventés). Haut = plus créatif mais plus confabulateur.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
                         Text("Longueur max de réponse :")
                         Spacer()
                         Text("\(settings.maxTokens) tokens (~\(settings.maxTokens * 3 / 4) mots)")
@@ -92,6 +105,18 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+            }
+
+            Section("MCP (iMCP, optionnel)") {
+                // Délégation Calendrier/Rappels/Contacts/Messages à iMCP via MCP.
+                // Désactivé par défaut : sans iMCP installé, le natif fait déjà le travail.
+                Toggle("Activer MCP (redémarre l'app)", isOn: Bindable(settings).mcpEnabled)
+                TextField("Chemin iMCP (vide = auto) :", text: Bindable(settings).imcpPath)
+                    .textFieldStyle(.roundedBorder)
+                    .font(JarvisTheme.mono(10))
+                Text("Vide = résolution auto (JARVIS_IMCP_PATH > `which imcp` > /opt/homebrew, /usr/local…). Ex. Mac Intel : /usr/local/bin/imcp.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Mise à jour") {

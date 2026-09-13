@@ -93,6 +93,22 @@ JarvisLocal/
 | `DatabaseService` | `actor`  | SQLite (conversations, messages, faits) |
 | `STTService`      | class    | Reconnaissance vocale Apple Speech      |
 | `AudioService`    | class    | Synthèse vocale (TTS)                   |
+| `MCPToolProvider` | `actor`  | Client MCP stdio (iMCP, opt-in)         |
+| `WebSearchService`| `actor`  | Recherche web cascade (API → DOM → regex) |
+
+Les outils sont découpés par domaine (`Services/Tools/` : Calendar, Reminders,
+Messaging, System, Web, Notes, Memory) derrière un seul point d'entrée
+`ToolService.execute(name:args:)` ; la liste envoyée à Ollama fusionne le natif
+et les outils MCP distants quand iMCP est connecté (`effectiveToolDefs()`).
+
+## Legacy (ancien prototype, non maintenu)
+
+Le dossier `legacy/` contient le premier prototype Bun/TypeScript (`server.ts`,
+`public/`, `memory.db`) — conservé **à titre d'archive historique uniquement**.
+Il n'est ni compilé ni testé par la CI (seule `JarvisLocal/` l'est : `swift build`
+/ `swift test` depuis `JarvisLocal/`). Les correctifs et les nouvelles
+fonctionnalités vont dans l'app Swift, pas ici. Voir `legacy/README.md` pour le
+relancer (`bun run server.ts`). `node_modules/` n'est pas versionné.
 
 ## Développement
 

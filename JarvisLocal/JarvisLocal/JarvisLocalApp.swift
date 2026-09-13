@@ -18,6 +18,16 @@ struct JarvisLocalApp: App {
                     // sans ça, après 5 min d'inactivité, chaque premier message subit
                     // ~20s de chargement à froid (l'endpoint /v1 ne supporte pas keep_alive).
                     OllamaService.shared.startKeepAlive()
+                    // MCP (chantier 5) : connexion en fond si activée dans Réglages.
+                    // Pourquoi en fond : le spawn des process iMCP prend ~1s et ne doit
+                    // pas retarder l'ouverture. Hors-ligne = natif en relais, invisible.
+                    if Settings.shared.mcpEnabled {
+                        Task {
+                            let mcp = MCPToolProvider()
+                            await mcp.connectAll()
+                            await ToolService.shared.configureMCP(mcp)
+                        }
+                    }
                 }
         }
         .windowResizability(.contentSize)

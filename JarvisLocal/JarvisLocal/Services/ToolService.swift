@@ -1,8 +1,4 @@
 import Foundation
-import EventKit
-import MapKit
-import Speech
-import Contacts
 
 enum ToolServiceError: Error, CustomStringConvertible {
     case processTimeout(command: String, seconds: TimeInterval)
@@ -17,44 +13,50 @@ enum ToolServiceError: Error, CustomStringConvertible {
 
 actor ToolService {
     static let shared = ToolService()
-    private let eventStore = EKEventStore()
 
-    private init() {}
+    /// Contexte partagé (un seul EKEventStore pour tous les domaines).
+    /// Pourquoi : avant, chaque méthode créait son propre store — permissions
+    /// en double et code non injectable en tests. `internal` pour les tests.
+    let ctx: ToolContext
+    private let calendar: CalendarTools
+    private let reminders: RemindersTools
+    private let messaging: MessagingTools
+    private let system: SystemTools
+    private let web = WebTools()
+    private let notes = NotesTools()
+    private let memory = MemoryTools()
+    /// Fournisseur MCP optionnel (chantier 5) : s'il connaît l'outil, il passe devant.
+    var mcp: MCPToolProvider?
 
-    /// Exécute un Process de manière asynchrone sans bloquer l'acteur.
-    /// waitUntilExit() est synchrone et bloquerait le file d'exécution de l'actor,
-    /// empêchant les autres méthodes de s'exécuter en parallèle.
-    /// timeout : un process qui pend (raccourci bloqué, dialogue système modal…) ne doit
-    /// jamais geler tout le tour de conversation — il est tué et une erreur est levée.
-    private static func runProcess(executable: String, arguments: [String], timeout: TimeInterval = 45) async throws -> (stdout: String, stderr: String) {
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global().async {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: executable)
-                proc.arguments = arguments
-                let outPipe = Pipe()
-                let errPipe = Pipe()
-                proc.standardOutput = outPipe
-                proc.standardError = errPipe
-                do {
-                    try proc.run()
-                    let deadline = Date().addingTimeInterval(timeout)
-                    while proc.isRunning && Date() < deadline {
-                        Thread.sleep(forTimeInterval: 0.05)
-                    }
-                    if proc.isRunning {
-                        proc.terminate()
-                        continuation.resume(throwing: ToolServiceError.processTimeout(command: (executable as NSString).lastPathComponent, seconds: timeout))
-                        return
-                    }
-                    let out = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    let err = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                    continuation.resume(returning: (out, err))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+    private init(ctx: ToolContext = .live()) {
+        self.ctx = ctx
+        self.calendar = CalendarTools(ctx: ctx)
+        self.reminders = RemindersTools(ctx: ctx)
+        self.messaging = MessagingTools()
+        self.system = SystemTools(ctx: ctx)
+    }
+
+    /// Compat : l'ancien runner statique vit désormais dans ProcessRunner.
+    /// Gardé car des call-sites/tests l'utilisent encore.
+    static func runProcess(executable: String, arguments: [String], timeout: TimeInterval = 45) async throws -> (stdout: String, stderr: String) {
+        try await ProcessRunner.run(executable: executable, arguments: arguments, timeout: timeout)
+    }
+
+    /// Injecte MCP au démarrage (JarvisLocalApp / AppViewModel).
+    func configureMCP(_ provider: MCPToolProvider?) { self.mcp = provider }
+
+    /// Liste fusionnée envoyée à Ollama : natif + MCP dynamique.
+    /// Le natif garde la priorité sauf outils explicitement délégués
+    /// (voir MCPToolProvider.delegatedToMCP + nativeOnly).
+    func effectiveToolDefs() async -> [ToolDef] {
+        guard let mcp else { return toolDefs }
+        let extra = await mcp.toolDefs()
+        var seen = Set(toolDefs.map { $0.function.name })
+        var out = toolDefs
+        for d in extra where !seen.contains(d.function.name) {
+            out.append(d); seen.insert(d.function.name)
         }
+        return out
     }
 
     let toolDefs: [ToolDef] = [
@@ -262,899 +264,70 @@ actor ToolService {
     ]
 
     func execute(name: String, args: [String: Any]) async throws -> String {
+        // MCP d'abord si le nom matche un outil distant (chantier 5).
+        if let mcp, await mcp.handles(tool: name) {
+            return try await mcp.call(tool: name, args: args)
+        }
         switch name {
-        case "search_web": return try await searchWeb(args["query"] as? String ?? "")
-        case "open_app": return try await openApp(args["app"] as? String ?? "", url: args["url"] as? String)
-        case "create_note": return try await createNote(title: args["title"] as? String ?? "", body: args["body"] as? String ?? "")
-        case "edit_note": return try await editNote(searchTitle: args["search_title"] as? String ?? "", body: args["body"] as? String ?? "", newTitle: args["new_title"] as? String)
-        case "applescript": return try await runAppleScript(args["script"] as? String ?? "")
-        case "add_reminder": return try await addReminder(title: args["title"] as? String ?? "", notes: args["notes"] as? String, dueDate: args["due_date"] as? String, dueTime: args["due_time"] as? String)
-        case "add_calendar_event": return try await addCalendarEvent(args: args)
-        case "get_calendars": return try await getCalendars()
-        case "search_maps": return try await searchMaps(args["query"] as? String ?? "")
-        case "run_shortcut": return try await runShortcut(args["name"] as? String ?? "")
-        case "send_message": return try await sendMessage(contact: args["contact"] as? String ?? "", message: args["message"] as? String ?? "")
-        case "get_system_info": return try await getSystemInfo()
-        case "get_clipboard": return await getClipboard()
-        case "set_clipboard": return await setClipboard(args["text"] as? String ?? "")
-        case "take_screenshot": return try await takeScreenshot()
-        case "sleep_mac": return try await sleepMac(args["action"] as? String ?? "")
-        case "file_search": return try await fileSearch(args["query"] as? String ?? "")
-        case "get_upcoming_events": return try await getUpcomingEvents(days: args["days"] as? Int ?? 7)
-        case "list_reminders": return try await listReminders(list: args["list"] as? String)
-        case "read_url": return try await readURL(args["url"] as? String ?? "")
-        case "get_weather": return try await getWeather(city: args["city"] as? String ?? "")
+        case "search_web": return await web.searchWeb(args["query"] as? String ?? "")
+        case "open_app": return try await system.openApp(args["app"] as? String ?? "", url: args["url"] as? String)
+        case "create_note": return try await notes.create(title: args["title"] as? String ?? "", body: args["body"] as? String ?? "")
+        case "edit_note": return try await notes.edit(searchTitle: args["search_title"] as? String ?? "", body: args["body"] as? String ?? "", newTitle: args["new_title"] as? String)
+        case "applescript": return try await system.runAppleScript(args["script"] as? String ?? "")
+        case "add_reminder": return try await reminders.add(title: args["title"] as? String ?? "", notes: args["notes"] as? String, dueDate: args["due_date"] as? String, dueTime: args["due_time"] as? String)
+        case "add_calendar_event": return try await calendar.addEvent(args: args)
+        case "get_calendars": return try await calendar.getCalendars()
+        case "search_maps": return try await web.searchMaps(args["query"] as? String ?? "")
+        case "run_shortcut": return try await system.runShortcut(args["name"] as? String ?? "")
+        case "send_message": return try await messaging.send(contact: args["contact"] as? String ?? "", message: args["message"] as? String ?? "")
+        case "get_system_info": return try await system.getSystemInfo()
+        case "get_clipboard": return await system.getClipboard()
+        case "set_clipboard": return await system.setClipboard(args["text"] as? String ?? "")
+        case "take_screenshot": return try await system.takeScreenshot()
+        case "sleep_mac": return try await system.sleepMac(args["action"] as? String ?? "")
+        case "file_search": return try await system.fileSearch(args["query"] as? String ?? "")
+        case "get_upcoming_events": return try await calendar.upcoming(days: args["days"] as? Int ?? 7)
+        case "list_reminders": return try await reminders.list(list: args["list"] as? String)
+        case "read_url": return await web.readURL(args["url"] as? String ?? "")
+        case "get_weather": return await web.getWeather(city: args["city"] as? String ?? "")
         case "run_routine": return try await runRoutine(args["name"] as? String ?? "")
-        case "remember_fact": return await rememberFact(key: args["key"] as? String ?? "", value: args["value"] as? String ?? "")
+        case "remember_fact": return await memory.remember(key: args["key"] as? String ?? "", value: args["value"] as? String ?? "")
         default: return "Outil inconnu : \(name)"
         }
     }
 
-    // MARK: - search_web
-
-    private let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
-
-    /// Fetch générique réutilisé par search_web et read_url. UA de navigateur + timeout court :
-    /// une requête qui traîne ne doit jamais bloquer tout le tour de conversation.
-    private func fetchPage(_ url: URL, timeout: TimeInterval) async -> String? {
-        var req = URLRequest(url: url)
-        req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        req.timeoutInterval = timeout
-        guard let (data, response) = try? await URLSession.shared.data(for: req),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let html = String(data: data, encoding: .utf8)
-        else { return nil }
-        return html
-    }
+    // MARK: - search_web (délégué chantier 1)
 
     private func searchWeb(_ query: String) async throws -> String {
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let searchURL = URL(string: "https://lite.duckduckgo.com/lite/?q=\(encoded)")
-        else { return "Erreur d'encodage de la requête." }
-
-        // DuckDuckGo Lite répond parfois différemment (voire refuse) sans User-Agent de navigateur,
-        // et l'ancien code utilisait le timeout par défaut de 120s de la session partagée : une requête
-        // qui traîne bloquait tout le tour de conversation. Ici : UA dédié + timeout court, et toute
-        // erreur réseau retourne un résultat textuel plutôt que de faire planter tout le tour (try await
-        // qui remonte jusqu'au catch générique de runConversationTurn).
-        guard let html = await fetchPage(searchURL, timeout: 30) else {
-            return "Recherche web indisponible (pas de réponse de DuckDuckGo). Réponds avec tes connaissances générales en précisant que tu n'as pas pu vérifier en ligne."
-        }
-
-        var results: [(title: String, href: String)] = []
-        let patterns = [
-            #"<a[^>]*class="result-link"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#,
-            #"<a[^>]*href="([^"]*)"[^>]*class="result-link"[^>]*>([^<]*)</a>"#,
-            #"<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#,
-            #"<a[^>]*rel="nofollow"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#,
-        ]
-
-        for pattern in patterns {
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) {
-                let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
-                for m in matches.prefix(5) {
-                    let hrefRange = m.range(at: 1)
-                    let titleRange = m.range(at: 2)
-                    guard hrefRange.location != NSNotFound, titleRange.location != NSNotFound,
-                          let href = Range(hrefRange, in: html).map({ String(html[$0]) }),
-                          let title = Range(titleRange, in: html).map({ String(html[$0]).strippedHTML }),
-                          !href.isEmpty, !title.isEmpty
-                    else { continue }
-                    results.append((title: title, href: href))
-                }
-            }
-            if !results.isEmpty { break }
-        }
-
-        if results.isEmpty {
-            return "Aucun résultat trouvé pour \"\(query)\". Le format de la page DuckDuckGo a peut-être changé, ou la requête n'a rien donné."
-        }
-
-        var output = ""
-        // Les 3 pages sont téléchargées EN PARALLÈLE (TaskGroup) : en séquentiel, une page
-        // lente de 15s retardait d'autant tout le reste du résultat.
-        let topResults = Array(results.prefix(3).enumerated())
-        let pages = await withTaskGroup(of: (Int, String?).self) { group in
-            for (i, r) in topResults {
-                group.addTask { [weak self] in
-                    guard let self, let resultURL = URL(string: r.href, relativeTo: searchURL) else { return (i, nil) }
-                    guard let pageHTML = await self.fetchPage(resultURL, timeout: 15) else { return (i, nil) }
-                    let text = pageHTML.htmlToText(maxLength: 3000)
-                    return (i, text.count > 100 ? text : nil)
-                }
-            }
-            var collected: [Int: String?] = [:]
-            for await (i, text) in group { collected[i] = text }
-            return collected
-        }
-
-        for (i, r) in topResults {
-            output += "--- \(r.title) ---\n"
-            if let text = pages[i], let text {
-                output += "Contenu : \(text)\n"
-            }
-            output += "\n"
-        }
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Pourquoi `throws` conservé : signature du dispatcher inchangée ;
+        // en pratique search() ne throw jamais (panne = texte explicite).
+        return await web.searchWeb(query)
     }
 
-    // MARK: - open_app
-
-    private func openApp(_ app: String, url: String?) async throws -> String {
-        let nameMap: [String: String] = [
-            "meteo": "Weather", "weather": "Weather",
-            "calendrier": "Calendar", "calendar": "Calendar",
-            "notes": "Notes", "mail": "Mail", "safari": "Safari",
-            "chrome": "Google Chrome", "spotify": "Spotify",
-            "telephone": "FaceTime", "facetime": "FaceTime",
-            "messages": "Messages", "contacts": "Contacts",
-            "musique": "Music", "music": "Music", "photos": "Photos",
-            "reglages": "System Settings", "terminal": "Terminal",
-            "finder": "Finder", "carte": "Maps", "maps": "Maps",
-            "maison": "Home", "home": "Home",
-            // Alias courants dont le nom usuel diffère du nom du dossier .app
-            "vscode": "Visual Studio Code", "visual studio code": "Visual Studio Code",
-            "code": "Visual Studio Code", "vs code": "Visual Studio Code",
-            "calculatrice": "Calculator", "calc": "Calculator",
-            "apercu": "Preview", "preview": "Preview",
-            "discord": "Discord", "slack": "Slack",
-            "whatsapp": "WhatsApp", "telegram": "Telegram",
-            "notion": "Notion", "figma": "Figma", "steam": "Steam"
-        ]
-
-        let normalized = app.lowercased().folding(options: .diacriticInsensitive, locale: .current)
-        let resolved = nameMap[normalized] ?? app
-
-        if normalized == "messages", let contact = url, !contact.isEmpty {
-            let script = """
-            tell application "Messages"
-                activate
-                set targetService to 1st service whose service type = iMessage
-                set found to false
-                repeat with c in chats of targetService
-                    try
-                        set partName to name of participant 1 of c
-                        if partName contains "\(contact.escapingForAppleScript)" then
-                            open c
-                            set found to true
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if found then
-                    return "Conversation avec \(contact.escapingForAppleScript) ouverte."
-                else
-                    return "Conversation introuvable."
-                end if
-            end tell
-            """
-            return try await runAppleScript(script)
-        }
-
-        let ws = NSWorkspace.shared
-        // Bundle ID uniquement si la chaîne en a la forme (reverse-DNS) : sinon on passait
-        // des noms d'apps à une API qui attend "com.apple.Safari" et elle échouait.
-        var appURL: URL?
-        if resolved.contains("."), !resolved.contains(" ") {
-            appURL = ws.urlForApplication(withBundleIdentifier: resolved)
-        }
-        if appURL == nil, let path = bundlePath(for: resolved) {
-            appURL = URL(fileURLWithPath: path)
-        }
-        if appURL == nil {
-            appURL = await fuzzyFindApp(resolved)
-        }
-        if appURL == nil, let path = appStoreBundlePath(for: resolved) {
-            appURL = URL(fileURLWithPath: path)
-        }
-
-        if let appURL {
-            if let u = url {
-                let urlStr = u.hasPrefix("http") ? u : "https://\(u)"
-                if let urlObj = URL(string: urlStr) {
-                    try await ws.open([urlObj], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
-                    return "\(resolved) ouvert sur \(u)."
-                }
-            }
-            try await ws.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
-            return "\(resolved) ouvert."
-        }
-        if let u = url {
-            let urlStr = u.hasPrefix("http") ? u : "https://\(u)"
-            if let urlObj = URL(string: urlStr) {
-                ws.open(urlObj)
-                return "URL ouverte."
-            }
-        }
-        return "Application \(app) introuvable. Vérifie qu'elle est bien installée (dans /Applications ou ailleurs sur le disque)."
+    /// Alias de compat : l'ancien entry-point de mise en forme reste disponible
+    /// pour les tests existants. Délègue au formateur canonique.
+    /// `internal`/`static` pour les tests.
+    nonisolated static func formatSearchResults(_ results: [(title: String, href: String, text: String?)]) -> String {
+        WebSearchService.format(results)
     }
 
-    /// Recherche tolérante d'une app : scan insensible à la casse/accents des dossiers
-    /// standards (match exact puis partiel), puis Spotlight qui couvre TOUT le disque —
-    /// y compris les apps hors /Applications (Setapp, ~/Applications personnalisé, etc.).
-    /// AVANT : seul un chemin exact case-sensible était testé ; « VS Code » ne trouvait
-    /// jamais « Visual Studio Code.app » et toute app hors des 5 chemins codés en dur
-    /// échouait.
-    private func fuzzyFindApp(_ appName: String) async -> URL? {
-        func fold(_ s: String) -> String {
-            s.lowercased().folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US"))
-        }
-        let target = fold(appName)
-
-        let dirs = [
-            "/Applications",
-            "/System/Applications",
-            "/System/Applications/Utilities",
-            "/Applications/Utilities",
-            NSHomeDirectory() + "/Applications"
-        ]
-
-        // DEUX passes : d'abord un match EXACT sur tous les dossiers, ensuite seulement le
-        // partiel. Sinon "Mail" pouvait matcher "Gmail.app" (partiel dans /Applications)
-        // avant même de chercher l'exact dans /System/Applications.
-        for wantPartial in [false, true] {
-            for dir in dirs {
-                let items = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
-                let bundles = items.filter { $0.hasSuffix(".app") }
-                if !wantPartial {
-                    if let exact = bundles.first(where: { fold(String($0.dropLast(4))) == target }) {
-                        return URL(fileURLWithPath: dir).appendingPathComponent(exact)
-                    }
-                } else {
-                    // Au partiel, on préfère le nom le plus court (le plus proche de la demande)
-                    let candidates = bundles
-                        .filter { fold(String($0.dropLast(4))).contains(target) }
-                        .sorted { $0.count < $1.count }
-                    if let best = candidates.first {
-                        return URL(fileURLWithPath: dir).appendingPathComponent(best)
-                    }
-                }
-            }
-        }
-
-        // Dernier recours : Spotlight (kMDItemDisplayName avec match insensible 'cd')
-        let query = "kMDItemContentType == 'com.apple.application-bundle' && kMDItemDisplayName == '\(appName)*'cd"
-        if let (out, _) = try? await Self.runProcess(executable: "/usr/bin/mdfind", arguments: [query], timeout: 10) {
-            if let line = out.components(separatedBy: "\n").first(where: { $0.hasSuffix(".app") }) {
-                return URL(fileURLWithPath: line.trimmingCharacters(in: .whitespaces))
-            }
-        }
-        return nil
-    }
-
-    // MARK: - Notes
-
-    private func createNote(title: String, body: String) async throws -> String {
-        let script = """
-        tell application "Notes"
-            set n to make new note with properties {name:"\(title.escapingForAppleScript)", body:"\(body.escapingForAppleScript)"}
-            show n
-        end tell
-        """
-        return try await runAppleScript(script)
-    }
-
-    private func editNote(searchTitle: String, body: String, newTitle: String?) async throws -> String {
-        var script = """
-        tell application "Notes"
-            set foundNote to missing value
-            repeat with acc in accounts
-                repeat with f in folders of acc
-                    try
-                        set matchingNote to first note of f whose name contains "\(searchTitle.escapingForAppleScript)"
-                        set foundNote to matchingNote
-                        exit repeat
-                    end try
-                end repeat
-                if foundNote is not missing value then exit repeat
-            end repeat
-            if foundNote is missing value then return "Note introuvable."
-        """
-        if let nt = newTitle {
-            script += "\nset name of foundNote to \"\(nt.escapingForAppleScript)\""
-        }
-        script += """
-        \nset body of foundNote to "\(body.escapingForAppleScript)"
-            show foundNote
-            return "Note mise à jour."
-        end tell
-        """
-        return try await runAppleScript(script)
-    }
-
-    // MARK: - AppleScript
-
-    // NOTE DE SÉCURITÉ : ceci reste une liste noire sur du texte -> défense en profondeur,
-    // pas une garantie. AppleScript permet de reconstruire une chaîne dynamiquement (concaténation
-    // "&", "run script" sur du texte assemblé au runtime, etc.) : un modèle halluciné ou un contenu
-    // injecté peut en théorie construire "do shell script" sans que la commande apparaisse jamais
-    // telle quelle dans le script source. Le vrai filet de sécurité reste la confirmation utilisateur
-    // obligatoire (applescript est dans sensitiveTools côté AppViewModel) : ce filtre bloque les cas
-    // évidents et non-obfusqués, il ne remplace pas la lecture du script par un humain avant de
-    // cliquer "Confirmer".
-    private static let forbiddenPatterns: [NSRegularExpression] = {
-        let patterns = [
-            #"doshellscript"#, #"withadministratorprivileges"#,
-            #"systemeventskeystroke"#, #"systemeventskeycode"#,
-            #"runscript"#, #"loadscript"#, #"dojavascript"#,
-        ]
-        return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
-    }()
-
-    private func runAppleScript(_ script: String) async throws -> String {
-        // Avant : on ne retirait que les espaces/retours à la ligne. Un "do¬shell script"
-        // (continuation AppleScript) ou un commentaire inséré entre les mots cassait la contiguïté
-        // de "doshellscript" et passait au travers du filtre alors que le comportement exécuté est
-        // identique. En ne gardant que les caractères alphanumériques, ce type d'obfuscation par
-        // ponctuation ou saut de ligne ne suffit plus à contourner la détection.
-        let flat = script.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
-            .map(String.init).joined()
-        for p in Self.forbiddenPatterns {
-            if p.firstMatch(in: flat, range: NSRange(flat.startIndex..., in: flat)) != nil {
-                return "Script refusé : commande dangereuse détectée (shell / privilèges admin / clavier via System Events / run-load script / do JavaScript)."
-            }
-        }
-        var error: NSDictionary?
-        // NSAppleScript est documenté main-thread-only : exécuté depuis l'executor de
-        // l'actor (thread background), il échouait de façon intermittente (errAEEventNotPermitted,
-        // crash). Le hop MainActor garantit un comportement déterministe.
-        let result = try await MainActor.run { () -> NSAppleEventDescriptor? in
-            NSAppleScript(source: script)?.executeAndReturnError(&error)
-        }
-        if let e = error {
-            return "Erreur AppleScript : \(e)"
-        }
-        return result?.stringValue ?? "Exécuté avec succès."
-    }
-
-    // MARK: - Reminders
-
-    private func addReminder(title: String, notes: String?, dueDate: String?, dueTime: String?) async throws -> String {
-        let status = try await eventStore.requestFullAccessToReminders()
-        guard status else { return "Accès aux rappels refusé." }
-
-        let reminder = EKReminder(eventStore: eventStore)
-        reminder.title = title
-        if let n = notes { reminder.notes = n }
-        reminder.calendar = eventStore.defaultCalendarForNewReminders()
-
-        if let dd = dueDate {
-            let parts = dd.split(separator: "/").map { Int($0) }
-            guard parts.count == 3, let d = parts[0], let m = parts[1], let y = parts[2] else {
-                return "Date invalide."
-            }
-            let comps = dueTime?.split(separator: ":").compactMap { Int($0) } ?? [23, 59]
-            var dateComps = DateComponents()
-            dateComps.year = y; dateComps.month = m; dateComps.day = d
-            dateComps.hour = comps.first; dateComps.minute = comps.count > 1 ? comps[1] : 59
-            reminder.dueDateComponents = dateComps
-        }
-
-        try eventStore.save(reminder, commit: true)
-        return "Rappel \"\(title)\" créé\(notes != nil ? " avec notes" : "")\(dueDate != nil ? " pour le \(dueDate!)" : "")."
-    }
-
-    // MARK: - Calendar
-
-    private func addCalendarEvent(args: [String: Any]) async throws -> String {
-        let status = try await eventStore.requestFullAccessToEvents()
-        guard status else { return "Accès au calendrier refusé." }
-
-        let title = args["title"] as? String ?? ""
-        let dateStr = args["date"] as? String ?? ""
-        let startTime = args["start_time"] as? String ?? "09:00"
-        let duration = args["duration_minutes"] as? Int ?? 60
-        let notes = args["notes"] as? String
-        let calName = args["calendar"] as? String
-        let location = args["location"] as? String
-
-        let dateParts = dateStr.split(separator: "/").compactMap { Int($0) }
-        guard dateParts.count >= 3 else { return "Date invalide." }
-        let timeParts = startTime.split(separator: ":").compactMap { Int($0) }
-
-        var comps = DateComponents()
-        comps.year = dateParts[2]; comps.month = dateParts[1]; comps.day = dateParts[0]
-        comps.hour = timeParts.first ?? 9; comps.minute = timeParts.count > 1 ? timeParts[1] : 0
-        guard let startDate = Calendar.current.date(from: comps) else { return "Date invalide." }
-        let endDate = startDate.addingTimeInterval(TimeInterval(duration * 60))
-
-        let calendars = eventStore.calendars(for: .event)
-        let calendar: EKCalendar
-        if let name = calName {
-            let matches = calendars.filter { $0.title.localizedCaseInsensitiveContains(name) }
-            guard let match = matches.first else { return "Calendrier \"\(name)\" introuvable." }
-            calendar = match
-        } else {
-            guard let first = calendars.first(where: { $0.allowsContentModifications }) ?? calendars.first else {
-                return "Aucun calendrier disponible."
-            }
-            calendar = first
-        }
-
-        let event = EKEvent(eventStore: eventStore)
-        event.title = title
-        event.startDate = startDate
-        event.endDate = endDate
-        event.notes = notes
-        event.location = location
-        event.calendar = calendar
-
-        try eventStore.save(event, span: .thisEvent)
-        return "Événement \"\(title)\" créé le \(dateStr) à \(startTime) (\(duration)min)."
-    }
-
-    private func getCalendars() async throws -> String {
-        let status = try await eventStore.requestFullAccessToEvents()
-        guard status else { return "Accès refusé." }
-        let calendars = eventStore.calendars(for: .event)
-        return calendars.map { "\($0.title) (\($0.allowsContentModifications ? "écriture" : "lecture seule"))" }.joined(separator: "\n")
-    }
-
-    // MARK: - Maps
-
-    private func searchMaps(_ query: String) async throws -> String {
-        let lower = query.lowercased().folding(options: .diacriticInsensitive, locale: .current)
-        let personalLabels = [
-            "domicile", "maison", "chez moi", "chezmoi",
-            "travail", "bureau", "job", "boulot",
-            "ecole", "lycee", "college", "universite", "fac", "school"
-        ]
-        if personalLabels.contains(where: { lower.contains($0) }) {
-            let script = """
-            tell application "Contacts"
-                launch
-                set myCard to my card
-                repeat with a in every address of myCard
-                    set lbl to ""
-                    try
-                        set lbl to label of a
-                    end try
-                    if lbl contains "Home" or lbl contains "Work" or lbl contains "School" then
-                        set parts to {street of a, city of a, zip of a, country of a}
-                        set filtered to ""
-                        repeat with p in parts
-                            if p is not missing value and p is not "" then
-                                set filtered to filtered & p & ", "
-                            end if
-                        end repeat
-                        if filtered is not "" then
-                            return text 1 thru -3 of filtered
-                        end if
-                    end if
-                end repeat
-                return ""
-            end tell
-            """
-            var error: NSDictionary?
-            let result = try await MainActor.run { () -> NSAppleEventDescriptor? in
-                NSAppleScript(source: script)?.executeAndReturnError(&error)
-            }
-            if let addr = result?.stringValue, !addr.isEmpty {
-                let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-                if let mapURL = URL(string: "maps://?q=\(encoded)") {
-                    NSWorkspace.shared.open(mapURL)
-                }
-                return "Adresse trouvée : \"\(addr)\". Passe cette adresse dans le paramètre location."
-            }
-        }
-
-        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        guard let mapURL = URL(string: "maps://?q=\(encoded)") else {
-            return "Recherche invalide : \"\(query)\"."
-        }
-        NSWorkspace.shared.open(mapURL)
-        return "Plans ouvert avec la recherche \"\(query)\"."
-    }
-
-    // MARK: - Shortcuts
-
-    private func runShortcut(_ name: String) async throws -> String {
-        let (out, err) = try await Self.runProcess(executable: "/usr/bin/shortcuts", arguments: ["run", name])
-        if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Erreur Shortcut : \(err.trimmingCharacters(in: .whitespacesAndNewlines))"
-        }
-        let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Raccourci \"\(name)\" exécuté." : trimmed
-    }
-
-    // MARK: - send_imessage
-
-    private func sendMessage(contact: String, message: String) async throws -> String {
-        let handle = try await lookupContactHandle(contact)
-        guard !handle.isEmpty else {
-            return "Contact \"\(contact)\" introuvable dans l'app Contacts."
-        }
-
-        let escapedMessage = message.escapingForAppleScript
-        let escapedHandle = handle.escapingForAppleScript
-
-        let script = """
-        tell application "Messages"
-            -- essayer iMessage d'abord
-            try
-                set targetService to 1st service whose service type = iMessage
-                send "\(escapedMessage)" to buddy "\(escapedHandle)" of targetService
-                return "Message envoyé par iMessage."
-            on error
-                -- fallback SMS
-                try
-                    set targetService to 1st service whose service type = SMS
-                    send "\(escapedMessage)" to buddy "\(escapedHandle)" of targetService
-                    return "Message envoyé par SMS (iMessage indisponible)."
-                on error
-                    return "Impossible d'envoyer le message. Vérifie que le contact a un numéro valide."
-                end try
-            end try
-        end tell
-        """
-        return try await runAppleScript(script)
-    }
-
-    private func lookupContactHandle(_ name: String) async throws -> String {
-        let store = CNContactStore()
-        let status = CNContactStore.authorizationStatus(for: .contacts)
-        if status == .notDetermined {
-            let authorized = try await store.requestAccess(for: .contacts)
-            guard authorized else { return "" }
-        } else if status != .authorized {
-            return ""
-        }
-
-        let keys: [CNKeyDescriptor] = [
-            CNContactPhoneNumbersKey as CNKeyDescriptor,
-            CNContactEmailAddressesKey as CNKeyDescriptor,
-            CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
-        ]
-        let predicate = CNContact.predicateForContacts(matchingName: name)
-        let contacts = try store.unifiedContacts(matching: predicate, keysToFetch: keys)
-
-        guard let contact = contacts.first else { return "" }
-
-        if let phone = contact.phoneNumbers.first?.value.stringValue {
-            // Le "+" doit être testé sur la chaîne ORIGINALE : le composant digits ci-dessous
-            // retire déjà tous les caractères non-numériques, donc tester hasPrefix("+") sur
-            // digits était toujours false et les numéros internationaux (+32, +41…) perdaient
-            // leur indicatif au profit d'un "+33" erroné.
-            if phone.hasPrefix("+") { return phone }
-            var digits = phone.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-            digits = String(digits.drop(while: { $0 == "0" }))
-            return "+33\(digits)"
-        }
-        if let email = contact.emailAddresses.first?.value as String? {
-            return email
-        }
-        return ""
-    }
-
-    // MARK: - get_system_info
-
-    private func getSystemInfo() async throws -> String {
-        // Disk
-        let diskURL = URL(fileURLWithPath: "/")
-        let diskValues = try? diskURL.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
-        let totalGB = (diskValues?.volumeTotalCapacity ?? 1) / 1_000_000_000
-        let freeGB = (diskValues?.volumeAvailableCapacity ?? 0) / 1_000_000_000
-
-        // RAM via sysctl
-        let ramBytes = try await shell("/usr/sbin/sysctl", ["-n", "hw.memsize"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let ramGB = (UInt64(ramBytes) ?? 0) / 1_000_000_000
-
-        // CPU
-        let cpu = try await shell("/usr/sbin/sysctl", ["-n", "machdep.cpu.brand_string"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Battery via pmset (réponse instantanée) plutôt que system_profiler SPPowerDataType
-        // qui mettait 2-3s à chaque appel de get_system_info.
-        // Format typique : "Now drawing from 'AC Power' -InternalBattery-0 (id=...) 98%; discharging; 4:11 remaining present: true"
-        let battText = try await shell("/usr/bin/pmset", ["-g", "batt"])
-        let battLine = battText.components(separatedBy: "\n").first { $0.contains("%") } ?? ""
-        let percentStr = battLine.components(separatedBy: "\t").last?
-            .trimmingCharacters(in: .whitespaces)
-        let batteryPercent = percentStr?.split(separator: ";").first?
-            .trimmingCharacters(in: .whitespaces) ?? "N/A"
-        let chargeState = battLine.contains("charging") ? "en charge"
-            : battLine.contains("charged") ? "chargée"
-            : battLine.contains("discharging") ? "sur batterie"
-            : "N/A"
-
-        // Uptime
-        let bootStr = try await shell("/usr/sbin/sysctl", ["-n", "kern.boottime"])
-        let bootSec = bootStr.components(separatedBy: "sec = ").last?.components(separatedBy: ",").first.flatMap { TimeInterval($0.trimmingCharacters(in: .whitespaces)) } ?? 0
-        let uptimeDays = bootSec > 0 ? Int(Date().timeIntervalSince1970 - bootSec) / 86400 : 0
-
-        return """
-        Mac : \(ProcessInfo.processInfo.hostName)
-        CPU : \(cpu)
-        RAM : \(ramGB) Go
-        Disque : \(freeGB) Go libres / \(totalGB) Go total
-        Batterie : \(batteryPercent) (\(chargeState))
-        Uptime : \(uptimeDays) jours
-        """
-    }
-
-    private func shell(_ exec: String, _ args: [String]) async throws -> String {
-        let (out, _) = try await Self.runProcess(executable: exec, arguments: args)
-        return out
-    }
-
-    // MARK: - Clipboard
-
-    private func getClipboard() async -> String {
-        // AppKit : accès presse-papiers depuis le main thread uniquement
-        await MainActor.run {
-            let pb = NSPasteboard.general
-            guard let items = pb.pasteboardItems else { return "Presse-papiers vide." }
-            let text = items.compactMap { $0.string(forType: .string) }.joined(separator: "\n")
-            return text.isEmpty ? "Presse-papiers vide." : text
-        }
-    }
-
-    private func setClipboard(_ text: String) async -> String {
-        await MainActor.run {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(text, forType: .string)
-            return "Texte copié dans le presse-papiers."
-        }
-    }
-
-    // MARK: - take_screenshot
-
-    private func takeScreenshot() async throws -> String {
-        let tempDir = FileManager.default.temporaryDirectory
-        let df = DateFormatter()
-        df.dateFormat = "'Capture d\u{2019}\u{00E9}cran' yyyy-MM-dd '\u{00E0}' HH.mm.ss"
-        let filename = "\(df.string(from: Date())).png"
-        let path = tempDir.appendingPathComponent(filename).path
-        let (_, err) = try await Self.runProcess(executable: "/usr/sbin/screencapture", arguments: ["-x", path])
-        if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Erreur capture : \(err.trimmingCharacters(in: .whitespacesAndNewlines))"
-        }
-        // Ouvre automatiquement pour que l'utilisateur la voie
-        await MainActor.run { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
-        return "Capture d'écran enregistrée et ouverte : \(filename) (ouverte dans Aperçu)"
-    }
-
-    // MARK: - sleep_mac
-
-    private func sleepMac(_ action: String) async throws -> String {
-        let lower = action.lowercased()
-
-        switch lower {
-        case "sleep", "veille":
-            afterSpeechThen {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-                proc.arguments = ["sleepnow"]
-                try? proc.run()
-            }
-            return "Mise en veille."
-        case "lock", "verrouiller":
-            _ = try? await Self.runProcess(
-                executable: "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
-                arguments: ["-suspend"]
-            )
-            return "Mac verrouillé."
-        case "shutdown", "eteindre":
-            afterSpeechThen {
-                let proc = Process()
-                proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
-                proc.arguments = ["shutdown", "now"]
-                try? proc.run()
-            }
-            return "Extinction."
-        case "restart", "redemarrer":
-            afterSpeechThen {
-                let script = """
-                tell application "System Events" to restart
-                """
-                var error: NSDictionary?
-                _ = NSAppleScript(source: script)?.executeAndReturnError(&error)
-            }
-            return "Redémarrage."
-        default:
-            return "Action inconnue. Utilise sleep, lock, shutdown ou restart."
-        }
-    }
-
-    private nonisolated func afterSpeechThen(_ action: @escaping () -> Void) {
-        Task {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            var waited: UInt64 = 0
-            let maxWait: UInt64 = 15_000_000_000
-            while waited < maxWait {
-                let done = await MainActor.run { !AudioService.shared.isSpeaking }
-                if done { break }
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                waited += 500_000_000
-            }
-            action()
-        }
-    }
-
-    // MARK: - file_search
-
-    private func fileSearch(_ query: String) async throws -> String {
-        let (out, err) = try await Self.runProcess(executable: "/usr/bin/mdfind", arguments: ["-literal", query, "-maxresults", "10"])
-        if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "Erreur : \(err)" }
-
-        let results = out.components(separatedBy: "\n").filter { !$0.isEmpty }
-        if results.isEmpty { return "Aucun fichier trouvé pour \"\(query)\"." }
-        if results.count >= 10 { return "Résultats (10 max) :\n" + results.prefix(10).joined(separator: "\n") }
-        return "Résultats :\n" + results.joined(separator: "\n")
-    }
-
-    // MARK: - get_upcoming_events
-
-    private func getUpcomingEvents(days: Int) async throws -> String {
-        let status = try await eventStore.requestFullAccessToEvents()
-        guard status else { return "Accès au calendrier refusé." }
-
-        let startDate = Date()
-        guard let endDate = Calendar.current.date(byAdding: .day, value: days, to: startDate) else {
-            return "Erreur de date."
-        }
-
-        let calendars = eventStore.calendars(for: .event)
-        let predicate = eventStore.predicateForEvents(withStart: startDate, end: endDate, calendars: calendars)
-        let events = eventStore.events(matching: predicate).sorted { $0.startDate < $1.startDate }
-
-        if events.isEmpty { return "Aucun événement dans les \(days) prochains jours." }
-
-        let df = DateFormatter()
-        df.dateFormat = "dd/MM HH:mm"
-
-        return events.prefix(20).map { event in
-            let start = df.string(from: event.startDate)
-            let location = event.location ?? ""
-            return "\(start) - \(event.title ?? "")\(location.isEmpty ? "" : " @ \(location)")"
-        }.joined(separator: "\n")
-    }
-
-    // MARK: - list_reminders
-
-    private func listReminders(list: String?) async throws -> String {
-        let status = try await eventStore.requestFullAccessToReminders()
-        guard status else { return "Accès aux rappels refusé." }
-
-        let predicate: NSPredicate
-        if let listName = list {
-            let calendars = eventStore.calendars(for: .reminder)
-            guard let cal = calendars.first(where: { $0.title.localizedCaseInsensitiveContains(listName) }) else {
-                return "Liste \"\(listName)\" introuvable."
-            }
-            predicate = eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: [cal])
-        } else {
-            let calendars = eventStore.calendars(for: .reminder)
-            predicate = eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: calendars)
-        }
-
-        let reminders = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[EKReminder], Error>) in
-            let _ = eventStore.fetchReminders(matching: predicate) { items in
-                cont.resume(returning: items ?? [])
-            }
-        }
-
-        if reminders.isEmpty { return "Aucun rappel en attente." }
-
-        let df = DateFormatter()
-        df.dateFormat = "dd/MM/yyyy"
-
-        return reminders.prefix(20).map { reminder in
-            let due = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }.map { df.string(from: $0) } ?? ""
-            return "\(reminder.title ?? "")\(due.isEmpty ? "" : " (pour le \(due))")"
-        }.joined(separator: "\n")
-    }
-
-    // MARK: - get_weather
-
-    /// Open-Meteo plutôt que search_web : sans clé API, JSON stable, pas de scraping HTML fragile
-    /// (contrairement à DuckDuckGo Lite dont le parsing casse au moindre changement de markup).
-    private func getWeather(city: String) async throws -> String {
-        let trimmed = city.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Aucune ville fournie." }
-
-        guard let encodedCity = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let geoURL = URL(string: "https://geocoding-api.open-meteo.com/v1/search?name=\(encodedCity)&count=1&language=fr&format=json")
-        else { return "Erreur d'encodage du nom de ville." }
-
-        guard let geoData = try? await URLSession.shared.data(for: {
-            var r = URLRequest(url: geoURL); r.timeoutInterval = 20; return r
-        }()).0,
-              let geoJSON = try? JSONSerialization.jsonObject(with: geoData) as? [String: Any],
-              let results = geoJSON["results"] as? [[String: Any]],
-              let first = results.first,
-              let lat = first["latitude"] as? Double,
-              let lon = first["longitude"] as? Double
-        else {
-            return "Ville \"\(trimmed)\" introuvable. Vérifie l'orthographe ou précise le pays."
-        }
-        let resolvedName = first["name"] as? String ?? trimmed
-        let country = first["country"] as? String ?? ""
-
-        guard let forecastURL = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,wind_speed_10m_max&timezone=auto") else {
-            return "Erreur de construction de l'URL météo."
-        }
-        guard let (data, response) = try? await URLSession.shared.data(for: {
-            var r = URLRequest(url: forecastURL); r.timeoutInterval = 20; return r
-        }()),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let current = json["current"] as? [String: Any]
-        else {
-            return "Service météo indisponible pour \(resolvedName) en ce moment."
-        }
-
-        let temp = current["temperature_2m"] as? Double ?? 0
-        let feelsLike = current["apparent_temperature"] as? Double ?? temp
-        let humidity = current["relative_humidity_2m"] as? Double ?? 0
-        let wind = current["wind_speed_10m"] as? Double ?? 0
-        let code = current["weather_code"] as? Int ?? -1
-
-        let condition = Self.weatherCodeDescriptions[code] ?? "conditions inconnues"
-
-        var result = "Météo à \(resolvedName)\(country.isEmpty ? "" : ", \(country)") : actuellement \(condition), \(String(format: "%.0f", temp))°C (ressenti \(String(format: "%.0f", feelsLike))°C), humidité \(String(format: "%.0f", humidity))%, vent \(String(format: "%.0f", wind)) km/h."
-
-        if let daily = json["daily"] as? [String: Any],
-           let dates = daily["time"] as? [String],
-           let maxTemps = daily["temperature_2m_max"] as? [Double],
-           let minTemps = daily["temperature_2m_min"] as? [Double],
-           let weatherCodes = daily["weather_code"] as? [Int],
-           let precip = daily["precipitation_sum"] as? [Double],
-           let windMax = daily["wind_speed_10m_max"] as? [Double] {
-
-            for i in 0..<min(dates.count, 3) where i > 0 {
-                let dayName = i == 1 ? "Demain" : "Le \(dates[i])"
-                let dayCode = weatherCodes.indices.contains(i) ? weatherCodes[i] : -1
-                let dayCondition = Self.weatherCodeDescriptions[dayCode] ?? "conditions inconnues"
-                let dayPrecip = precip.indices.contains(i) ? precip[i] : 0
-                let dayWind = windMax.indices.contains(i) ? windMax[i] : 0
-                result += " | \(dayName) : \(dayCondition), \(String(format: "%.0f", minTemps[i]))°C ~ \(String(format: "%.0f", maxTemps[i]))°C, précip. \(String(format: "%.0f", dayPrecip))mm, vent \(String(format: "%.0f", dayWind)) km/h."
-            }
-        }
-
-        return result
-    }
-
-    private static let weatherCodeDescriptions: [Int: String] = [
-        0: "ciel dégagé", 1: "plutôt dégagé", 2: "partiellement nuageux", 3: "couvert",
-        45: "brouillard", 48: "brouillard givrant",
-        51: "bruine légère", 53: "bruine modérée", 55: "bruine dense",
-        61: "pluie légère", 63: "pluie modérée", 65: "pluie forte",
-        71: "neige légère", 73: "neige modérée", 75: "neige forte",
-        80: "averses légères", 81: "averses modérées", 82: "averses violentes",
-        95: "orage", 96: "orage avec grêle légère", 99: "orage avec grêle forte",
-    ]
-
-    private func readURL(_ urlString: String) async throws -> String {
-        let normalized = urlString.hasPrefix("http") ? urlString : "https://\(urlString)"
-        guard let url = URL(string: normalized) else { return "URL invalide : \(urlString)." }
-        guard let html = await fetchPage(url, timeout: 20) else {
-            return "Impossible de récupérer le contenu de \(urlString) (page inaccessible ou timeout)."
-        }
-        let text = html.htmlToText(maxLength: 4000)
-        return text.count > 100 ? text : "Contenu de la page insuffisant ou vide."
-    }
-
-    // MARK: - run_routine
+    // MARK: - run_routine (orchestration, reste dans la façade)
 
     private func runRoutine(_ name: String) async throws -> String {
         switch name.lowercased() {
         case "morning", "matin":
-            // Appels directs aux implémentations plutôt que via execute() : évite de repasser par le
-            // dispatcher pour un enchaînement interne connu, et garde des erreurs isolées par étape
-            // (un tool en échec dans la routine ne doit pas faire échouer les deux autres).
+            // Appels directs aux sous-services plutôt que via execute() : évite de
+            // repasser par le dispatcher (et par MCP) pour un enchaînement interne
+            // connu, et garde des erreurs isolées par étape.
             var parts: [String] = []
 
-            if let events = try? await getUpcomingEvents(days: 1), !events.isEmpty {
+            if let events = try? await calendar.upcoming(days: 1), !events.isEmpty {
                 parts.append("Aujourd'hui :\n\(events)")
             } else {
                 parts.append("Aucun événement aujourd'hui.")
             }
 
-            if let sysInfo = try? await getSystemInfo() {
+            if let sysInfo = try? await system.getSystemInfo() {
                 parts.append(sysInfo)
             }
 
@@ -1163,56 +336,5 @@ actor ToolService {
             return "Routine \"\(name)\" inconnue. Routines disponibles : morning."
         }
     }
-
-    // MARK: - remember_fact
-
-    private func rememberFact(key: String, value: String) async -> String {
-        guard !key.isEmpty, !value.isEmpty else { return "Erreur : clé et valeur requis." }
-        // AVANT : `try?` jetait l'erreur DB puis on retournait QUAND MÊME "Fait mémorisé" —
-        // le modèle annonçait à l'utilisateur que c'était noté alors que rien n'était écrit
-        // (base non ouverte, disque, verrou…). Maintenant l'échec est explicite pour que le
-        // modèle le dise au lieu de confabuler un succès.
-        do {
-            try await DatabaseService.shared.upsertFact(key: key, value: value)
-        } catch {
-            return "Échec de mémorisation (\(key)) : \(error.localizedDescription). Tu n'as RIEN enregistré : dis-le clairement et ne prétends pas le contraire."
-        }
-        return "Fait mémorisé : \(key) = \(value)"
-    }
 }
 
-/// Find bundle path by app name (common locations)
-private func bundlePath(for appName: String) -> String? {
-    let paths = [
-        "/Applications/\(appName).app",
-        "/Applications/Utilities/\(appName).app",
-        "/System/Applications/\(appName).app",
-        "/System/Applications/Utilities/\(appName).app",
-        "\(NSHomeDirectory())/Applications/\(appName).app"
-    ]
-    return paths.first { FileManager.default.fileExists(atPath: $0) }
-}
-
-/// Fallback: lookup by bundle identifier
-private func appStoreBundlePath(for appName: String) -> String? {
-    let bundleIDs: [String: String] = [
-        "Safari": "com.apple.Safari",
-        "Calendar": "com.apple.iCal",
-        "Notes": "com.apple.Notes",
-        "Mail": "com.apple.mail",
-        "Messages": "com.apple.MobileSMS",
-        "Maps": "com.apple.Maps",
-        "Music": "com.apple.Music",
-        "Photos": "com.apple.Photos",
-        "FaceTime": "com.apple.FaceTime",
-        "Contacts": "com.apple.AddressBook",
-        "Finder": "com.apple.finder",
-        "Terminal": "com.apple.Terminal",
-        "System Settings": "com.apple.systempreferences",
-        "Weather": "com.apple.weather",
-        "Home": "com.apple.home",
-    ]
-    guard let bid = bundleIDs[appName] ?? bundleIDs[appName.lowercased()] else { return nil }
-    guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) else { return nil }
-    return url.path
-}

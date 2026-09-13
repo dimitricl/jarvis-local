@@ -41,13 +41,26 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     func testSearchWebReturnsErrorForEmptyQuery() async throws {
         let tools = ToolService.shared
         let result = try await tools.execute(name: "search_web", args: ["query": ""])
-        XCTAssertTrue(result.contains("Erreur d'encodage") || result.contains("Aucun résultat"))
+        // Chantier 1 : le service cascade répond "Requête vide" sans même appeler le réseau.
+        XCTAssertTrue(result.contains("Requête vide") || result.contains("Erreur d'encodage") || result.contains("Aucun résultat"))
     }
 
     func testOpenAppUnknownAppReturnsError() async throws {
         let tools = ToolService.shared
         let result = try await tools.execute(name: "open_app", args: ["app": "ThisAppDefinitelyDoesNotExist12345"])
         XCTAssertTrue(result.contains("introuvable"))
+    }
+
+    func testFormatSearchResultsIncludesSourceURL() {
+        let out = ToolService.formatSearchResults([
+            (title: "Exemple", href: "https://example.com/page", text: "Contenu utile"),
+            (title: "Sans contenu", href: "https://example.com/vide", text: nil),
+        ])
+        XCTAssertTrue(out.contains("Source : https://example.com/page"))
+        XCTAssertTrue(out.contains("Contenu utile"))
+        XCTAssertTrue(out.contains("--- Sans contenu ---"))
+        // Pas de ligne "Contenu :" pour le résultat sans texte.
+        XCTAssertEqual(out.components(separatedBy: "Contenu :").count - 1, 1)
     }
 
     func testRememberFactRequiresKeyAndValue() async throws {

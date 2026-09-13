@@ -45,6 +45,17 @@ final class Settings {
             UserDefaults.standard.set(maxTokens, forKey: "max_tokens")
         }
     }
+    /// Température d'échantillonnage (0.0–2.0). 0.7 par défaut (comportement historique).
+    /// Baisser (~0.2) rend les réponses factuelles plus fidèles (moins de chiffres brodés
+    /// type "43 h / +80 %"), au prix d'une personnalité plus plate ; monter rend Jarvis
+    /// plus créatif mais plus confabulateur. Réglable depuis les paramètres.
+    var temperature: Double {
+        didSet {
+            let clamped = max(0, min(temperature, 2))
+            if clamped != temperature { temperature = clamped; return }
+            UserDefaults.standard.set(temperature, forKey: "temperature")
+        }
+    }
     var ttsEnabled: Bool {
         didSet { UserDefaults.standard.set(ttsEnabled, forKey: "tts_enabled") }
     }
@@ -79,6 +90,20 @@ final class Settings {
     /// symptôme observable = Jarvis se coupe la parole tout seul en permanence.
     var bargeInEnabled: Bool {
         didSet { UserDefaults.standard.set(bargeInEnabled, forKey: "barge_in_enabled") }
+    }
+
+    /// Active la délégation MCP (chantier 5 : iMCP pour Calendrier/Rappels/Contacts/Messages).
+    /// Désactivé par défaut : sans iMCP installé, le provider resterait hors-ligne de toute
+    /// façon, mais le flag évite même de spawner des process pour rien au démarrage.
+    var mcpEnabled: Bool {
+        didSet { UserDefaults.standard.set(mcpEnabled, forKey: "mcp_enabled") }
+    }
+    /// Chemin du binaire iMCP (Réglages > MCP). Vide = résolution automatique
+    /// (env JARVIS_IMCP_PATH > `which imcp` > /opt/homebrew/bin, /usr/local/bin…).
+    /// Pourquoi un champ plutôt qu'une constante : le chemin Homebrew diffère
+    /// entre Mac Intel (/usr/local) et Apple Silicon (/opt/homebrew).
+    var imcpPath: String {
+        didSet { UserDefaults.standard.set(imcpPath, forKey: "imcp_path") }
     }
 
     /// Retourne toutes les voix françaises disponibles
@@ -173,6 +198,8 @@ private init() {
         // tout en gardant une garde-fou contre les boucles infinies de génération.
         let savedMaxTokens = defaults.object(forKey: "max_tokens") as? Int ?? 8192
         self.maxTokens = max(256, min(savedMaxTokens, 32768))
+        let savedTemp = defaults.object(forKey: "temperature") as? Double ?? 0.7
+        self.temperature = max(0, min(savedTemp, 2))
         self.ttsEnabled = defaults.bool(forKey: "tts_enabled")
         self.voiceEnabled = defaults.bool(forKey: "voice_enabled")
         self.ttsVoiceIdentifier = defaults.string(forKey: "tts_voice") ?? ""
@@ -184,6 +211,8 @@ private init() {
         // Si ça se déclenche encore tout seul sur haut-parleurs internes, repasse ce flag à false
         // depuis les Réglages plutôt que de retoucher le code.
         self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? true
+        self.mcpEnabled = defaults.object(forKey: "mcp_enabled") as? Bool ?? false
+        self.imcpPath = defaults.string(forKey: "imcp_path") ?? ""
         
         // Restore last check date for update throttling
         let savedLastCheck = defaults.object(forKey: "last_check_date") as? Double

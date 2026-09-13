@@ -238,7 +238,9 @@ final class AppViewModel {
                 return f.string(from: Date())
             }()
 
-            let toolList = tools.toolDefs.map { t in
+            // Liste fusionnée natif + MCP (chantier 5) : quand iMCP est en ligne,
+            // ses outils apparaissent ici avec leur description, sinon le natif seul.
+            let toolList = await tools.effectiveToolDefs().map { t in
                 let req = t.function.parameters.required.isEmpty ? "" : " (requis: \(t.function.parameters.required.joined(separator: ", ")))"
                 return "• \(t.function.name) → \(t.function.description)\(req)"
             }.joined(separator: "\n")
@@ -272,7 +274,9 @@ final class AppViewModel {
             - Ne JAMAIS inventer de faits : si un outil ne retourne rien, dis que la recherche a échoué.
             - Si un outil échoue, dis-le simplement et propose une alternative.
             - N'affirme JAMAIS avoir exécuté une action (page ouverte, message envoyé, note créée, rappel ajouté…) sans avoir réellement appelé l'outil correspondant dans cette réponse. Si aucun appel d'outil n'a eu lieu, dis ce que tu n'as PAS fait au lieu de prétendre le contraire.
+            - Quand l'utilisateur te donne une info personnelle (prénom, nom, ville, âge, métier, goûts, famille…), appelle remember_fact EN PLUS de ta réponse (clé user.name, user.city… et valeur exacte) — et ne dis JAMAIS « c'est noté / je m'en souviendrai » sans avoir appelé remember_fact dans la même réponse.
             - Quand un outil retourne un résultat, cite-le EXACTEMENT sans inventer. Si take_screenshot retourne un chemin, réponds "C'est fait. Capture enregistrée et ouverte : <nom>" et n'ajoute JAMAIS "je n'ai pas de fichier".
+            - Quand ta réponse s'appuie sur search_web ou read_url, termine par une ligne "Sources :" avec les URL fournies dans les résultats (n'utilise QUE ces URL-là, ne les invente jamais). Si un chiffre n'y figure pas, dis que tu ne l'as pas trouvé au lieu de le deviner.
             
             \(toolList)
 
@@ -297,6 +301,11 @@ final class AppViewModel {
 
             let maxLoops = 5
             var toolCallHistory = Set<String>()
+            // URLs sources réellement consultées ce tour (extraites des résultats
+            // search_web/read_url) : si la réponse finale ne cite rien, on les ajoute
+            // d'office — la consigne "Sources :" du prompt ne suffit pas, le petit
+            // modèle l'oublie une fois sur deux (cas iPhone 18 Pro).
+            var turnSources: [String] = []
 
             for _ in 0..<maxLoops {
                 try Task.checkCancellation()
@@ -311,7 +320,11 @@ final class AppViewModel {
                     // Réponse finale : pas de tool call, on enregistre et on arrête la boucle
                     let finalText = stripThinking(content)
                     if !finalText.isEmpty {
-                        let assistantMsg = try await db.insertMessage(role: "assistant", content: finalText, conversationId: cid)
+                        // Citation garantie : les URLs consultées sont ajoutées si absentes.
+                        // Le TTS lit finalText (sans les sources) — personne ne veut entendre
+                        // des URL à voix haute.
+                        let savedText = Self.appendMissingSources(to: finalText, sources: turnSources)
+                        let assistantMsg = try await db.insertMessage(role: "assistant", content: savedText, conversationId: cid)
                         messages.append(assistantMsg)
 
                         if Settings.shared.ttsEnabled {
@@ -350,6 +363,7 @@ final class AppViewModel {
                         content: "Appel ignoré : \(dup.function.name) a déjà été appelé avec ces arguments exacts dans ce tour. Réutilise son résultat précédent au lieu de le rappeler.",
                         toolCallId: dup.id
                     ))
+                    await auditTool(conversationId: cid, tool: dup.function.name, args: dup.function.arguments, status: "ignoré", result: "Doublon : déjà appelé avec ces arguments exacts dans ce tour.")
                 }
                 if freshCalls.isEmpty {
                     ollamaMessages.append(OllamaMessage(role: "user", content: "Même outil déjà appelé. Réponds maintenant avec les résultats déjà obtenus."))
@@ -381,6 +395,7 @@ final class AppViewModel {
                             content: "ERREUR DE FORMAT : les arguments de \(tc.function.name) ne sont pas un JSON objet valide (« \(tc.function.arguments.prefix(200)) »). Rappelle l'outil avec un JSON valide : {\"param\": \"valeur\"}.",
                             toolCallId: tc.id
                         ))
+                        await auditTool(conversationId: cid, tool: tc.function.name, args: tc.function.arguments, status: "format", result: "Arguments JSON invalides, appel non exécuté.")
                         continue
                     }
 
@@ -391,6 +406,7 @@ final class AppViewModel {
                             // par l'utilisateur." laissait le modèle répondre "C'est fait !" alors
                             // que RIEN ne s'était exécuté.
                             ollamaMessages.append(OllamaMessage(role: "tool", content: "Action REFUSÉE par l'utilisateur : tu n'as RIEN exécuté. Dis-le clairement à l'utilisateur et ne prétends surtout pas que l'action a réussi.", toolCallId: tc.id))
+                            await auditTool(conversationId: cid, tool: tc.function.name, args: Self.argsSummary(args), status: "refusé", result: "Refusé par l'utilisateur, rien n'a été exécuté.")
                             continue
                         }
                     }
@@ -405,16 +421,20 @@ final class AppViewModel {
                     // résultats des tools déjà exécutés dans la même boucle. Ici on isole l'échec,
                     // on le redonne au modèle comme un résultat d'outil parmi d'autres, et on continue.
                     let resultContent: String
+                    let runStatus: String
                     do {
                         resultContent = try await tools.execute(name: tc.function.name, args: args)
                         markLastToolTrace("✓")
+                        runStatus = "✓"
                     } catch is CancellationError {
                         throw CancellationError()
                     } catch {
                         resultContent = "Échec de l'outil \(tc.function.name) : \(error.localizedDescription). L'action n'a PAS été effectuée : dis-le clairement et ne prétends pas le contraire."
                         markLastToolTrace("✗")
+                        runStatus = "✗"
                     }
                     isToolRunning = false
+                    await auditTool(conversationId: cid, tool: tc.function.name, args: Self.argsSummary(args), status: runStatus, result: resultContent)
 
                     // Le contenu provenant du web (search_web) n'est jamais fiable : on le marque
                     // explicitement comme donnée externe non fiable plutôt que comme instruction
@@ -425,6 +445,11 @@ final class AppViewModel {
                         : "Résultat :\n\(resultContent)"
 
                     ollamaMessages.append(OllamaMessage(role: "tool", content: wrapped, toolCallId: tc.id))
+                    if tc.function.name == "search_web" || tc.function.name == "read_url" {
+                        for url in Self.extractSourceURLs(from: resultContent) where !turnSources.contains(url) {
+                            turnSources.append(url)
+                        }
+                    }
                     if tc.function.name == "remember_fact" {
                         self.facts = (try? await db.getAllFacts()) ?? self.facts
                     }
@@ -456,6 +481,56 @@ final class AppViewModel {
         if let idx = toolTrace.indices.last {
             toolTrace[idx].status = status
         }
+    }
+
+    /// Journal d'audit des outils (commande /tools). N'échoue JAMAIS le tour :
+    /// si le log échoue, on continue sans bruit.
+    private func auditTool(conversationId: Int?, tool: String, args: String, status: String, result: String) async {
+        try? await db.logToolRun(conversationId: conversationId, tool: tool, args: args, status: status, result: result)
+    }
+
+    /// Résumé compact d'arguments pour le journal (clé=valeur, valeurs coupées).
+    /// Fonction pure — `internal` pour les tests.
+    nonisolated static func argsSummary(_ args: [String: Any]) -> String {
+        args.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\("\($0.value)".prefix(60))" }
+            .joined(separator: ", ")
+    }
+
+    // MARK: - Audit des outils (/tools)
+
+    /// Panneau d'audit : la preuve persistée de ce qui a VRAIMENT été exécuté.
+    var showTools = false
+    var toolRuns: [ToolRun] = []
+
+    func loadToolRuns() async {
+        do {
+            toolRuns = try await db.getRecentToolRuns()
+        } catch {
+            errorMessage = "Erreur chargement audit outils : \(error.localizedDescription)"
+        }
+    }
+
+    /// Extrait les lignes "Source : <url>" d'un résultat search_web/read_url.
+    /// Fonction pure — `internal` pour les tests.
+    nonisolated static func extractSourceURLs(from toolResult: String) -> [String] {
+        toolResult.components(separatedBy: "\n").compactMap { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("Source : ") else { return nil }
+            let url = String(trimmed.dropFirst("Source : ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            return url.hasPrefix("http") ? url : nil
+        }
+    }
+
+    /// Ajoute un bloc "Sources :" si le texte n'en cite aucune (ni URL ni mention).
+    /// Déduplique en préservant l'ordre. Fonction pure — `internal` pour les tests.
+    nonisolated static func appendMissingSources(to text: String, sources: [String]) -> String {
+        var seen: [String] = []
+        for s in sources where !seen.contains(s) { seen.append(s) }
+        guard !seen.isEmpty,
+              !text.contains("http"),
+              !text.localizedCaseInsensitiveContains("source") else { return text }
+        return text + "\n\nSources :\n" + seen.map { "- \($0)" }.joined(separator: "\n")
     }
 
     /// Filtre anti-boucle par appel (et non par batch) : sépare les appels inédits de ce tour
@@ -537,7 +612,9 @@ final class AppViewModel {
         // Nombre de caractères (sur le texte "strippé") déjà envoyés au TTS
         var spokenCount = 0
 
-        let stream = ollama.streamChat(messages: messages, tools: tools.toolDefs)
+        // Définitions fusionnées natif + MCP : le modèle voit les outils distants
+        // quand iMCP est connecté, et `execute()` les route vers le bon transport.
+        let stream = ollama.streamChat(messages: messages, tools: await tools.effectiveToolDefs())
         for try await event in stream {
             try Task.checkCancellation()
             switch event {
@@ -682,35 +759,26 @@ final class AppViewModel {
 
     // MARK: - Facts
 
-    /// Extraction heuristique : volontairement simple (regex, pas de NER). Ça va rater des cas et
-    /// parfois capturer du bruit — c'est un choix assumé, pas un manque de rigueur : un faux positif
-    /// n'a aucune conséquence tant que rien n'est écrit sans confirmation explicite juste après.
-    private static let factPatterns: [(key: String, regex: NSRegularExpression)] = {
-        let patterns: [(String, String)] = [
-            ("user.name", #"(?:je m'appelle|mon nom est)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+)?)"#),
-            ("user.city", #"(?:j'habite\s+(?:à|a|au|en)|je vis\s+(?:à|a|au|en))\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+)"#),
-            ("user.birthday", #"(?:je suis né(?:e)?\s+le|mon anniversaire\s+(?:est|c'est)\s+le)\s+(\d{1,2}(?:er)?\s+[a-zéûôî]+(?:\s+\d{4})?)"#),
-        ]
-        return patterns.compactMap { (key, pattern) in
-            // caseInsensitive : sans lui, "je suis né le 15 Mai 1990" ne matchait pas ([a-zéûôî]
-            // refusait le M majuscule du mois).
-            (try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive])).map { (key, $0) }
-        }
-    }()
+    /// Logique d'extraction extraite dans `FactExtractor` (chantier 2) : struct pure,
+    /// testable sans instancier le ViewModel ni sa DB. Les méthodes ci-dessous
+    /// délèguent à l'identique pour garder les tests existants verts.
+    nonisolated static func normalizeNameToken(_ token: some StringProtocol) -> String {
+        FactExtractor.normalizeNameToken(token)
+    }
+
+    /// NOTE : `internal` pour les tests.
+    nonisolated static func isExcludedNameValue(_ value: String) -> Bool {
+        FactExtractor.isExcludedNameValue(value)
+    }
+
+    /// Retire les mots de liaison finaux ("Dimitri et" → "Dimitri"). NOTE : `internal` pour les tests.
+    nonisolated static func trimNameTrailingStoppers(_ value: String) -> String {
+        FactExtractor.trimNameTrailingStoppers(value)
+    }
 
     /// NOTE : `internal` pour les tests — permet de valider l'extraction heuristique sans passer par le flux complet
     func extractCandidateFacts(from text: String) -> [(key: String, value: String)] {
-        var found: [(String, String)] = []
-        for (key, regex) in Self.factPatterns {
-            let range = NSRange(text.startIndex..., in: text)
-            guard let match = regex.firstMatch(in: text, range: range),
-                  match.numberOfRanges > 1,
-                  let valueRange = Range(match.range(at: 1), in: text)
-            else { continue }
-            let value = String(text[valueRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty { found.append((key, value)) }
-        }
-        return found
+        FactExtractor().extract(from: text)
     }
 
     /// Détecte des faits potentiels dans le message utilisateur et demande confirmation avant

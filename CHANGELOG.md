@@ -2,6 +2,21 @@
 
 ## Non publié
 
+- `search_web` robuste (chantier 1) : cascade API officielle DuckDuckGo Instant Answer
+  → parsing DOM SwiftSoup (`lite.duckduckgo.com`) → fallback regex legacy avec mention
+  de mode dégradé ; nouveau `WebSearchService` (actor) + `formatSearchResults` conservé
+  comme alias de compat ; dépendance SwiftSoup dans `Package.swift`
+- Découpage `ToolService` (chantier 2) : un seul point d'entrée `execute(name:args:)`
+  qui route vers `CalendarTools`, `RemindersTools`, `MessagingTools`, `SystemTools`,
+  `WebTools`, `NotesTools`, `MemoryTools` (contexte `ToolContext` + `ProcessRunner`
+  partagés) ; logique d'extraction de faits extraite en `FactExtractor` pur et testable,
+  `AppViewModel` ne fait que déléguer (comportement identique, 247 tests verts)
+- Client MCP (chantier 5) : nouveau `MCPToolProvider` (actor, transport stdio JSON-RPC
+  minimal) qui fusionne les outils iMCP dans la liste Ollama et route `execute()` vers
+  le bon transport ; binaire iMCP résolu dynamiquement (env `JARVIS_IMCP_PATH` >
+  Réglages > `which imcp` > chemins usuels, jamais en dur) ; flag `mcpEnabled`
+  (désactivé par défaut) + champ `imcpPath` dans Réglages ; `sleep_mac`,
+  `applescript`, captures, presse-papiers et `search_web` restent natifs
 - Fix copier-coller : les messages utilisateur sont de nouveau sélectionnables, chaque bulle
   a un menu contextuel « Copier » + un bouton copier qui copie le message ENTIER (le rendu
   riche découpe le texte en N vues entre lesquelles la sélection ne traverse pas)
@@ -19,6 +34,22 @@
   (double clic/dismiss = une seule reprise de continuation)
 - Tests : dédupe par appel, resolve unique, Stop libère la confirmation, `remember_fact`
   vide rejeté (202 verts)
+- Fix mémoire (cas réel « je suis dimitri ») : l'heuristique capte désormais « je suis X »,
+  « moi c'est X », « c'est moi X », « mon prénom est X » — avec filtre anti-bruit (états,
+  métiers, locutions : « d'accord », « en retard », « développeur »…) et élagage des mots
+  de liaison finaux (« Dimitri et toi » → « Dimitri ») ; consigne modèle explicite :
+  jamais de « c'est noté / je m'en souviendrai » sans appel `remember_fact` (206 verts)
+- Fix auditabilité web (cas réel iPhone 18 Pro : prix/dates exacts mais chiffres CPU/GPU/
+  autonomie brodés) : `search_web` et `read_url` renvoient désormais la Source URL au modèle,
+  et le prompt exige une ligne « Sources : » avec ces URL uniquement + d'avouer les chiffres
+  manquants au lieu de les deviner
+- Citation garantie : si le modèle oublie les sources après un search_web/read_url, l'app les
+  ajoute d'office en fin de réponse (jamais lues à voix haute par le TTS)
+- Audit persistant des outils : chaque exécution (réussie, refusée, échouée, ignorée) est
+  journalisée en base (table `tool_runs`) et consultable via la nouvelle commande `/tools`
+  — fini le « il l'a vraiment fait ? » invérifiable
+- Température LLM réglable (Réglages, curseur 0–2, défaut 0,7) : baisser (~0,2) limite les
+  chiffres inventés dans les réponses factuelles (214 verts)
 
 ## 0.3.1 (2026-09-12)
 
@@ -59,6 +90,15 @@
 - Serveur : validation `PORT`/`NUM_CTX`, fallback `EDGE_TTS_BIN=edge-tts`, fix path traversal `public/`, validation `history`/`conversations`/`facts` (400/404), purge leak rate-limit `close()`, TTS hybride robuste (tmp cleanup, `which` resolve)
 - Web : `wss` auto, `JSON.parse` guard, `onclose` streaming fix, XSS strip, `SILENCE 700→1200`, anti double PATCH rename
 - Sécurité : purge `memory.db` de l'historique git (filter-repo), `.env.example` localhost documenté
+
+## 0.2.1 (2026-09-04)
+
+- Fiabilité réseau Ollama : `warmUp` avec backoff exponentiel (3 tentatives)
+- Throttling `checkForUpdates` (1 fois / 24 h via UserDefaults)
+- Barre de recherche plein-texte (`/search`), aide contextuelle (`/help`)
+- Corrections : champ de saisie (curseur), normalisation TTS, requêtes DB robustes,
+  conflits de noms de classes de test
+- (Détail complet dans `JarvisLocal/CHANGELOG.md`)
 
 ## 1.0.0 (2026-07-06)
 

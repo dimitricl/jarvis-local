@@ -1,0 +1,34 @@
+name: Changelog Guard
+
+# Pourquoi ce workflow : un tag poussé sans entrée CHANGELOG rend les releases
+# GitHub muettes et casse le rituel de release documenté dans le README.
+# Il échoue AVANT la release (pas après) pour forcer la doc au moment du tag.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  guard:
+    name: Tag ↔ CHANGELOG
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Le tag doit avoir une entrée CHANGELOG
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+          MISSING=0
+          # Racine : accepte "## 0.3.1", "## [0.3.1]", "## v0.3.1".
+          if ! grep -qE "^## (\\[?v?)?${VER}(\\]?)?([[:space:]]|\\(|$)" CHANGELOG.md; then
+            echo "::error::Tag $TAG sans entrée dans ./CHANGELOG.md (version $VER introuvable)"
+            MISSING=1
+          fi
+          # Paquet Swift : même règle, format Keep-a-Changelog accepté.
+          if ! grep -qE "^## (\\[?v?)?${VER}(\\]?)?([[:space:]]|-|$)" JarvisLocal/CHANGELOG.md; then
+            echo "::error::Tag $TAG sans entrée dans JarvisLocal/CHANGELOG.md (version $VER introuvable)"
+            MISSING=1
+          fi
+          if [ "$MISSING" = 1 ]; then exit 1; fi
+          echo "OK : entrée $VER trouvée aux deux endroits."
