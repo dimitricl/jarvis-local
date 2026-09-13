@@ -2,6 +2,28 @@
 
 ## Non publié
 
+## 0.4.1 (2026-09-13)
+
+- Fix transport MCP (validé en réel contre iMCP v1.4.1) : `notifications/initialized`
+  manquant après `initialize` (bloquait `tools/list` en file côté serveur), délai de
+  stabilisation 1 s ajouté pour le relais Bonjour app ↔ CLI, timeout porté à 60 s
+  (la réponse `tools/list` ~22 Ko arrive en deux flushes espacés)
+- Délégation recalée sur les vrais noms d'outils exposés par iMCP (`events_create`,
+  `events_fetch`, `calendars_list`, `reminders_create`, `reminders_fetch`,
+  `reminders_lists`, `contacts_search`) — les noms précédents étaient incorrects et
+  ne matchaient rien côté serveur
+- `send_message` et `search_maps` retirés de la délégation MCP (iMCP n'expose que du
+  read-only sur ces domaines : `messages_fetch`, `maps_search`) : restent natifs
+- `effectiveToolDefs()` masque désormais les outils natifs remplacés par leur
+  équivalent MCP (plus de doublons `add_calendar_event` / `events_create` exposés
+  au modèle) ; le natif reste en fallback direct
+- Validé en conditions réelles le 13/09 : calendrier (lecture + création),
+  rappels (listes + création + lecture — un `killall iMCP` + relance a été nécessaire :
+  permission accordée mais non effective dans le process en cours), contacts (lecture),
+  messages (lecture). `mcpEnabled` reste désactivé par défaut ; à activer manuellement
+  après installation d'iMCP (`brew install --cask mattt/tap/iMCP`, activation des
+  services dans l'app + approbation du client)
+
 ## 0.4.0 (2026-09-13)
 
 - `search_web` robuste : cascade API officielle DuckDuckGo Instant Answer

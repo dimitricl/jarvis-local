@@ -2,6 +2,23 @@
 
 ## [Non publié]
 
+## [0.4.1] - 2026-09-13
+
+### Corrections
+- **Transport MCP** (validé en réel contre iMCP v1.4.1) — `notifications/initialized`
+  après `initialize`, settle 1 s pour le relais Bonjour, timeout 60 s
+- **Délégation recalée sur les vrais noms iMCP** (`events_*`, `calendars_list`,
+  `reminders_*`, `contacts_search`) — les noms précédents ne matchaient rien
+- **`send_message` et `search_maps` redeviennent natifs** (iMCP = read-only sur
+  ces domaines)
+- **`effectiveToolDefs()` masque les natifs remplacés** (fini les outils concurrents)
+
+### Validation réelle
+- Calendrier (lecture + création), rappels (listes + création + lecture),
+  contacts (lecture), messages (lecture) le 13/09. `mcpEnabled` reste désactivé
+  par défaut ; diagnostic Rappels : permission accordée mais non effective sans
+  relance de l'app (`killall iMCP`)
+
 ## [0.4.0] - 2026-09-13
 
 ### Ajouts
