@@ -2,6 +2,21 @@
 
 ## [Non publié]
 
+### Corrections
+- **Troncature post-tool** — défaut `maxTokens` 8192 → 32768 ; cause précise non
+  identifiée (pas de raisonnement caché mesuré), piste `/api/chat` + `think:false`
+  documentée si récidive
+
+### Diagnostics (sans code)
+- **« Succès mensongers »** — cause = `qwen3.5:9b`, retour `gemma4:e4b` requis ;
+  transport et MCP exonérés
+- **MCP validé en réel** (iMCP v1.4.1) : lecture + créations calendrier/rappels,
+  contacts/messages en lecture ; `send_message` et `search_maps` restent natifs ;
+  Rappels exige parfois un `killall iMCP` (permission non effective)
+
+### Docs
+- **README** (racine + paquet) à jour : MCP opt-in, archi `Tools/`, 251 tests
+
 ## [0.4.1] - 2026-09-13
 
 ### Corrections

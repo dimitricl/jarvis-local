@@ -2,6 +2,22 @@
 
 ## Non publié
 
+- Fix troncature post-tool : défaut `maxTokens` 8192 → 32768 (`num_predict`) ;
+  instrumentation SSE temporaire ajoutée puis retirée dans le même commit.
+  Cause précise non identifiée : deux sondes `stream:false` avec contexte équivalent
+  n'ont montré aucun raisonnement caché (`reasoning_effort:none` honoré sur `/v1`) ;
+  si récidive, piste documentée = migration vers `/api/chat` natif avec `think:false`
+  (sondé viable : `done_reason` natif, zéro thinking, `tool_calls` avec id)
+- Diagnostic « succès mensongers » : cause = modèle `qwen3.5:9b` (faible en tool-calling),
+  pas le code — retour à `gemma4:e4b` requis ; `tool_runs` confirmait zéro appel,
+  transport et fusion MCP exonérés (payload 25 tools vérifié en dump)
+- MCP validé en réel (iMCP v1.4.1) : calendrier/rappels/contacts/messages en lecture,
+  créations calendrier + rappel OK ; `send_message` et `search_maps` restent natifs
+  (iMCP = lecture seule / sémantique différente) ; diagnostic Rappels : permission
+  accordée mais non effective sans `killall iMCP` + relance
+- README (racine + paquet) à jour : section MCP opt-in, archi `Tools/`, 251 tests,
+  procédure release avec garde CHANGELOG
+
 ## 0.4.1 (2026-09-13)
 
 - Fix transport MCP (validé en réel contre iMCP v1.4.1) : `notifications/initialized`
