@@ -11,8 +11,8 @@ Assistant IA personnel pour macOS, 100% local — dans l'esprit du JARVIS d'Iron
 ## Installation
 
 ```bash
-git clone https://github.com/votre-compte/JarvisLocal.git
-cd JarvisLocal
+git clone https://github.com/dimitricl/jarvis-local.git
+cd jarvis-local/JarvisLocal
 ./run.sh
 ```
 
@@ -35,6 +35,15 @@ Depuis l'icône ⚙️ dans l'interface :
 - Synthèse vocale : système (AVSpeechSynthesizer) ou edge-tts
 - Reconnaissance vocale (français)
 - Barge-in (interruption du TTS par la parole)
+- MCP (optionnel, désactivé par défaut) : iMCP pour Calendrier/Rappels/Contacts/Messages — voir « MCP » ci-dessous
+
+## MCP (iMCP, optionnel)
+
+```bash
+brew install --cask mattt/tap/iMCP
+```
+
+Activez les services dans l'app iMCP (menu bar), approuvez JarvisLocal, puis cochez **Réglages > MCP > Activer MCP** et redémarrez. Délégués : calendrier, rappels, recherche de contacts ; restent natifs : envoi iMessage, Plans, AppleScript, captures, presse-papiers, recherche web. Si les rappels répondent « not authorized » malgré les cases cochées : quittez et relancez iMCP.
 
 ## Fonctionnalités
 
@@ -63,8 +72,8 @@ Depuis l'icône ⚙️ dans l'interface :
 ```
 JarvisLocal/
 ├── Models/        # Structures de données (Message, Conversation, Tool, Fact)
-├── ViewModels/    # Logique métier (AppViewModel)
-├── Services/      # Ollama, outils macOS, base SQLite, audio, settings
+├── ViewModels/    # Logique métier (AppViewModel + FactExtractor pur)
+├── Services/      # Ollama, ToolService (façade), Tools/ (par domaine), Web/, MCP/, SQLite, audio, settings
 ├── Helpers/       # Thème, extensions, utilitaires
 └── Views/         # Interface SwiftUI
 ```
@@ -75,7 +84,7 @@ JarvisLocal/
 swift test
 ```
 
-173 tests couvrant : modèles, base de données, services (Ollama, tools, audio, STT), ViewModel (conversations, extraction de faits, recherche, export) et sécurité des outils sensibles.
+251 tests couvrant : modèles, base de données, services (Ollama, recherche web, tools, audio, STT, MCP sans binaire réel), ViewModel (conversations, extraction de faits, recherche, export) et sécurité des outils sensibles.
 
 ## Licence
 

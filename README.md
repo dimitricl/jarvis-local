@@ -48,13 +48,15 @@ Le script compile le projet, injecte la version depuis le dernier tag git, copie
 | Mode vocal            | Cliquez sur 🎤                         |
 | Vider l'historique    | Tapez `/clear`                         |
 | Gérer les faits       | Tapez `/facts`                         |
+| Audit des outils      | Tapez `/tools` (journal persisté des exécutions) |
 | Vérifier les mises à jour | Réglages > Mise à jour             |
 | Quitter le mode vocal | Bouton rouge "Quitter"                 |
 
 ### Fonctionnalités
 
 - **Chat local** avec Ollama — aucune donnée envoyée sur le cloud
-- **23+ outils** : recherche web (DuckDuckGo), lecture d'URL, Apple Notes, Rappels, Calendrier, iMessage, presse-papiers, capture d'écran, AppleScript, Raccourcis, Sleep du Mac, etc.
+- **23+ outils natifs** : recherche web (cascade API DuckDuckGo → DOM → fallback), lecture d'URL avec citation des sources, météo Open-Meteo, Apple Notes, Rappels, Calendrier, iMessage, presse-papiers, capture d'écran, AppleScript, Raccourcis, Sleep du Mac, etc.
+- **Client MCP (opt-in, désactivé par défaut)** : via [iMCP](https://github.com/mattt/iMCP) — calendrier, rappels, contacts et messages en lecture/création. Voir « MCP » ci-dessous.
 - **Mémoire persistante** (`/facts`) — Jarvis retient vos informations personnelles entre les sessions
 - **Mode vocal mains-libres** — reconnaissance Apple Speech + synthèse (AVSpeechSynthesizer ou edge-tts)
 - **Barge-in** — interrompez Jarvis pendant qu'il parle
@@ -71,6 +73,20 @@ Les outils à effet de bord sont protégés par une **double vérification** aut
 
 Cela évite la dérive silencieuse entre la liste réelle et une copie obsolète dans les tests.
 
+## MCP (iMCP, optionnel, désactivé par défaut)
+
+Jarvis peut déléguer Calendrier, Rappels, Contacts et Messages (lecture) au serveur MCP local [iMCP](https://github.com/mattt/iMCP), validé en réel contre iMCP v1.4.1 :
+
+```bash
+brew install --cask mattt/tap/iMCP
+```
+
+Puis : ouvrez iMCP, activez chaque service (menu bar), approuvez JarvisLocal (« Always trust this client »), et cochez **Réglages > MCP > Activer MCP** dans Jarvis (redémarrez l'app). Le chemin du serveur est résolu automatiquement (`/Applications/iMCP.app/Contents/MacOS/imcp-server`), modifiable dans le même panneau.
+
+Délégués quand MCP est en ligne : `events_create`, `events_fetch`, `calendars_list`, `reminders_*`, `contacts_search` (les équivalents natifs sont alors masqués au modèle, mais restent en fallback). **Restent toujours natifs** : envoi iMessage (`send_message`, iMCP = lecture seule), `search_maps`, `sleep_mac`, `applescript`, captures, presse-papiers, `search_web`.
+
+> Si `reminders_*` répond « not authorized » alors que tout est coché : quittez et relancez iMCP (`killall iMCP`) — la permission accordée n'est parfois pas effective dans le process en cours.
+
 ## Architecture
 
 MVVM avec `actor` Swift pour la sécurité des threads :
@@ -78,9 +94,9 @@ MVVM avec `actor` Swift pour la sécurité des threads :
 ```
 JarvisLocal/
 ├── Models/          # Structures de données (Message, Conversation, Fact, ToolDef)
-├── ViewModels/      # Logique métier (AppViewModel)
+├── ViewModels/      # Logique métier (AppViewModel + FactExtractor pur)
 ├── Views/           # Interface SwiftUI (ChatView, SettingsView, InputBarView)
-├── Services/        # Services système (Ollama, STT, Tool, Database)
+├── Services/        # Ollama, STT, Database, ToolService (façade), Tools/ (par domaine), Web/, MCP/
 └── Helpers/         # Extensions et utilitaires
 ```
 
@@ -119,24 +135,27 @@ cd JarvisLocal
 swift test
 ```
 
-45 tests couvrent : modèles, base de données, appels Ollama, outils et sécurité.
+251 tests couvrent : modèles, base de données, appels Ollama, recherche web (DOM + fallback), routage des outils, extraction de faits, client MCP (sans binaire réel) et sécurité.
 
 ### Ajouter un outil
 
 1. Déclarez le `ToolDef` dans `ToolService.toolDefs`
-2. Implémentez la méthode dans `executeTool()`
+2. Implémentez la logique dans le sous-service du domaine (`Services/Tools/`) et routez-la dans `execute(name:args:)` (point d'entrée unique)
 3. Ajoutez le nom dans `sensitiveTools` du `AppViewModel` s'il a un effet de bord
 4. Mettez à jour l'invariant `sideEffectTools` dans les tests
 
 ## Release
 
 ```bash
-# Mettre à jour CHANGELOG.md
-git add CHANGELOG.md && git commit -m "Changelog pour vX.Y.Z"
+# 1. Documenter la version aux DEUX endroits (le hook CI l'exige)
+# 2. Vérifier : sh JarvisLocal/Scripts/check-changelog.sh vX.Y.Z
+git add CHANGELOG.md JarvisLocal/CHANGELOG.md && git commit -m "Changelog pour vX.Y.Z"
 git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin main --tags
 gh release create vX.Y.Z --title "vX.Y.Z" --notes-file CHANGELOG.md
 ```
+
+Un tag poussé sans entrée CHANGELOG correspondante fait échouer la CI (`changelog-guard.yml`).
 
 ## Licence
 
