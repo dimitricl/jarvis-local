@@ -71,9 +71,25 @@ actor MCPStdioTransport {
         }
     }
 
+    /// Notification JSON-RPC (sans id, sans réponse attendue).
+    /// Utilisé pour `notifications/initialized` : la spec MCP exige que le client
+    /// l'envoie après `initialize`, et iMCP met en file les requêtes suivantes
+    /// (dont `tools/list`) tant qu'il ne l'a pas reçue — sans elle, `tools/list`
+    /// timeout de façon intermittente selon le timing du handshake.
+    func notify(method: String, params: [String: Any] = [:]) throws {
+        let msg: [String: Any] = ["jsonrpc": "2.0", "method": method, "params": params]
+        let data = try JSONSerialization.data(withJSONObject: msg) + Data([0x0A])
+        try stdin?.write(contentsOf: data)
+    }
+
     /// Appel RPC générique avec timeout (un serveur MCP bloqué ne doit
     /// jamais geler le tour de conversation — même règle que runProcess).
-    func request(method: String, params: [String: Any] = [:], timeout: TimeInterval = 20) async throws -> [String: Any] {
+    /// Timeout 60s (pas 20s) : constaté en test réel contre iMCP, la réponse
+    /// `tools/list` (~22 Ko) arrive en deux flushes espacés de ~20s (relais
+    /// Bonjour app ↔ CLI). Avec 20s, le timeout tuait la continuation quelques
+    /// millisecondes avant la fin de la réponse — alors que tout le handshake
+    /// (notify + ingest des notifications sans id) fonctionnait correctement.
+    func request(method: String, params: [String: Any] = [:], timeout: TimeInterval = 60) async throws -> [String: Any] {
         let id = nextId; nextId += 1
         let msg: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
         let data = try JSONSerialization.data(withJSONObject: msg) + Data([0x0A])
@@ -90,8 +106,7 @@ actor MCPStdioTransport {
     }
 }
 
-enum MCPError: Error, CustomStringConvertible {
-    case binaryNotFound(String)
+enum MCPError: Error, CustomStringConvertible {    case binaryNotFound(String)
     case timeout(String)
     case remote(String)
     case offline(String)

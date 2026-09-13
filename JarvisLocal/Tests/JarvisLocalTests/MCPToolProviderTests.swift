@@ -66,4 +66,58 @@ final class MCPToolProviderTests: XCTestCase {
         XCTAssertTrue(MCPError.binaryNotFound("imcp").description.contains("introuvable"))
         XCTAssertTrue(MCPError.offline("x").description.contains("hors-ligne"))
     }
+
+    func testDelegatedToolsMatchRealIMCPNames() {
+        // Régression constatée en test réel : les premiers noms délégués
+        // (add_calendar_event, send_message…) étaient inventés et ne matchaient
+        // RIEN côté serveur v1.4.1. Cette liste blanche = les tools réellement
+        // exposés (constaté via tools/list) ; tout ajout futur doit y figurer.
+        let realNames: Set<String> = [
+            "calendars_list", "events_fetch", "events_create",
+            "reminders_lists", "reminders_fetch", "reminders_create",
+            "contacts_me", "contacts_search", "contacts_update", "contacts_create",
+            "messages_fetch",
+            "maps_search", "maps_directions", "maps_explore", "maps_eta", "maps_generate",
+            "location_current", "location_geocode", "location_reverse-geocode",
+            "weather_current", "weather_daily", "weather_hourly", "weather_minute",
+            "shortcuts_list", "shortcuts_run",
+            "capture_take_picture", "capture_record_audio", "capture_take_screenshot",
+        ]
+        for cfg in MCPServerConfig.imcpDefaults() {
+            for t in cfg.delegatedTools {
+                XCTAssertTrue(realNames.contains(t), "\(t) : nom non constaté côté iMCP — délégation vide")
+                XCTAssertFalse(MCPToolProvider.nativeOnly.contains(t), "\(t) : aussi dans nativeOnly, conflit")
+            }
+        }
+    }
+
+    func testNoSendDelegationMessagesIsReadOnly() {
+        // iMCP n'expose que messages_fetch (lecture) : l'envoi reste natif.
+        for cfg in MCPServerConfig.imcpDefaults() {
+            XCTAssertFalse(cfg.delegatedTools.contains("send_message"))
+        }
+        XCTAssertNil(MCPToolProvider.nativeToMCP["send_message"])
+    }
+
+    func testSupersededEmptyWhenOffline() async {
+        let p = MCPToolProvider(configs: [])
+        let s = await p.supersededNativeTools()
+        XCTAssertTrue(s.isEmpty)
+    }
+
+    func testRegisteredRemoteToolSupersedesNative() async {
+        let p = MCPToolProvider(configs: [])
+        await p.registerForTests(MCPRemoteTool(serverId: "imcp", name: "events_create", description: "d", inputSchema: [:]))
+        let s = await p.supersededNativeTools()
+        XCTAssertTrue(s.contains("add_calendar_event"))
+        XCTAssertFalse(s.contains("send_message"))
+        // La liste fusionnée masque le natif superseded mais garde send_message.
+        await ToolService.shared.configureMCP(p)
+        let defs = await ToolService.shared.effectiveToolDefs()
+        let names = Set(defs.map { $0.function.name })
+        XCTAssertFalse(names.contains("add_calendar_event"))
+        XCTAssertTrue(names.contains("events_create"))
+        XCTAssertTrue(names.contains("send_message"))
+        await ToolService.shared.configureMCP(nil)
+    }
 }

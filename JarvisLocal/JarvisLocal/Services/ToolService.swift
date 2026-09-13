@@ -46,13 +46,16 @@ actor ToolService {
     func configureMCP(_ provider: MCPToolProvider?) { self.mcp = provider }
 
     /// Liste fusionnée envoyée à Ollama : natif + MCP dynamique.
-    /// Le natif garde la priorité sauf outils explicitement délégués
-    /// (voir MCPToolProvider.delegatedToMCP + nativeOnly).
+    /// Quand MCP couvre une action, l'équivalent natif est MASQUÉ (table
+    /// MCPToolProvider.nativeToMCP) pour ne pas exposer deux outils concurrents
+    /// au modèle — mais il reste exécutable en fallback direct via execute().
     func effectiveToolDefs() async -> [ToolDef] {
         guard let mcp else { return toolDefs }
         let extra = await mcp.toolDefs()
-        var seen = Set(toolDefs.map { $0.function.name })
-        var out = toolDefs
+        let hidden = await mcp.supersededNativeTools()
+        var seen = Set<String>()
+        var out = toolDefs.filter { !hidden.contains($0.function.name) }
+        seen.formUnion(out.map { $0.function.name })
         for d in extra where !seen.contains(d.function.name) {
             out.append(d); seen.insert(d.function.name)
         }

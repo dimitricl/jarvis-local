@@ -66,6 +66,16 @@ struct MCPServerConfig: Codable, Sendable, Equatable {
         // rappels, contacts, messages, localisation, plans) sur une connexion
         // stdio. La commande est résolue à l'appel (pas à la compilation) pour
         // suivre un changement de Réglages sans recompiler.
+        // NOMS VÉRIFIÉS en test réel (tools/list, serveur v1.4.1) — pas de noms
+        // inventés : un nom qui n'existe pas côté serveur ne route que le vide.
+        // - send_message EXCLU : iMCP n'expose que messages_fetch (lecture seule),
+        //   l'envoi reste natif (Messages via AppleScript).
+        // - search_maps EXCLU : maps_search existe mais retourne des données JSON-LD
+        //   alors que le natif OUVRE l'app Plans — sémantique différente, à valider
+        //   avant toute délégation.
+        // - reminders_* GARDÉS malgré "Reminders access not authorized" constaté en
+        //   test réel : c'est un accès à accorder dans l'app iMCP (icône Rappels),
+        //   pas un bug — l'erreur remonte explicitement au modèle en attendant.
         // NOTE : après install iMCP, activer chaque service dans l'app (menu bar)
         // et approuver JarvisLocal ("Always trust this client"), sinon tools/list
         // répond vide et le natif reste en relais.
@@ -77,11 +87,9 @@ struct MCPServerConfig: Codable, Sendable, Equatable {
                 args: [],
                 enabled: true,
                 delegatedTools: [
-                    "add_calendar_event", "get_calendars", "get_upcoming_events",
-                    "add_reminder", "list_reminders",
-                    "lookup_contact",
-                    "send_message",
-                    "search_maps",
+                    "events_create", "events_fetch", "calendars_list",
+                    "reminders_create", "reminders_fetch", "reminders_lists",
+                    "contacts_search",
                 ]
             ),
         ]
