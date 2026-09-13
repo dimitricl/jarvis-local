@@ -2,21 +2,29 @@
 
 ## Non publié
 
-- `search_web` robuste (chantier 1) : cascade API officielle DuckDuckGo Instant Answer
+## 0.4.0 (2026-09-13)
+
+- `search_web` robuste : cascade API officielle DuckDuckGo Instant Answer
   → parsing DOM SwiftSoup (`lite.duckduckgo.com`) → fallback regex legacy avec mention
   de mode dégradé ; nouveau `WebSearchService` (actor) + `formatSearchResults` conservé
   comme alias de compat ; dépendance SwiftSoup dans `Package.swift`
-- Découpage `ToolService` (chantier 2) : un seul point d'entrée `execute(name:args:)`
+- Découpage `ToolService` : un seul point d'entrée `execute(name:args:)`
   qui route vers `CalendarTools`, `RemindersTools`, `MessagingTools`, `SystemTools`,
   `WebTools`, `NotesTools`, `MemoryTools` (contexte `ToolContext` + `ProcessRunner`
   partagés) ; logique d'extraction de faits extraite en `FactExtractor` pur et testable,
   `AppViewModel` ne fait que déléguer (comportement identique, 247 tests verts)
-- Client MCP (chantier 5) : nouveau `MCPToolProvider` (actor, transport stdio JSON-RPC
-  minimal) qui fusionne les outils iMCP dans la liste Ollama et route `execute()` vers
-  le bon transport ; binaire iMCP résolu dynamiquement (env `JARVIS_IMCP_PATH` >
-  Réglages > `which imcp` > chemins usuels, jamais en dur) ; flag `mcpEnabled`
-  (désactivé par défaut) + champ `imcpPath` dans Réglages ; `sleep_mac`,
-  `applescript`, captures, presse-papiers et `search_web` restent natifs
+- Client MCP (EXPÉRIMENTAL, désactivé par défaut, NON VALIDÉ en conditions réelles) :
+  nouveau `MCPToolProvider` (actor, transport stdio JSON-RPC minimal) qui fusionne les
+  outils iMCP dans la liste Ollama et route `execute()` vers le bon transport ; commande
+  serveur résolue dynamiquement (env `JARVIS_IMCP_PATH` > Réglages > bundle iMCP.app >
+  `which imcp-server`, jamais en dur — iMCP expose un unique `imcp-server`, pas de
+  binaire à sous-commandes) ; flag `mcpEnabled` (désactivé par défaut, aucun impact
+  tant qu'inactif) + champ `imcpPath` dans Réglages ; `sleep_mac`, `applescript`,
+  captures, presse-papiers et `search_web` restent natifs. Code couvert par tests
+  unitaires (aucun ne requiert le vrai binaire), mais l'aller-retour réel contre iMCP
+  (calendrier, rappels, message) n'a PAS pu être testé — iMCP non installé sur la
+  machine de dev (`brew install --cask mattt/tap/iMCP`, macOS 15.3+, activation manuelle
+  des services dans l'app). Ne pas activer en usage réel avant validation manuelle.
 - Fix copier-coller : les messages utilisateur sont de nouveau sélectionnables, chaque bulle
   a un menu contextuel « Copier » + un bouton copier qui copie le message ENTIER (le rendu
   riche découpe le texte en N vues entre lesquelles la sélection ne traverse pas)

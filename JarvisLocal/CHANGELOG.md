@@ -2,16 +2,23 @@
 
 ## [Non publié]
 
+## [0.4.0] - 2026-09-13
+
 ### Ajouts
 - **Recherche web robuste** — cascade API officielle DuckDuckGo Instant Answer → parsing
   DOM SwiftSoup → fallback regex legacy avec mention de mode dégradé (`WebSearchService`)
 - **Découpage ToolService** — `execute(name:args:)` route vers `CalendarTools`,
   `RemindersTools`, `MessagingTools`, `SystemTools`, `WebTools`, `NotesTools`,
   `MemoryTools` ; extraction des faits en `FactExtractor` pur et testable
-- **Client MCP** — `MCPToolProvider` (stdio JSON-RPC) fusionne les outils iMCP et route
-  `execute()` ; binaire résolu dynamiquement, flag `mcpEnabled` + champ `imcpPath`
-  dans Réglages ; outils sensibles/rapides (`sleep_mac`, `applescript`, captures,
-  presse-papiers, `search_web`) restent natifs
+- **Client MCP (EXPÉRIMENTAL, désactivé par défaut, NON VALIDÉ en réel)** —
+  `MCPToolProvider` (stdio JSON-RPC) fusionne les outils iMCP et route `execute()` ;
+  commande serveur résolue dynamiquement (jamais en dur — iMCP = un unique
+  `imcp-server` dans `iMCP.app`) ; flag `mcpEnabled` + champ `imcpPath` dans Réglages ;
+  outils sensibles/rapides (`sleep_mac`, `applescript`, captures, presse-papiers,
+  `search_web`) restent natifs. Tests unitaires verts sans le vrai binaire, mais
+  l'aller-retour réel n'a pas pu être testé (iMCP non installé : `brew install
+  --cask mattt/tap/iMCP`, macOS 15.3+, activation manuelle des services).
+  Ne pas activer en usage réel avant validation manuelle.
 
 ## [0.3.1] - 2026-09-12
 

@@ -114,7 +114,7 @@ struct SettingsView: View {
                 TextField("Chemin iMCP (vide = auto) :", text: Bindable(settings).imcpPath)
                     .textFieldStyle(.roundedBorder)
                     .font(JarvisTheme.mono(10))
-                Text("Vide = résolution auto (JARVIS_IMCP_PATH > `which imcp` > /opt/homebrew, /usr/local…). Ex. Mac Intel : /usr/local/bin/imcp.")
+                Text("Vide = auto (JARVIS_IMCP_PATH > iMCP.app > `which imcp-server`). Défaut : /Applications/iMCP.app/Contents/MacOS/imcp-server. Après install : activer les services dans iMCP + approuver JarvisLocal.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

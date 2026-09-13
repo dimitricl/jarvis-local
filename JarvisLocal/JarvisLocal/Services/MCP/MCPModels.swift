@@ -4,20 +4,21 @@ import Foundation
 /// Pourquoi stdio et pas HTTP : iMCP tourne en local, stdio = pas de port,
 /// pas de TLS, démarrage à la demande par Jarvis.
 struct MCPServerConfig: Codable, Sendable, Equatable {
-    var id: String          // "imcp-calendar"
-    var command: String     // binaire résolu dynamiquement (jamais codé en dur)
-    var args: [String]      // ["calendar"] — un process par domaine iMCP
+    var id: String          // "imcp"
+    var command: String     // commande serveur résolue dynamiquement (jamais en dur) ; ex. "/Applications/iMCP.app/Contents/MacOS/imcp-server"
+    var args: [String]      // args du serveur (vide pour imcp-server : un seul serveur multi-domaines)
     var enabled: Bool
     var delegatedTools: Set<String> // outils qu'on accepte de déléguer à ce serveur
 
-    /// Binaires par défaut : le chemin est RÉSOLU, pas codé en dur.
-    /// Pourquoi : `/opt/homebrew/bin/imcp` n'existe que sur Mac Apple Silicon
-    /// avec Homebrew — sur Intel c'est `/usr/local/bin`, et iMCP peut aussi
-    /// être installé ailleurs (cargo, make install…). Un chemin en dur casse
-    /// au premier Mac différent (cf. consigne chantier 5).
+    /// Commande serveur iMCP RÉSOLUE, jamais codée en dur.
+    /// Pourquoi : iMCP s'installe comme app (`iMCP.app`, via `brew install --cask
+    /// mattt/tap/iMCP` ou https://iMCP.app/download) et expose UN seul serveur stdio
+    /// `imcp-server` — pas un binaire `imcp` à sous-commandes par domaine. Un chemin
+    /// en dur casserait sur toute install non-Homebrew (et Homebrew diffère déjà
+    /// entre Intel / Apple Silicon).
     /// Ordre de résolution : env JARVIS_IMCP_PATH > Réglages (UserDefaults
-    /// "imcp_path") > `which imcp` > chemins usuels > "imcp" (PATH).
-    /// Si rien n'est trouvé, on retourne quand même "imcp" : le transport
+    /// "imcp_path") > bundle iMCP.app > `which imcp-server` > "imcp-server" (PATH).
+    /// Si rien n'est trouvé, on retourne quand même "imcp-server" : le transport
     /// échouera proprement et le serveur sera marqué hors-ligne (natif en relais).
     static func resolveIMCPBinary() -> String {
         // 1. Variable d'environnement (CI, debug, install custom).
@@ -33,15 +34,14 @@ struct MCPServerConfig: Codable, Sendable, Equatable {
             // Chemin invalide sauvegardé : on continue la résolution au lieu
             // de casser (l'utilisateur a peut-être désinstallé/déplacé iMCP).
         }
-        // 3. `which imcp` — couvre Homebrew (arm64 + Intel), MacPorts, cargo…
-        if let viaWhich = which("imcp") { return viaWhich }
-        // 4. Chemins usuels en dernier recours (pas de which dispo en sandbox).
-        for candidate in ["/opt/homebrew/bin/imcp", "/usr/local/bin/imcp", "/opt/local/bin/imcp"] {
-            if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
-        }
+        // 3. Bundle officiel iMCP.app (install Homebrew cask ou DMG).
+        let bundled = "/Applications/iMCP.app/Contents/MacOS/imcp-server"
+        if FileManager.default.isExecutableFile(atPath: bundled) { return bundled }
+        // 4. `which imcp-server` — couvre les installs custom dans le PATH.
+        if let viaWhich = which("imcp-server") { return viaWhich }
         // 5. Fallback : laisse l'OS résoudre via PATH au spawn.
         // Le transport gère l'échec (binaire absent → hors-ligne, pas de crash).
-        return "imcp"
+        return "imcp-server"
     }
 
     /// `which` synchrone, timeout court. Utilisé au démarrage uniquement,
@@ -62,16 +62,28 @@ struct MCPServerConfig: Codable, Sendable, Equatable {
     }
 
     static func imcpDefaults() -> [MCPServerConfig] {
-        // iMCP expose un binaire avec un sous-domaine en argument ; le binaire
-        // est résolu à l'appel (pas à la compilation) pour suivre un changement
-        // de Réglages sans recompiler.
+        // UN seul serveur : `imcp-server` expose tous les domaines (calendrier,
+        // rappels, contacts, messages, localisation, plans) sur une connexion
+        // stdio. La commande est résolue à l'appel (pas à la compilation) pour
+        // suivre un changement de Réglages sans recompiler.
+        // NOTE : après install iMCP, activer chaque service dans l'app (menu bar)
+        // et approuver JarvisLocal ("Always trust this client"), sinon tools/list
+        // répond vide et le natif reste en relais.
         let bin = resolveIMCPBinary()
         return [
-            MCPServerConfig(id: "imcp-calendar", command: bin, args: ["calendar"], enabled: true, delegatedTools: ["add_calendar_event", "get_calendars", "get_upcoming_events"]),
-            MCPServerConfig(id: "imcp-reminders", command: bin, args: ["reminders"], enabled: true, delegatedTools: ["add_reminder", "list_reminders"]),
-            MCPServerConfig(id: "imcp-contacts", command: bin, args: ["contacts"], enabled: true, delegatedTools: ["lookup_contact"]),
-            MCPServerConfig(id: "imcp-messages", command: bin, args: ["messages"], enabled: true, delegatedTools: ["send_message"]),
-            MCPServerConfig(id: "imcp-location", command: bin, args: ["location"], enabled: false, delegatedTools: ["search_maps"]),
+            MCPServerConfig(
+                id: "imcp",
+                command: bin,
+                args: [],
+                enabled: true,
+                delegatedTools: [
+                    "add_calendar_event", "get_calendars", "get_upcoming_events",
+                    "add_reminder", "list_reminders",
+                    "lookup_contact",
+                    "send_message",
+                    "search_maps",
+                ]
+            ),
         ]
     }
 }
