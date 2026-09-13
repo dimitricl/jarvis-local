@@ -194,9 +194,13 @@ private init() {
         self.reasoningEffort = defaults.string(forKey: "reasoning_effort") ?? "none"
         let savedNumCtx = defaults.object(forKey: "num_ctx") as? Int ?? 16384
         self.numCtx = max(2048, min(savedNumCtx, 32768))
-        // 8192 : assez large pour une explication technique détaillée sans être coupée,
-        // tout en gardant une garde-fou contre les boucles infinies de génération.
-        let savedMaxTokens = defaults.object(forKey: "max_tokens") as? Int ?? 8192
+        // 32768 (et non 8192) : absorbe un finish_reason=length transitoire observé
+        // en usage réel sur un tour post-tool ; deux sondes statiques (stream:false)
+        // avec le même contexte n'ont pas reproduit de raisonnement caché — la cause
+        // précise reste non identifiée, possiblement spécifique au streaming ; si le
+        // problème récidive, envisager la migration vers /api/chat natif avec
+        // think:false explicite plutôt que remonter encore le plafond.
+        let savedMaxTokens = defaults.object(forKey: "max_tokens") as? Int ?? 32768
         self.maxTokens = max(256, min(savedMaxTokens, 32768))
         let savedTemp = defaults.object(forKey: "temperature") as? Double ?? 0.7
         self.temperature = max(0, min(savedTemp, 2))

@@ -341,7 +341,7 @@ final class OllamaService: @unchecked Sendable {
                 return d
             },
             "stream": stream,
-            "options": ["temperature": 0.7, "num_predict": Settings.shared.maxTokens, "num_ctx": Settings.shared.numCtx] as [String: Any]
+            "options": ["temperature": Settings.shared.temperature, "num_predict": Settings.shared.maxTokens, "num_ctx": Settings.shared.numCtx] as [String: Any]
         ]
         // gemma4 est un modèle "thinking" : sans cette limite il passe 20-30s en raisonnement
         // interne AVANT chaque réponse (et ce, à CHAQUE itération de la boucle de tools), pendant
