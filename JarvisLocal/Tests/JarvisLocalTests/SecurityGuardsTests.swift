@@ -114,6 +114,21 @@ struct SecurityGuardsTests {
         // Une seule relance : pas de boucle si le modèle ne sait pas faire.
         #expect(!AppViewModel.shouldRetryVacuousAnswer(
             finalText: "Que veux-tu ?", hasWebSources: true, used: 1))
+        // Variante observée : réponse réduite aux liens, sans contenu ni action.
+        #expect(AppViewModel.shouldRetryVacuousAnswer(
+            finalText: "Sources :\n- https://www.apple.com/fr/shop/buy-iphone",
+            hasWebSources: true, used: 0))
+        // Réponse substantielle avec liens : on laisse passer.
+        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+            finalText: "Voici les prix relevés : iPhone 17 dès 1 119 €. Sources :\n- https://www.apple.com/fr/shop/buy-iphone",
+            hasWebSources: true, used: 0))
+    }
+
+    @Test @MainActor func sourcesOnlyDetection() {
+        #expect(AppViewModel.isSourcesOnlyAnswer("Sources :\n- https://a.example/x"))
+        #expect(AppViewModel.isSourcesOnlyAnswer("Voir ce lien : https://a.example/x"))
+        #expect(!AppViewModel.isSourcesOnlyAnswer(
+            "Voici le tableau demandé : iPhone 17 dès 1 119 €, voir https://a.example/x pour le détail."))
     }
 
     // MARK: - Trailers "Sources :" retirés de l'historique modèle

@@ -375,7 +375,7 @@ final class AppViewModel {
                         continue
                     }
                     if Self.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: !turnSources.isEmpty, used: vacuousRetries) {
-                        ollamaMessages.append(OllamaMessage(role: "user", content: "Ta réponse n'utilise pas les résultats de recherche reçus ce tour. Reformule une réponse complète qui reprend ces résultats et cite leurs URL, sans phrase générique."))
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "Ta réponse n'utilise pas vraiment les résultats de recherche reçus ce tour (liens seuls, sans contenu rédigé). Reformule une réponse complète qui reprend ces résultats et cite leurs URL, et appelle les outils nécessaires à la demande (ex. create_note pour créer la note) au lieu de t'arrêter."))
                         ollamaMessages = trimmedForContext(ollamaMessages)
                         vacuousRetries += 1
                         continue
@@ -721,7 +721,29 @@ final class AppViewModel {
     nonisolated static func shouldRetryVacuousAnswer(finalText: String, hasWebSources: Bool, used: Int, max: Int = 1, minChars: Int = 300) -> Bool {
         guard hasWebSources, used < max else { return false }
         let t = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.count < minChars && !t.contains("http")
+        // Classique : phrase générique courte sans URL.
+        if t.count < minChars && !t.contains("http") { return true }
+        // Variante observée en réel : la réponse NE CONTIENT QUE des liens/sources,
+        // sans le contenu demandé (pas de tableau, pas de résumé, pas d'appel
+        // d'outil de suite comme create_note). Le test "sans http" ci-dessus la
+        // laisse passer — celui-ci la rattrape.
+        if isSourcesOnlyAnswer(finalText) { return true }
+        return false
+    }
+
+    /// true si le texte, une fois retirés le bloc "Sources :" et les URL inline,
+    /// ne contient presque rien (< minChars) : que des liens, pas de contenu.
+    /// Fonction pure — `internal` pour les tests.
+    nonisolated static func isSourcesOnlyAnswer(_ finalText: String, minChars: Int = 100) -> Bool {
+        let remainder = finalText.components(separatedBy: "\n").compactMap { line -> String? in
+            let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty, t != "Sources :" else { return nil }
+            if t.hasPrefix("- http") { return nil }
+            let noURLs = t.replacingOccurrences(of: "https?://\\S+", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return noURLs.isEmpty ? nil : noURLs
+        }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        return remainder.count < minChars
     }
 
     /// Applique le plafond de contexte (dérivé de num_ctx, voir OllamaService) à un
