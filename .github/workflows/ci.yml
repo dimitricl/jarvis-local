@@ -45,6 +45,11 @@ jobs:
     needs: [lint, build-and-test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-15
+    # `secrets` est INTERDIT dans les `if:` de steps (rejet du workflow à la
+    # création, 0 job) : on l'évalue une fois ici en `env`, les steps testent env.
+    env:
+      HAS_DEV_ID: ${{ secrets.APPLE_DEV_ID != '' }}
+      HAS_NOTARY: ${{ secrets.APPLE_APP_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -81,15 +86,15 @@ jobs:
           codesign -s "${{ secrets.APPLE_DEV_ID }}" --options runtime --timestamp \
             --entitlements JarvisLocal.entitlements --deep JarvisLocal.app
           codesign --verify --deep --strict JarvisLocal.app
-        if: secrets.APPLE_DEV_ID != ''
+          ditto -c -k --keepParent JarvisLocal.app JarvisLocal.zip
+        if: env.HAS_DEV_ID == 'true'
 
       - name: Notarize & staple
         # Requiert : APPLE_DEV_ID (Developer ID), APPLE_ID + APPLE_TEAM_ID +
         # APPLE_APP_PASSWORD (mot de passe spécifique notarytool). Sans ces secrets,
-        # l'étape est sautée : le zip ad-hoc reste téléchargeable en artefact.
-        if: secrets.APPLE_APP_PASSWORD != ''
+        # l'étape est sautée : le zip signé reste téléchargeable en artefact.
+        if: env.HAS_NOTARY == 'true'
         run: |
-          ditto -c -k --keepParent JarvisLocal.app JarvisLocal.zip
           xcrun notarytool submit JarvisLocal.zip \
             --apple-id "${{ secrets.APPLE_ID }}" \
             --team-id "${{ secrets.APPLE_TEAM_ID }}" \
@@ -102,7 +107,7 @@ jobs:
         with:
           name: JarvisLocal-${{ github.ref_name }}
           path: JarvisLocal/JarvisLocal.zip
-        if: secrets.APPLE_DEV_ID != ''
+        if: env.HAS_DEV_ID == 'true'
 
       - name: Smoke test (automation stack du runner)
         # Pas de lancement GUI en CI (un binaire SwiftUI pendrait sans session Aqua) :
