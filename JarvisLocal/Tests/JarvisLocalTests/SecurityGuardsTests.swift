@@ -96,8 +96,7 @@ struct SecurityGuardsTests {
         #expect(!AppViewModel.shouldContinueAfterTruncation(truncated: false, used: 0, max: 2))
     }
 
-    @Test @MainActor func vacuousAnswerRetriedOnceWhenSourcesIgnored() {
-        // Cas réel : phrase générique courte sans URL alors que des sources existent.
+    @Test @MainActor func vacuousAnswerRetriedOnceWhenSourcesIgnored() {        // Cas réel : phrase générique courte sans URL alors que des sources existent.
         #expect(AppViewModel.shouldRetryVacuousAnswer(
             finalText: "Que veux-tu que je fasse pour toi ?",
             hasWebSources: true, used: 0))
@@ -115,5 +114,24 @@ struct SecurityGuardsTests {
         // Une seule relance : pas de boucle si le modèle ne sait pas faire.
         #expect(!AppViewModel.shouldRetryVacuousAnswer(
             finalText: "Que veux-tu ?", hasWebSources: true, used: 1))
+    }
+
+    // MARK: - Trailers "Sources :" retirés de l'historique modèle
+
+    @Test @MainActor func savedSourcesTrailerStripped() {
+        let withTrailer = "Voici les news.\n\nSources :\n- https://a.example/x\n- https://b.example/y"
+        #expect(AppViewModel.stripSavedSourcesTrailer(from: withTrailer) == "Voici les news.")
+    }
+
+    @Test @MainActor func bodyURLsAndSourceMentionsKept() {
+        // URL inline dans le corps : conservée (utile aux questions de suivi).
+        let inline = "Voir https://a.example/x pour le détail.\n\nSources :\n- https://b.example/y"
+        #expect(AppViewModel.stripSavedSourcesTrailer(from: inline) == "Voir https://a.example/x pour le détail.")
+        // Simple mention du mot "source" : conservée.
+        let mention = "Je n'ai pas trouvé la source demandée."
+        #expect(AppViewModel.stripSavedSourcesTrailer(from: mention) == mention)
+        // Faux trailer (pas une liste d'URL) : conservé tel quel.
+        let fake = "Blabla\n\nSources :\n- je ne sais pas"
+        #expect(AppViewModel.stripSavedSourcesTrailer(from: fake) == fake)
     }
 }

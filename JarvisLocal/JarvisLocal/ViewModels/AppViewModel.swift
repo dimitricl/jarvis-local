@@ -296,7 +296,7 @@ final class AppViewModel {
             - N'affirme JAMAIS avoir exécuté une action (page ouverte, message envoyé, note créée, rappel ajouté…) sans avoir réellement appelé l'outil correspondant dans cette réponse. Si aucun appel d'outil n'a eu lieu, dis ce que tu n'as PAS fait au lieu de prétendre le contraire.
             - Quand l'utilisateur te donne une info personnelle (prénom, nom, ville, âge, métier, goûts, famille…), appelle remember_fact EN PLUS de ta réponse (clé user.name, user.city… et valeur exacte) — et ne dis JAMAIS « c'est noté / je m'en souviendrai » sans avoir appelé remember_fact dans la même réponse.
             - Quand un outil retourne un résultat, cite-le EXACTEMENT sans inventer. Si take_screenshot retourne un chemin, réponds "C'est fait. Capture enregistrée et ouverte : <nom>" et n'ajoute JAMAIS "je n'ai pas de fichier".
-            - Quand ta réponse s'appuie sur search_web ou read_url, termine par une ligne "Sources :" avec les URL fournies dans les résultats (n'utilise QUE ces URL-là, ne les invente jamais). Si un chiffre n'y figure pas, dis que tu ne l'as pas trouvé au lieu de le deviner.
+            - Quand ta réponse s'appuie sur search_web ou read_url, termine par une ligne "Sources :" avec les URL fournies dans les résultats (n'utilise QUE ces URL-là, ne les invente jamais, et ne recycle JAMAIS les URL des messages précédents — elles appartiennent à d'anciennes recherches). Si un chiffre n'y figure pas, dis que tu ne l'as pas trouvé au lieu de le deviner.
             - Quand tu as reçu des résultats d'outils (recherche, météo, calendrier…), ta réponse DOIT les reprendre et les citer : une phrase générique qui les ignore est une erreur.
 
             \(toolList)
@@ -311,7 +311,13 @@ final class AppViewModel {
 
             var ollamaMessages: [OllamaMessage] = [OllamaMessage(role: "system", content: systemPrompt)]
             for msg in history {
-                ollamaMessages.append(OllamaMessage(role: msg.role, content: msg.content))
+                // Les trailers "Sources :" auto-ajoutés aux réponses passées sont
+                // RETIRÉS du contexte modèle (mais gardés en base/UI) : sinon le
+                // modèle les recite au tour suivant pour des questions sans rapport
+                // (cas réel : sources IA de la veille citées pour "météo Barcelone").
+                // Seul le tour en cours apporte ses sources, via les résultats de tools.
+                let body = msg.role == "assistant" ? Self.stripSavedSourcesTrailer(from: msg.content) : msg.content
+                ollamaMessages.append(OllamaMessage(role: msg.role, content: body))
             }
             // Plafond de contexte : l'historique DB (50 derniers messages) peut à lui seul
             // dépasser num_ctx avec quelques gros résultats search_web — Ollama tronquerait
@@ -653,6 +659,22 @@ final class AppViewModel {
             obj[k] = v
         }
         return obj
+    }
+
+    /// Retire le trailer "Sources :" auto-ajouté (appendMissingSources) d'une réponse
+    /// passée avant de l'envoyer au modèle : ces URL appartiennent à un ancien tour,
+    /// le modèle ne doit plus pouvoir les citer comme fraîches. Précis : ne coupe
+    /// qu'au DERNIER marqueur "\n\nSources :\n" et seulement si tout ce qui suit
+    /// est une liste de lignes "- http…" (une mention "source" dans le corps du
+    /// texte est conservée, ainsi que les URL inline du corps).
+    /// Fonction pure — `internal` pour les tests.
+    nonisolated static func stripSavedSourcesTrailer(from text: String) -> String {
+        guard let r = text.range(of: "\n\nSources :\n", options: .backwards) else { return text }
+        let tail = text[r.upperBound...].components(separatedBy: "\n").filter { !$0.isEmpty }
+        guard !tail.isEmpty,
+              tail.allSatisfy({ $0.hasPrefix("- http") })
+        else { return text }
+        return String(text[..<r.lowerBound])
     }
 
     /// Borne anti-boucle de la reprise auto sur réponse tronquée : on ne reprend
