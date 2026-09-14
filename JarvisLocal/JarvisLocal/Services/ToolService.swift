@@ -223,7 +223,7 @@ actor ToolService {
         )),
         ToolDef(function: ToolFunction(
             name: "read_url",
-            description: "Lit et résume le contenu texte d'une URL précise fournie par l'utilisateur. Différent de search_web : ici l'URL est déjà connue, pas de recherche.",
+            description: "Retourne le texte brut et complet (jusqu'à 4000 caractères) d'une page web — prix, chiffres, tableaux et détails inclus. Sert à extraire des données précises d'une page dont l'URL est déjà connue. Différent de search_web : ici pas de recherche, lecture directe.",
             parameters: ToolParameters(
                 properties: ["url": ToolProperty(type: "string", description: "URL complète à lire (avec https://)")],
                 required: ["url"]

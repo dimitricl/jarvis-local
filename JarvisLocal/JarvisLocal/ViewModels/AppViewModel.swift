@@ -295,6 +295,7 @@ final class AppViewModel {
             - Ne réponds JAMAIS de mémoire à une question factuelle qui pourrait être obsolète. Cherche d'abord sur le web.
             - JAMAIS dire "je ne peux pas naviguer" : tu AS les outils search_web/read_url, tu DOIS les appeler IMMÉDIATEMENT SANS demander confirmation. Si l'utilisateur dit "regarde sur le site d'Apple", tu appelles DIRECTEMENT read_url avec https://www.apple.com/fr/ et tu réponds avec le contenu.
             - Règle anti-refus : si une étape de la demande correspond à un de tes outils (lire une URL, créer une note, chercher sur le web…), tu APPELLES l'outil au lieu d'expliquer que tu ne peux pas. On n'explique jamais une incapacité quand l'outil existe.
+            - N'invente JAMAIS de limites à tes outils : leurs descriptions disent exactement ce qu'ils font (read_url retourne le texte COMPLET de la page, prix inclus — pas un résumé qui interdirait d'extraire des données).
             - Ne JAMAIS inventer de faits : si un outil ne retourne rien, dis que la recherche a échoué.
             - Si un outil échoue, dis-le simplement et propose une alternative.
             - N'affirme JAMAIS avoir exécuté une action (page ouverte, message envoyé, note créée, rappel ajouté…) sans avoir réellement appelé l'outil correspondant dans cette réponse. Si aucun appel d'outil n'a eu lieu, dis ce que tu n'as PAS fait au lieu de prétendre le contraire.
@@ -345,10 +346,11 @@ final class AppViewModel {
             var totalSpoken = 0
             var continuationsUsed = 0
             let maxContinuations = 2
-            // Relance anti-réponse-vide (cas réel : le modèle ignore les résultats
-            // web et sort une phrase générique — les Sources auto-ajoutées ne
-            // suffisent pas). Une seule relance par tour, sinon on sauvegarde tel quel.
-            var vacuousRetries = 0
+            // Relances correctives (cas réels : modèle qui ignore les résultats web,
+            // réponse réduite aux liens, refus confabulé). Budget UNIQUE d'une relance
+            // par tour partagé entre les trois : un modèle qui ne sait pas faire
+            // échouera pareil à la 2e tentative, inutile d'insister.
+            var correctiveRetries = 0
 
             for _ in 0..<maxLoops {
                 try Task.checkCancellation()
@@ -374,10 +376,16 @@ final class AppViewModel {
                         continuationsUsed += 1
                         continue
                     }
-                    if Self.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: !turnSources.isEmpty, used: vacuousRetries) {
+                    if Self.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: !turnSources.isEmpty, used: correctiveRetries) {
                         ollamaMessages.append(OllamaMessage(role: "user", content: "Ta réponse n'utilise pas vraiment les résultats de recherche reçus ce tour (liens seuls, sans contenu rédigé). Reformule une réponse complète qui reprend ces résultats et cite leurs URL, et appelle les outils nécessaires à la demande (ex. create_note pour créer la note) au lieu de t'arrêter."))
                         ollamaMessages = trimmedForContext(ollamaMessages)
-                        vacuousRetries += 1
+                        correctiveRetries += 1
+                        continue
+                    }
+                    if correctiveRetries < 1, Self.isRefusalAnswer(finalText) {
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "Ton message affirme que tu ne peux pas faire la demande, mais c'est faux : appelle les outils nécessaires au lieu d'expliquer. Si un outil retourne vraiment une erreur ou un contenu vide, rapporte son message exact au lieu d'inventer une limitation."))
+                        ollamaMessages = trimmedForContext(ollamaMessages)
+                        correctiveRetries += 1
                         continue
                     }
                     if !finalText.isEmpty {
@@ -729,6 +737,24 @@ final class AppViewModel {
         // laisse passer — celui-ci la rattrape.
         if isSourcesOnlyAnswer(finalText) { return true }
         return false
+    }
+
+    /// true si le texte est un refus déguisé ("je ne peux pas…", "dépasse mes
+    /// capacités…") alors que des outils couvrent la demande. Les petits modèles
+    /// confabulent leurs propres limites (cas réel : read_url décrit comme "lit et
+    /// résume" → le modèle a décrété qu'extraire des prix était impossible sans
+    /// jamais appeler l'outil). Une relance avec injonction d'appeler suffit
+    /// souvent ; sinon on sauvegarde tel quel (budget unique partagé avec
+    /// shouldRetryVacuousAnswer). Fonction pure — `internal` pour les tests.
+    nonisolated static func isRefusalAnswer(_ finalText: String) -> Bool {
+        let t = finalText.lowercased()
+        let markers = [
+            "je ne peux pas", "je ne suis pas en mesure", "je ne suis pas capable",
+            "je n'ai pas la capacité", "je n'ai pas les capacités",
+            "dépasse mes capacités", "dépassent mes capacités",
+            "m'est impossible", "il m'est impossible", "hors de ma portée"
+        ]
+        return markers.contains(where: t.contains)
     }
 
     /// true si le texte, une fois retirés le bloc "Sources :" et les URL inline,

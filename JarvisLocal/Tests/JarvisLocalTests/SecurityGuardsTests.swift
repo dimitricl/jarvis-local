@@ -124,8 +124,19 @@ struct SecurityGuardsTests {
             hasWebSources: true, used: 0))
     }
 
-    @Test @MainActor func sourcesOnlyDetection() {
-        #expect(AppViewModel.isSourcesOnlyAnswer("Sources :\n- https://a.example/x"))
+    @Test @MainActor func refusalDetected() {
+        // Cas réel : le modèle décrète que read_url ne peut pas extraire des prix.
+        #expect(AppViewModel.isRefusalAnswer(
+            "Je ne peux pas accéder au contenu d'une page web pour en extraire des données."))
+        #expect(AppViewModel.isRefusalAnswer(
+            "Cela dépasse mes capacités actuelles de scraping."))
+        #expect(!AppViewModel.isRefusalAnswer(
+            "Voici les prix relevés : iPhone 17 dès 1 119 €."))
+        #expect(!AppViewModel.isRefusalAnswer(
+            "Je ne trouve pas cette information dans les résultats."))
+    }
+
+    @Test @MainActor func sourcesOnlyDetection() {        #expect(AppViewModel.isSourcesOnlyAnswer("Sources :\n- https://a.example/x"))
         #expect(AppViewModel.isSourcesOnlyAnswer("Voir ce lien : https://a.example/x"))
         #expect(!AppViewModel.isSourcesOnlyAnswer(
             "Voici le tableau demandé : iPhone 17 dès 1 119 €, voir https://a.example/x pour le détail."))
