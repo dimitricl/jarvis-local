@@ -86,4 +86,13 @@ struct SecurityGuardsTests {
         #expect(SystemTools.httpURL(from: "file:///etc/passwd") == nil)
         #expect(SystemTools.httpURL(from: "ftp://example.com") == nil)
     }
+
+    // MARK: - Reprise auto sur réponse tronquée
+
+    @Test @MainActor func truncationContinuesOnlyWhenCutAndBudgetLeft() {
+        #expect(AppViewModel.shouldContinueAfterTruncation(truncated: true, used: 0, max: 2))
+        #expect(AppViewModel.shouldContinueAfterTruncation(truncated: true, used: 1, max: 2))
+        #expect(!AppViewModel.shouldContinueAfterTruncation(truncated: true, used: 2, max: 2))
+        #expect(!AppViewModel.shouldContinueAfterTruncation(truncated: false, used: 0, max: 2))
+    }
 }

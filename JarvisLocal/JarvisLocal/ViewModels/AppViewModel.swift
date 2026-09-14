@@ -326,35 +326,61 @@ final class AppViewModel {
             // d'office — la consigne "Sources :" du prompt ne suffit pas, le petit
             // modèle l'oublie une fois sur deux (cas iPhone 18 Pro).
             var turnSources: [String] = []
+            // Reprise auto sur réponse tronquée (finish_reason == "length") : le texte
+            // partiel est accumulé ici, et `totalSpoken` suit les caractères déjà
+            // poussés au TTS sur l'ensemble des itérations (pas seulement la dernière).
+            var continuedText = ""
+            var totalSpoken = 0
+            var continuationsUsed = 0
+            let maxContinuations = 2
 
             for _ in 0..<maxLoops {
                 try Task.checkCancellation()
 
-                let (content, toolCalls, spokenCharCount) = try await streamOneTurn(messages: ollamaMessages)
+                let (content, toolCalls, spokenCharCount, truncated) = try await streamOneTurn(messages: ollamaMessages)
+                totalSpoken += spokenCharCount
 
                 if !content.isEmpty {
                     ollamaMessages.append(OllamaMessage(role: "assistant", content: content))
                 }
 
                 guard let toolCalls, !toolCalls.isEmpty else {
-                    // Réponse finale : pas de tool call, on enregistre et on arrête la boucle
-                    let finalText = stripThinking(content)
+                    // Réponse finale : pas de tool call.
+                    let finalText = stripThinking(continuedText + content)
+                    // Texte COUPÉ par le serveur (contexte ou num_predict épuisé) :
+                    // on redemande la suite au lieu de sauvegarder un texte tronqué
+                    // en silence. Partage le budget maxLoops (borne anti-boucle).
+                    if Self.shouldContinueAfterTruncation(truncated: truncated, used: continuationsUsed, max: maxContinuations) {
+                        continuedText += content
+                        streamingText = stripThinking(continuedText)
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "Continue exactement où tu t'es arrêté, sans répéter ni reformuler le début."))
+                        ollamaMessages = trimmedForContext(ollamaMessages)
+                        continuationsUsed += 1
+                        continue
+                    }
                     if !finalText.isEmpty {
                         // Citation garantie : les URLs consultées sont ajoutées si absentes.
                         // Le TTS lit finalText (sans les sources) — personne ne veut entendre
                         // des URL à voix haute.
-                        let savedText = Self.appendMissingSources(to: finalText, sources: turnSources)
+                        var savedText = Self.appendMissingSources(to: finalText, sources: turnSources)
+                        if truncated {
+                            // Toujours tronqué après reprises : on le DIT au lieu de
+                            // laisser une phrase coupée passer pour une réponse complète.
+                            // Piste la plus fréquente : le serveur n'alloue pas le num_ctx
+                            // demandé (gros modèle + KV cache — vérifie la colonne CONTEXT
+                            // de `ollama ps` côté serveur, ou baisse num_ctx/longueur max).
+                            savedText += "\n…(réponse tronquée : limite du serveur atteinte)"
+                        }
                         let assistantMsg = try await db.insertMessage(role: "assistant", content: savedText, conversationId: cid)
                         messages.append(assistantMsg)
 
                         if Settings.shared.ttsEnabled {
                             // TTS en flux : les phrases complètes ont déjà été poussées à
-                            // AudioService pendant le streaming (spokenCount). On ne fait que
-                            // lire le résidu (dernière phrase éventuellement incomplète) — la
-                            // voix a donc démarré plusieurs secondes plus tôt.
+                            // AudioService pendant le streaming (totalSpoken, cumulé sur
+                            // toutes les itérations). On ne fait que lire le résidu.
                             isSpeaking = true
                             speechStartedAt = ContinuousClock.now
-                            let remaining = String(finalText.dropFirst(spokenCharCount))
+                            let remaining = String(finalText.dropFirst(totalSpoken))
                             Task { [weak self] in
                                 guard let self else { return }
                                 await self.audio.speak(remaining)
@@ -618,6 +644,13 @@ final class AppViewModel {
         return obj
     }
 
+    /// Borne anti-boucle de la reprise auto sur réponse tronquée : on ne reprend
+    /// que si le serveur a signalé `finish_reason == "length"` ET que le budget
+    /// de reprises du tour n'est pas épuisé. Fonction pure — `internal` pour les tests.
+    nonisolated static func shouldContinueAfterTruncation(truncated: Bool, used: Int, max: Int = 2) -> Bool {
+        truncated && used < max
+    }
+
     /// Applique le plafond de contexte (dérivé de num_ctx, voir OllamaService) à un
     /// historique avant envoi au modèle. Petit wrapper pour ne pas dupliquer le calcul
     /// du budget aux deux points d'appel (historique initial + fin d'itération de tools).
@@ -628,10 +661,12 @@ final class AppViewModel {
 
     /// Consomme un seul appel streamé à Ollama : met à jour streamingText en direct,
     /// pousse chaque phrase complète au TTS dès qu'elle est disponible (latence vocale
-    /// minimale), et retourne le texte complet + les tool calls éventuels.
-    private func streamOneTurn(messages: [OllamaMessage]) async throws -> (content: String, toolCalls: [ToolCall]?, spokenCharCount: Int) {
+    /// minimale), et retourne le texte complet + les tool calls éventuels + si le
+    /// serveur a coupé la réponse (`finish_reason == "length"` → reprise auto).
+    private func streamOneTurn(messages: [OllamaMessage]) async throws -> (content: String, toolCalls: [ToolCall]?, spokenCharCount: Int, truncated: Bool) {
         var content = ""
         var toolCalls: [ToolCall]?
+        var truncated = false
         // Nombre de caractères (sur le texte "strippé") déjà envoyés au TTS
         var spokenCount = 0
 
@@ -664,6 +699,8 @@ final class AppViewModel {
                 }
             case .toolCalls(let calls):
                 toolCalls = calls
+            case .finished(let cut):
+                truncated = cut
             }
         }
 
@@ -673,7 +710,7 @@ final class AppViewModel {
             errorMessage = "Pas de réponse du modèle Ollama. Vérifie que le modèle '\(Settings.shared.model)' existe."
         }
 
-        return (content, toolCalls, spokenCount)
+        return (content, toolCalls, spokenCount, truncated)
     }
 
     /// Version "sûre" du stripThinking pendant le streaming : si un bloc <think> est ouvert

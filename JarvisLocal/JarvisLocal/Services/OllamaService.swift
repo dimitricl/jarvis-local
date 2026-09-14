@@ -3,6 +3,11 @@ import Foundation
 enum OllamaStreamEvent {
     case delta(String)
     case toolCalls([ToolCall])
+    /// Fin de stream. `truncated` = le serveur s'est arrêté sur `finish_reason == "length"`
+    /// (fenêtre de contexte ou `num_predict` épuisée) : le texte reçu est COUPÉ en
+    /// pleine phrase. Avant, ce cas était indétectable — l'app sauvegardait le texte
+    /// tronqué en silence. L'appelant (AppViewModel) reprend automatiquement.
+    case finished(truncated: Bool)
 }
 
 extension TimeInterval {
@@ -141,6 +146,9 @@ final class OllamaService: @unchecked Sendable {
                     // Accumulation des tool calls par index (ils arrivent en petits morceaux successifs)
                     var toolCallsAcc: [Int: (id: String, name: String, arguments: String)] = [:]
                     var sawToolCalls = false
+                    // finish_reason du chunk final ("stop" normal, "length" = coupé en
+                    // pleine phrase : contexte serveur ou num_predict épuisé).
+                    var truncated = false
 
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
@@ -159,8 +167,16 @@ final class OllamaService: @unchecked Sendable {
                         }
 
                         guard let choices = json["choices"] as? [[String: Any]],
-                              let first = choices.first,
-                              let delta = first["delta"] as? [String: Any]
+                              let first = choices.first
+                        else { continue }
+
+                        // Le chunk final porte finish_reason avec un delta vide/absent :
+                        // on le lit AVANT le guard sur delta (sinon "length" passe inaperçu).
+                        if let fr = first["finish_reason"] as? String, !fr.isEmpty {
+                            truncated = (fr == "length")
+                        }
+
+                        guard let delta = first["delta"] as? [String: Any]
                         else { continue }
 
                         if let content = delta["content"] as? String, !content.isEmpty {
@@ -202,6 +218,7 @@ final class OllamaService: @unchecked Sendable {
                         }
                     }
 
+                    continuation.yield(.finished(truncated: truncated))
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
