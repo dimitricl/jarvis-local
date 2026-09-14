@@ -161,6 +161,11 @@ actor DatabaseService {
 
     func deleteConversation(id: Int) throws {
         // NOTE : id passé en Int directement (bind en INTEGER), pas en String.
+        // Le journal d'audit DOIT partir avec la conversation : depuis
+        // PRAGMA foreign_keys=ON, un tool_runs orphelin bloque le DELETE parent
+        // (les bases existantes n'ont pas le ON DELETE CASCADE) — régression
+        // constatée : toute conversation avec activité d'outils devenait insupprimable.
+        try exec("DELETE FROM tool_runs WHERE conversation_id = ?", params: [id as Any?])
         try exec("DELETE FROM messages WHERE conversation_id = ?", params: [id as Any?])
         try exec("DELETE FROM conversations WHERE id = ?", params: [id as Any?])
     }
@@ -432,9 +437,21 @@ actor DatabaseService {
     }
 }
 
-enum DatabaseError: Error {
+enum DatabaseError: Error, LocalizedError {
     case couldNotOpen(message: String)
     case execFailed(message: String)
     case prepareFailed(message: String)
     case stepFailed(message: String)
+
+    /// Sans ça, l'UI affichait "DatabaseError erreur 3" au lieu du message SQLite
+    /// ("FOREIGN KEY constraint failed") — la régression suppression aurait été
+    /// diagnostiquée en une lecture au lieu d'un audit.
+    var errorDescription: String? {
+        switch self {
+        case .couldNotOpen(let m): return "Ouverture impossible : \(m)"
+        case .execFailed(let m): return "Écriture impossible : \(m)"
+        case .prepareFailed(let m): return "Requête invalide : \(m)"
+        case .stepFailed(let m): return "Opération impossible : \(m)"
+        }
+    }
 }

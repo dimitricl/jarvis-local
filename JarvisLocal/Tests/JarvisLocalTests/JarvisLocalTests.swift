@@ -255,6 +255,21 @@ final class JarvisLocalDatabaseServiceTests: XCTestCase {
         XCTAssertFalse(convs.isEmpty)
     }
 
+    /// Non-régression : une conversation avec activité d'outils (tool_runs) doit
+    /// se supprimer sans erreur FOREIGN KEY (foreign_keys=ON + anciennes bases
+    /// sans ON DELETE CASCADE). Le journal part avec la conversation.
+    func testDeleteConversationWithToolRuns() async throws {
+        let db = DatabaseService.shared
+        try await db.open(path: ":memory:")
+        let conv = try await db.createConversation(title: "À supprimer")
+        try await db.logToolRun(conversationId: conv.id, tool: "search_web", args: "q=test", status: "✓", result: "ok")
+        try await db.deleteConversation(id: conv.id)
+        let fetched = try await db.getConversation(id: conv.id)
+        XCTAssertNil(fetched)
+        let runs = try await db.getRecentToolRuns()
+        XCTAssertTrue(runs.isEmpty)
+    }
+
     func testCreateAndGetConversation() async throws {
         let db = DatabaseService.shared
         try await db.open(path: ":memory:")
