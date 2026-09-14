@@ -38,19 +38,14 @@
     <string>Jarvis a besoin de capture d'écran pour prendre des screenshots.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
-        <!-- Pas de NSAllowsArbitraryLoads : seul Ollama local (http://localhost:11434)
-             a besoin de HTTP en clair. Tout le reste (DDG, Open-Meteo, GitHub) est HTTPS.
-             Une URL Ollama distante en http affichera un avertissement dans les Réglages. -->
-        <key>NSExceptionDomains</key>
-        <dict>
-            <key>localhost</key>
-            <dict>
-                <key>NSExceptionAllowsInsecureHTTPLoads</key>
-                <true/>
-                <key>NSIncludesSubdomains</key>
-                <true/>
-            </dict>
-        </dict>
+        <!-- Pas de NSAllowsArbitraryLoads : seul le réseau LOCAL a droit au HTTP
+             en clair (Ollama sur localhost, 127.0.0.1 ou une IP LAN — l'exception
+             par domaine "localhost" seule ne couvrait pas 127.0.0.1, d'où l'erreur
+             ATS au lancement). Tout le reste (DDG, Open-Meteo, GitHub) reste en
+             HTTPS forcé. Une URL Ollama distante non-locale affiche un
+             avertissement dans les Réglages. -->
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
     </dict>
 </dict>
 </plist>
