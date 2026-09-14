@@ -6,6 +6,14 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section("Général") {
+                Toggle("Lancer au démarrage", isOn: Bindable(settings).launchAtLogin)
+                    .accessibilityLabel("Lancer Jarvis au démarrage de la session")
+                Text("Jarvis reste accessible depuis la barre de menu (icône waveform) même sans fenêtre ouverte. Une notification prévient quand une réponse longue se termine en arrière-plan.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Ollama") {
                 TextField("URL :", text: Bindable(settings).ollamaURL)
                     .textFieldStyle(.roundedBorder)

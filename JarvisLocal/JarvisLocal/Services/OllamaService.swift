@@ -99,15 +99,26 @@ final class OllamaService: @unchecked Sendable {
     /// Boucle de fond qui maintient le modèle chargé sur le serveur. Démarre par un warm-up
     /// immédiat (supprime les ~20s de chargement à froid au premier message), puis re-ping
     /// toutes les 4 minutes — sous la fenêtre de 5 min par défaut d'Ollama.
+    /// Énergie : le ping est SAUTÉ en mode basse consommation ou état thermique
+    /// sérieux/critique (un keep-alive qui réveille le réseau toutes les 4 min sur
+    /// batterie est un anti-pattern macOS). Le prochain cycle re-ping quand ça va mieux.
     private var keepAliveTask: Task<Void, Never>?
+
+    /// NOTE : `internal`/`static` pour les tests — fonction pure.
+    nonisolated static func keepAliveShouldSkip(lowPowerMode: Bool, thermalState: ProcessInfo.ThermalState) -> Bool {
+        lowPowerMode || thermalState == .serious || thermalState == .critical
+    }
 
     func startKeepAlive() {
         guard keepAliveTask == nil else { return }
         keepAliveTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let model = Settings.shared.model
-                _ = await self.warmUp(model: model)
+                let pi = ProcessInfo.processInfo
+                if !Self.keepAliveShouldSkip(lowPowerMode: pi.isLowPowerModeEnabled, thermalState: pi.thermalState) {
+                    let model = Settings.shared.model
+                    _ = await self.warmUp(model: model)
+                }
                 try? await Task.sleep(nanoseconds: 4 * 60 * 1_000_000_000)
             }
         }

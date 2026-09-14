@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+import AppKit // NSApp.isActive (notification seulement si l'app est en arrière-plan)
+import UserNotifications
 
 /// Demande de confirmation affichée à l'utilisateur avant l'exécution d'un tool sensible
 /// (extinction/redémarrage du Mac, envoi de message, script AppleScript, modification de note).
@@ -233,6 +235,7 @@ final class AppViewModel {
         isStreaming = true
         streamingText = ""
         toolTrace = []
+        let turnStartedAt = Date()
 
         if currentConversation == nil {
             await newConversation()
@@ -407,6 +410,7 @@ final class AppViewModel {
                     }
                     streamingText = ""
                     isStreaming = false
+                    notifyTurnFinishedIfBackground(startedAt: turnStartedAt)
                     return
                 }
 
@@ -532,6 +536,7 @@ final class AppViewModel {
             // La boucle s'est terminée après maxLoops itérations sans réponse finale du modèle
             // (que des tool calls, jamais de texte) : avant, ça se terminait silencieusement, sans rien afficher.
             errorMessage = "Jarvis a enchaîné trop d'appels d'outils sans conclure (limite de \(maxLoops) atteinte). Réessaie en reformulant ta demande."
+            notifyTurnFinishedIfBackground(startedAt: turnStartedAt)
         } catch is CancellationError {
             // Annulation volontaire via stopStreaming() : on ne sauvegarde rien de partiel
         } catch {
@@ -549,7 +554,28 @@ final class AppViewModel {
         }
     }
 
-    /// Journal d'audit des outils (commande /tools). N'échoue JAMAIS le tour :
+    /// Notifie la fin d'un tour SI l'app est en arrière-plan ET que le tour a duré
+    /// (seuil : l'utilisateur a eu le temps de changer de fenêtre — un tour instantané
+    /// ne mérite pas un ping). L'autorisation est demandée paresseusement, une seule
+    /// fois (le système ne re-prompt pas ensuite). Pas de notification en cas
+    /// d'annulation : l'utilisateur qui a cliqué Stop sait ce qu'il a fait.
+    /// NOTE : `internal` pour les tests (le seuil est une fonction pure testée).
+    func notifyTurnFinishedIfBackground(startedAt: Date) {
+        guard Self.shouldNotifyTurnFinished(startedAt: startedAt, isActive: NSApp.isActive) else { return }
+        Task {
+            let center = UNUserNotificationCenter.current()
+            guard (try? await center.requestAuthorization(options: [.alert, .sound])) == true else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Jarvis a terminé"
+            content.body = "Ta réponse est prête."
+            try? await center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+        }
+    }
+
+    /// NOTE : `internal`/`static` pour les tests — fonction pure.
+    nonisolated static func shouldNotifyTurnFinished(startedAt: Date, isActive: Bool, now: Date = Date(), threshold: TimeInterval = 8) -> Bool {
+        !isActive && now.timeIntervalSince(startedAt) > threshold
+    }
     /// si le log échoue, on continue sans bruit.
     private func auditTool(conversationId: Int?, tool: String, args: String, status: String, result: String) async {
         try? await db.logToolRun(conversationId: conversationId, tool: tool, args: args, status: status, result: result)

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0] - 2026-09-14
+
+### Ajouts
+- **Barre de menu** (waveform) : mode vocal, afficher, quitter sans fenêtre ouverte
+- **Lancement au démarrage** (SMAppService, Réglages > Général) + **notification**
+  quand une réponse longue (> 8 s) se termine en arrière-plan
+- **Accessibilité** : labels VoiceOver sur tous les boutons icônes et champs
+- **Migrations DB versionnées** (`PRAGMA user_version`, v1 tables, v2 index + orphelins)
+- **Énergie** : keep-alive Ollama suspendu en low-power/thermal critique ;
+  `beginActivity` anti-sommeil pendant le TTS
+- **Release distribuable** : CI assemble le `.app`, notarise + agrafe (secrets),
+  publie le zip en artefact
+
 ## [Non publié]
 
 ### Corrections

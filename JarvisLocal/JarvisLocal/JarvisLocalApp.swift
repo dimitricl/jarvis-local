@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit // NSApp (menu bar : afficher/masquer/quitter)
 import os
 
 @main
@@ -32,6 +33,25 @@ struct JarvisLocalApp: App {
                 }
         }
         .windowResizability(.contentSize)
+
+        // Un assistant qui exige sa fenêtre rate son job : la barre de menu permet
+        // de piloter Jarvis (mode vocal !) sans fenêtre au premier plan.
+        MenuBarExtra("JarvisLocal", systemImage: "waveform") {
+            Button(viewModel.isVoiceMode ? "Quitter le mode vocal" : "Mode vocal mains-libres") {
+                Task { await viewModel.toggleVoiceMode() }
+            }
+            .accessibilityLabel(viewModel.isVoiceMode ? "Quitter le mode vocal" : "Activer le mode vocal mains-libres")
+            Divider()
+            Button("Afficher Jarvis") {
+                NSApp.activate(ignoringOtherApps: true)
+                NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+            }
+            .accessibilityLabel("Afficher la fenêtre Jarvis")
+            Button("Quitter JarvisLocal") {
+                NSApp.terminate(nil)
+            }
+            .accessibilityLabel("Quitter JarvisLocal")
+        }
     }
 
     private func logVersion() {

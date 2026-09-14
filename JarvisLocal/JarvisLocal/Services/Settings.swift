@@ -1,7 +1,8 @@
 import Foundation
 import Observation
 import AVFoundation
-import os.log
+import ServiceManagement
+import os
 
 @Observable
 final class Settings {
@@ -58,6 +59,30 @@ final class Settings {
     }
     var ttsEnabled: Bool {
         didSet { UserDefaults.standard.set(ttsEnabled, forKey: "tts_enabled") }
+    }
+    /// Lancement à l'ouverture de session (SMAppService, macOS 13+).
+    /// Lu depuis le vrai statut au démarrage (l'utilisateur a pu le changer dans
+    /// Réglages Système sans passer par l'app) ; appliqué à chaque bascule.
+    var launchAtLogin: Bool {
+        didSet {
+            UserDefaults.standard.set(launchAtLogin, forKey: "launch_at_login")
+            Self.applyLaunchAtLogin(launchAtLogin)
+        }
+    }
+
+    /// NOTE : `internal`/`static` pour les tests d'aucune sorte (API système,
+    /// pas de logique) — exposée pour que l'App et les Réglages partagent le point d'appel.
+    nonisolated static func applyLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            // Échec silencieux volontaire (ex. CI sans session Aqua) : le toggle
+            // reflète la demande, ré-appliquée au prochain lancement via l'init.
+        }
     }
     var voiceEnabled: Bool {
         didSet { UserDefaults.standard.set(voiceEnabled, forKey: "voice_enabled") }
@@ -186,6 +211,8 @@ private init() {
         let savedTemp = defaults.object(forKey: "temperature") as? Double ?? 0.7
         self.temperature = max(0, min(savedTemp, 2))
         self.ttsEnabled = defaults.bool(forKey: "tts_enabled")
+        // Statut réel plutôt que préférence mémorisée (cf. commentaire propriété).
+        self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.voiceEnabled = defaults.bool(forKey: "voice_enabled")
         self.ttsVoiceIdentifier = defaults.string(forKey: "tts_voice") ?? ""
         // Remis à true par défaut : le déclencheur est maintenant protégé par une fenêtre de grâce

@@ -60,6 +60,7 @@ Le script compile le projet, injecte la version depuis le dernier tag git, copie
 - **Client MCP (opt-in, désactivé par défaut)** : via [iMCP](https://github.com/mattt/iMCP) — calendrier, rappels, contacts et messages en lecture/création. Voir « MCP » ci-dessous.
 - **Mémoire persistante** (`/facts`) — Jarvis retient vos informations personnelles entre les sessions
 - **Mode vocal mains-libres** — reconnaissance Apple Speech + synthèse 100 % on-device (AVSpeechSynthesizer)
+- **Barre de menu + lancement au démarrage** — pilote Jarvis sans fenêtre ouverte
 - **Barge-in** — interrompez Jarvis pendant qu'il parle
 - **Sécurité** — confirmation avant toute action sensible (écriture, envoi, AppleScript)
 - **Mise à jour intégrée** — détection automatique des nouvelles releases GitHub

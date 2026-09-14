@@ -38,6 +38,43 @@ actor DatabaseService {
     }
 
     private func migrate() throws {
+        // Migrations versionnées via PRAGMA user_version (persisté par SQLite) :
+        // chaque palier ne s'exécute qu'une fois, dans l'ordre. AVANT : que des
+        // CREATE IF NOT EXISTS — impossible d'écrire une vraie migration
+        // (ALTER, backfill, purge) sans risquer de la rejouer ou de l'oublier.
+        // Schéma actuel : v1 = tables initiales, v2 = index + purge orphelins.
+        var version = try userVersion()
+        if version < 1 {
+            try migrateToV1()
+            version = 1
+            try setUserVersion(version)
+        }
+        if version < 2 {
+            try migrateToV2()
+            version = 2
+            try setUserVersion(version)
+        }
+    }
+
+    /// NOTE : `internal` pour les tests (vérifie la version après open).
+    func userVersion() throws -> Int {
+        guard let db else { throw DatabaseError.couldNotOpen(message: "Database not opened") }
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, nil) != SQLITE_OK {
+            throw DatabaseError.prepareFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else {
+            throw DatabaseError.stepFailed(message: String(cString: sqlite3_errmsg(db)))
+        }
+        return Int(sqlite3_column_int(stmt, 0))
+    }
+
+    private func setUserVersion(_ version: Int) throws {
+        try exec("PRAGMA user_version = \(version)")
+    }
+
+    private func migrateToV1() throws {
         try exec("""
             CREATE TABLE IF NOT EXISTS conversations (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,13 +115,17 @@ actor DatabaseService {
         // scannait toute la table messages. Idempotent (IF NOT EXISTS).
         try exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)")
         try exec("CREATE INDEX IF NOT EXISTS idx_tool_runs_conversation ON tool_runs(conversation_id)")
-        // FK ajoutées après coup (anciennes bases créées sans ON DELETE CASCADE) :
-        // purge les tool_runs dont la conversation n'existe plus.
-        try exec("DELETE FROM tool_runs WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM conversations)")
         let count = (try querySingle("SELECT COUNT(*) as c FROM conversations"))?["c"] as? Int ?? 0
         if count == 0 {
             try exec("INSERT INTO conversations (id, title) VALUES (1, 'Général')")
         }
+    }
+
+    /// v2 : FK ajoutées après coup (les bases v1 ont été créées sans ON DELETE
+    /// CASCADE — SQLite ne permet pas d'ajouter une FK par ALTER, d'où la purge
+    /// explicite des orphelins, rejouable sans risque).
+    private func migrateToV2() throws {
+        try exec("DELETE FROM tool_runs WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM conversations)")
     }
 
     private func exec(_ sql: String) throws {

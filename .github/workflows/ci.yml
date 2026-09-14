@@ -61,6 +61,44 @@ jobs:
           codesign --verify --deep --strict .build/release/JarvisLocal
           codesign -d --entitlements - .build/release/JarvisLocal | grep -q apple-events
 
+      - name: Assemble app bundle
+        # run.sh fait pareil en local (install), ici on assemble sans installer
+        # ni lancer : la notarisation exige un .app (ou .dmg/.pkg), pas un binaire nu.
+        run: |
+          rm -rf JarvisLocal.app
+          mkdir -p JarvisLocal.app/Contents/MacOS JarvisLocal.app/Contents/Resources
+          cp .build/release/JarvisLocal JarvisLocal.app/Contents/MacOS/JarvisLocal
+          cp -R JarvisLocal/Resources/* JarvisLocal.app/Contents/Resources/ 2>/dev/null || true
+          cp JarvisLocal/Info.plist JarvisLocal.app/Contents/Info.plist
+          VERSION="${GITHUB_REF_NAME#v}"
+          plutil -replace CFBundleShortVersionString -string "$VERSION" JarvisLocal.app/Contents/Info.plist
+          plutil -replace CFBundleVersion -string "$VERSION" JarvisLocal.app/Contents/Info.plist
+          codesign -s "${{ secrets.APPLE_DEV_ID }}" --options runtime --timestamp \
+            --entitlements JarvisLocal.entitlements --deep JarvisLocal.app
+          codesign --verify --deep --strict JarvisLocal.app
+        if: secrets.APPLE_DEV_ID != ''
+
+      - name: Notarize & staple
+        # Requiert : APPLE_DEV_ID (Developer ID), APPLE_ID + APPLE_TEAM_ID +
+        # APPLE_APP_PASSWORD (mot de passe spécifique notarytool). Sans ces secrets,
+        # l'étape est sautée : le zip ad-hoc reste téléchargeable en artefact.
+        if: secrets.APPLE_APP_PASSWORD != ''
+        run: |
+          ditto -c -k --keepParent JarvisLocal.app JarvisLocal.zip
+          xcrun notarytool submit JarvisLocal.zip \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_PASSWORD }}" --wait
+          xcrun stapler staple JarvisLocal.app
+          ditto -c -k --keepParent JarvisLocal.app JarvisLocal.zip
+
+      - name: Upload artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JarvisLocal-${{ github.ref_name }}
+          path: JarvisLocal/JarvisLocal.zip
+        if: secrets.APPLE_DEV_ID != ''
+
       - name: Smoke test (automation stack du runner)
         # Pas de lancement GUI en CI (un binaire SwiftUI pendrait sans session Aqua) :
         # on valide que la pile AppleScript répond et que le binaire lié démarre

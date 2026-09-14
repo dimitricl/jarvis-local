@@ -117,7 +117,6 @@ struct SecurityGuardsTests {
     }
 
     // MARK: - Trailers "Sources :" retirés de l'historique modèle
-
     @Test @MainActor func savedSourcesTrailerStripped() {
         let withTrailer = "Voici les news.\n\nSources :\n- https://a.example/x\n- https://b.example/y"
         #expect(AppViewModel.stripSavedSourcesTrailer(from: withTrailer) == "Voici les news.")
@@ -133,5 +132,28 @@ struct SecurityGuardsTests {
         // Faux trailer (pas une liste d'URL) : conservé tel quel.
         let fake = "Blabla\n\nSources :\n- je ne sais pas"
         #expect(AppViewModel.stripSavedSourcesTrailer(from: fake) == fake)
+    }
+
+    // MARK: - Énergie (keep-alive) et notifications
+
+    @Test func keepAliveSkippedOnLowPowerOrThermal() {
+        #expect(!OllamaService.keepAliveShouldSkip(lowPowerMode: false, thermalState: .nominal))
+        #expect(!OllamaService.keepAliveShouldSkip(lowPowerMode: false, thermalState: .fair))
+        #expect(OllamaService.keepAliveShouldSkip(lowPowerMode: true, thermalState: .nominal))
+        #expect(OllamaService.keepAliveShouldSkip(lowPowerMode: false, thermalState: .serious))
+        #expect(OllamaService.keepAliveShouldSkip(lowPowerMode: false, thermalState: .critical))
+    }
+
+    @Test @MainActor func notifyOnlyInBackgroundAfterThreshold() {
+        let now = Date()
+        // Arrière-plan + tour long : oui.
+        #expect(AppViewModel.shouldNotifyTurnFinished(
+            startedAt: now.addingTimeInterval(-30), isActive: false, now: now))
+        // Premier plan : non, même long.
+        #expect(!AppViewModel.shouldNotifyTurnFinished(
+            startedAt: now.addingTimeInterval(-30), isActive: true, now: now))
+        // Arrière-plan mais tour instantané : non.
+        #expect(!AppViewModel.shouldNotifyTurnFinished(
+            startedAt: now.addingTimeInterval(-2), isActive: false, now: now))
     }
 }

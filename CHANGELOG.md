@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 (2026-09-14)
+
+- Barre de menu (mode vocal / afficher / quitter), lancement au démarrage,
+  notification de fin de réponse longue en arrière-plan
+- Accessibilité VoiceOver (labels sur contrôles), migrations DB versionnées
+  (`user_version`), keep-alive suspendu sur batterie/thermal, anti-sommeil TTS
+- CI release : assemblage `.app`, notarisation + agrafage (secrets), artefact zip
+- 268 tests (253 XCTest + 15 Swift Testing), lint strict vert
+
 ## Non publié
 
 - Fix troncature post-tool : défaut `maxTokens` 8192 → 32768 (`num_predict`) ;

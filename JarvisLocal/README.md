@@ -31,6 +31,8 @@ L'application demande l'accès à :
 
 Depuis l'icône ⚙️ dans l'interface :
 - URL du serveur Ollama (défaut : `http://localhost:11434`)
+- Lancer au démarrage, synthèse vocale, reconnaissance vocale, barge-in, MCP
+- Accessibilité : contrôles labellisés pour VoiceOver
 - Modèle LLM
 - Synthèse vocale 100 % on-device (AVSpeechSynthesizer, voix FR Enhanced/Premium)
 - Reconnaissance vocale (français)
@@ -48,6 +50,8 @@ Activez les services dans l'app iMCP (menu bar), approuvez JarvisLocal, puis coc
 ## Fonctionnalités
 
 - Chat avec LLM local (outils : recherche web, météo, Apple Notes, Rappels, Calendrier, iMessage, Shortcuts, etc.)
+- **Barre de menu** (icône waveform) : mode vocal, afficher, quitter — sans fenêtre ouverte
+- **Lancement au démarrage** (Réglages > Général) + notification quand une réponse longue se termine en arrière-plan
 - Mémoire de faits personnels (reconnus automatiquement, confirmés par l'utilisateur)
 - Mode vocal mains-libres avec barge-in
 - Recherche plein-texte dans toutes les conversations (`/search` ou bouton loupe)

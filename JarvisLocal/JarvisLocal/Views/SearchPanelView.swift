@@ -20,6 +20,7 @@ struct SearchPanelView: View {
             HStack(spacing: 8) {
                 TextField("Rechercher dans toutes les conversations...", text: $query)
                     .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Rechercher dans toutes les conversations")
                     .onSubmit { Task { await vm.search(query) } }
                 Button("Chercher") { Task { await vm.search(query) } }
                     .buttonStyle(.borderedProminent)

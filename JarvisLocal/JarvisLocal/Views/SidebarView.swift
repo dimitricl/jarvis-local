@@ -30,23 +30,27 @@ struct SidebarView: View {
             .buttonStyle(.borderless)
             .foregroundStyle(JarvisTheme.textSecondary)
             .help("Rechercher dans les conversations (/search)")
+            .accessibilityLabel("Rechercher dans les conversations")
             Button(action: { vm.showHelp.toggle() }) {
                 Image(systemName: "questionmark.circle")
             }
             .buttonStyle(.borderless)
             .foregroundStyle(JarvisTheme.textSecondary)
             .help("Aide des commandes (/help)")
+            .accessibilityLabel("Aide des commandes")
             Button(action: { vm.showFacts.toggle() }) {
                 Image(systemName: "brain")
             }
             .buttonStyle(.borderless)
             .foregroundStyle(JarvisTheme.textSecondary)
             .help("Mémoire")
+            .accessibilityLabel("Afficher la mémoire des faits")
             Button(action: { Task { await vm.newConversation() } }) {
                 Image(systemName: "plus")
             }
             .buttonStyle(.borderless)
             .foregroundStyle(JarvisTheme.textSecondary)
+            .accessibilityLabel("Nouvelle conversation")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -64,6 +68,7 @@ struct SidebarView: View {
                     .textFieldStyle(.plain)
                     .font(.caption)
                     .foregroundStyle(JarvisTheme.textPrimary)
+                    .accessibilityLabel("Rechercher dans les conversations")
                     .onSubmit {
                         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !q.isEmpty else { return }
@@ -165,6 +170,7 @@ struct SidebarView: View {
                                     }
                                     .buttonStyle(.plain)
                                     .foregroundStyle(JarvisTheme.textTertiary)
+                                    .accessibilityLabel("Oublier le fait \(fact.key)")
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 3)

@@ -50,10 +50,12 @@ struct ToolConfirmationView: View {
                 Spacer()
                 Button("Annuler") { onResolve(false) }
                     .keyboardShortcut(.cancelAction)
+                    .accessibilityLabel("Refuser l'action \(request.toolName)")
                 Button("Confirmer") { onResolve(true) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
+                    .accessibilityLabel("Autoriser l'action \(request.toolName)")
             }
         }
         .padding(20)

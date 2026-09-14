@@ -17,6 +17,7 @@ struct ContentView: View {
                 Button(action: { vm.showSettings.toggle() }) {
                     Image(systemName: "gearshape")
                 }
+                .accessibilityLabel("Ouvrir les réglages")
                 .sheet(isPresented: Bindable(vm).showSettings) {
                     SettingsView()
                 }

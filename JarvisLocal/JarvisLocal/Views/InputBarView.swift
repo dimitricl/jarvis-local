@@ -62,6 +62,7 @@ struct InputBarView: View {
         }
         .buttonStyle(.borderless)
         .help("Mode vocal")
+        .accessibilityLabel(vm.isVoiceMode ? "Quitter le mode vocal" : "Activer le mode vocal")
     }
 
     @ViewBuilder
@@ -98,6 +99,7 @@ struct InputBarView: View {
         AutoResizingTextView(text: $inputText, height: $editorHeight, maxHeight: 120, font: .systemFont(ofSize: NSFont.systemFontSize), onSend: submitText)
             .frame(height: editorHeight)
             .focused($isInputFocused)
+            .accessibilityLabel("Message à envoyer à Jarvis")
             .background(JarvisTheme.panelElevated)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             // PAS de .disabled(vm.isStreaming) ici : bloquer la saisie pendant la réponse
@@ -125,6 +127,7 @@ struct InputBarView: View {
                 .foregroundStyle(JarvisTheme.danger)
         }
         .buttonStyle(.borderless)
+        .accessibilityLabel("Arrêter la réponse en cours")
     }
 
     @ViewBuilder
@@ -136,6 +139,7 @@ struct InputBarView: View {
         }
         .buttonStyle(.borderless)
         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .accessibilityLabel("Envoyer le message")
     }
 
     @ViewBuilder

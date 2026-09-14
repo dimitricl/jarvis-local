@@ -244,6 +244,17 @@ final class JarvisLocalDatabaseServiceTests: XCTestCase {
         try await db.open(path: ":memory:")
     }
 
+    /// Les migrations versionnées (PRAGMA user_version) atteignent le schéma courant
+    /// sur une base neuve, seed "Général" inclus.
+    func testMigrationsReachCurrentVersion() async throws {
+        let db = DatabaseService.shared
+        try await db.open(path: ":memory:")
+        let version = try await db.userVersion()
+        XCTAssertEqual(version, 2)
+        let convs = try await db.getAllConversations()
+        XCTAssertFalse(convs.isEmpty)
+    }
+
     func testCreateAndGetConversation() async throws {
         let db = DatabaseService.shared
         try await db.open(path: ":memory:")

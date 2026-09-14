@@ -64,6 +64,7 @@ struct MessageBubbleView: View {
                     }
                     .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
                     .help("Copier le message")
+                    .accessibilityLabel("Copier le message")
                 }
             }
         }
@@ -86,6 +87,7 @@ struct MessageBubbleView: View {
                             }
                             .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
                             .help("Copier le message")
+                            .accessibilityLabel("Copier le message")
                         }
                         .padding(.leading, 2)
                     }

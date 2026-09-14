@@ -130,7 +130,14 @@ final class AudioService: NSObject {
     /// Enqueue puis attend que toute la file ait été lue. Comportement historique
     /// de speak(), utilisé quand l'appelant doit synchroniser sur la fin du TTS
     /// (annonces de confirmation, fin de tour en mode vocal).
+    /// Activité déclarée (`idleSystemSleepDisabled`) : sans elle, le Mac peut
+    /// s'endormir en pleine lecture et couper la voix au milieu d'une phrase.
     func speak(_ text: String) async {
+        let activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "Lecture synthèse vocale Jarvis"
+        )
+        defer { ProcessInfo.processInfo.endActivity(activity) }
         enqueue(text)
         while ttsIsProcessing() || ttsIsSpeaking() {
             try? await Task.sleep(nanoseconds: 60_000_000)
