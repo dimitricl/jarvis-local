@@ -12,9 +12,14 @@ actor MCPStdioTransport {
     private var proc: Process?
     private var stdin: FileHandle?
     private var stdout: FileHandle?
+    private var stderr: FileHandle?
     private var nextId = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var buffer = Data()
+    /// Plafond du buffer stdout : sans newline (serveur verbeux, gros tool result),
+    /// buffer.append() grossit sans limite. Au-delà, on purge et on échoue les
+    /// requêtes en attente plutôt que de laisser la RAM diverger.
+    static let maxBufferBytes = 10_000_000
 
     /// Lance le process serveur. Throw si le binaire n'existe pas
     /// (iMCP non installé → le provider marque le serveur hors-ligne, pas de crash).
@@ -34,28 +39,54 @@ actor MCPStdioTransport {
             p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
             p.arguments = [command] + args
         }
-        let i = Pipe(); let o = Pipe()
-        p.standardInput = i; p.standardOutput = o; p.standardError = Pipe()
+        let i = Pipe(); let o = Pipe(); let e = Pipe()
+        p.standardInput = i; p.standardOutput = o; p.standardError = e
         do {
             try p.run()
         } catch {
             // `env` absent ou spawn impossible : hors-ligne propre, pas de crash.
             throw MCPError.binaryNotFound(command)
         }
-        self.proc = p; self.stdin = i.fileHandleForWriting; self.stdout = o.fileHandleForReading
+        self.proc = p; self.stdin = i.fileHandleForWriting; self.stdout = o.fileHandleForReading; self.stderr = e.fileHandleForReading
         self.stdout?.readabilityHandler = { [weak self] h in
             Task { await self?.ingest(h.availableData) }
+        }
+        // Drain stderr : un pipe jamais lu se remplit (~64 Ko) puis BLOQUE le
+        // serveur fils à sa prochaine écriture (deadlock apparent : tools/list
+        // ne répond plus, timeout, relance…). On jette le contenu (logs serveur).
+        self.stderr?.readabilityHandler = { h in
+            _ = h.availableData
         }
     }
 
     func stop() {
         stdout?.readabilityHandler = nil
-        try? stdin?.close(); try? stdout?.close()
+        stderr?.readabilityHandler = nil
+        try? stdin?.close(); try? stdout?.close(); try? stderr?.close()
+        stderr = nil
         proc?.terminate(); proc = nil
+        // Les requêtes en vol ne doivent pas rester suspendues pour toujours.
+        let stale = pending
+        pending = [:]
+        buffer = Data()
+        for cont in stale.values {
+            cont.resume(throwing: MCPError.offline("transport fermé"))
+        }
     }
 
     private func ingest(_ data: Data) {
         buffer.append(data)
+        if buffer.count > Self.maxBufferBytes {
+            // Serveur bavard ou réponse gigantesque : purge + échec propre des
+            // requêtes en attente plutôt que croissance mémoire illimitée.
+            buffer = Data()
+            let stale = pending
+            pending = [:]
+            for cont in stale.values {
+                cont.resume(throwing: MCPError.remote("réponse MCP trop volumineuse (> \(Self.maxBufferBytes) octets), buffer purgé"))
+            }
+            return
+        }
         while let nl = buffer.firstIndex(of: 0x0A) {
             let line = buffer[..<nl]
             buffer.removeSubrange(...nl)

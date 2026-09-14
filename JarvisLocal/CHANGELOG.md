@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1] - 2026-09-14
+
+### Correctifs mémoire (pics à 40+ Go)
+- Plafonds : downloads web 2 Mo, sorties process 512 Ko, buffer MCP 10 Mo,
+  file TTS 50 items / 20k caractères
+- Streaming Ollama throttlé (fini le O(n²) par delta) ; dictée max 120s/prise ;
+  stderr MCP drainé ; race timeout `ProcessRunner` corrigée
+- Fix build `batteryInfo` (`IOPSCopyPowerSourcesList`)
+
 ## [0.5.0] - 2026-09-14
 
 ### Ajouts

@@ -1,5 +1,7 @@
 import Foundation
 import AppKit
+import Darwin // sysctlbyname (CPU) — plus de `sysctl` en Process
+import IOKit.ps // batterie : IOPSCopyPowerSourcesInfo — plus de `pmset` en Process
 
 /// Runner AppleScript RÉSERVÉ AUX TEMPLATES INTERNES FIGÉS (Messages, Notes, Plans).
 /// L'outil générique `applescript` exposé au modèle a été SUPPRIMÉ (RCE triviale via
@@ -222,48 +224,73 @@ actor SystemTools {
 
     // MARK: - get_system_info
 
+    /// P1 senior : zéro `Process` shell. CPU via `sysctlbyname` (Darwin),
+    /// RAM/uptime/host via `ProcessInfo`, batterie via `IOKit`
+    /// (`IOPSCopyPowerSourcesInfo`), disque via `FileManager.resourceValues`.
+    /// Même forme de sortie qu'avant (tests : "Batterie :" / "Uptime :").
     func getSystemInfo() async throws -> String {
         let diskURL = URL(fileURLWithPath: "/")
         let diskValues = try? diskURL.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
         let totalGB = (diskValues?.volumeTotalCapacity ?? 1) / 1_000_000_000
         let freeGB = (diskValues?.volumeAvailableCapacity ?? 0) / 1_000_000_000
 
-        let ramBytes = try await shell("/usr/sbin/sysctl", ["-n", "hw.memsize"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let ramGB = (UInt64(ramBytes) ?? 0) / 1_000_000_000
+        let ramGB = Int(ProcessInfo.processInfo.physicalMemory) / 1_000_000_000
+        let cpu = Self.sysctlString("machdep.cpu.brand_string")
 
-        let cpu = try await shell("/usr/sbin/sysctl", ["-n", "machdep.cpu.brand_string"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let (batteryPercent, chargeState) = Self.batteryInfo()
 
-        // Batterie via pmset (instantané) plutôt que system_profiler (2-3s).
-        let battText = try await shell("/usr/bin/pmset", ["-g", "batt"])
-        let battLine = battText.components(separatedBy: "\n").first { $0.contains("%") } ?? ""
-        let percentStr = battLine.components(separatedBy: "\t").last?
-            .trimmingCharacters(in: .whitespaces)
-        let batteryPercent = percentStr?.split(separator: ";").first?
-            .trimmingCharacters(in: .whitespaces) ?? "N/A"
-        let chargeState = battLine.contains("charging") ? "en charge"
-            : battLine.contains("charged") ? "chargée"
-            : battLine.contains("discharging") ? "sur batterie"
-            : "N/A"
-
-        let bootStr = try await shell("/usr/sbin/sysctl", ["-n", "kern.boottime"])
-        let bootSec = bootStr.components(separatedBy: "sec = ").last?.components(separatedBy: ",").first.flatMap { TimeInterval($0.trimmingCharacters(in: .whitespaces)) } ?? 0
-        let uptimeDays = bootSec > 0 ? Int(Date().timeIntervalSince1970 - bootSec) / 86400 : 0
+        let uptimeSec = Int(ProcessInfo.processInfo.systemUptime)
+        let uptimeDays = uptimeSec / 86400
+        let uptimeText: String
+        if uptimeDays > 0 {
+            uptimeText = "\(uptimeDays) jours"
+        } else {
+            uptimeText = "\(uptimeSec / 3600) heures"
+        }
 
         return """
         Mac : \(ProcessInfo.processInfo.hostName)
-        CPU : \(cpu)
+        CPU : \(cpu.isEmpty ? "N/A" : cpu)
         RAM : \(ramGB) Go
         Disque : \(freeGB) Go libres / \(totalGB) Go total
         Batterie : \(batteryPercent) (\(chargeState))
-        Uptime : \(uptimeDays) jours
+        Uptime : \(uptimeText)
         """
     }
 
-    private func shell(_ exec: String, _ args: [String]) async throws -> String {
-        let (out, _) = try await ctx.runProcess(exec, args, 45)
-        return out
+    /// Lecture sysctl sans fork : `sysctl` CLI supprimé.
+    /// NOTE : `internal`/`static` pour les tests.
+    nonisolated static func sysctlString(_ name: String) -> String {
+        var size = 0
+        guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return "" }
+        var buf = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(name, &buf, &size, nil, 0) == 0 else { return "" }
+        return String(cString: buf).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Batterie via IOKit : `pmset -g batt` supprimé.
+    /// NOTE : `internal`/`static` pour les tests.
+    nonisolated static func batteryInfo() -> (percent: String, state: String) {
+        // NOTE senior : le SDK nomme la fonction IOPSCopyPowerSourcesList (règle
+        // Create/Copy → takeRetainedValue, pas takeUnretainedValue qui fuirait).
+        // L'ancien nom IOPSGetPowerSourceList n'existe plus dans ce SDK.
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef],
+              let ps = list.first,
+              let desc = IOPSGetPowerSourceDescription(blob, ps)?.takeUnretainedValue() as? [String: Any]
+        else { return ("N/A", "N/A") }
+        let cur = (desc[kIOPSCurrentCapacityKey as String] as? Int) ?? -1
+        let max = (desc[kIOPSMaxCapacityKey as String] as? Int) ?? -1
+        let percent = (cur >= 0 && max > 0) ? "\(cur * 100 / max)%" : "N/A"
+        let charging = (desc[kIOPSIsChargingKey as String] as? Bool) ?? false
+        let charged = (desc[kIOPSIsChargedKey as String] as? Bool) ?? false
+        let onAC = (desc[kIOPSPowerSourceStateKey as String] as? String) == (kIOPSACPowerValue as String)
+        let state: String
+        if charging { state = "en charge" }
+        else if charged { state = "chargée" }
+        else if onAC { state = "sur secteur" }
+        else { state = "sur batterie" }
+        return (percent, state)
     }
 
     // MARK: - Clipboard (AppKit = main thread uniquement)

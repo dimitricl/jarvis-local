@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1 (2026-09-14)
+
+- Fix alertes mémoire macOS (pics à 40+ Go) : plafonds sur downloads web
+  (`read_url`/`search_web`, 2 Mo), sorties process (512 Ko), buffer MCP (10 Mo),
+  file TTS (50 items / 20k caractères)
+- Fix streaming Ollama en O(n²) : refresh UI/TTS throttlé + fast-path sans regex
+  quand il n'y a pas de bloc `<think>`
+- Fix dictée vocale : durée max 120s par prise (le buffer Speech grossissait sans
+  limite en bruit continu) ; stderr MCP drainé (deadlocks `tools/list`)
+- Fix race `ProcessRunner` au timeout (continuation restée suspendue) ;
+  fix build `batteryInfo` (`IOPSCopyPowerSourcesList`, retenue mémoire corrigée)
+
 ## 0.5.0 (2026-09-14)
 
 - Barre de menu (mode vocal / afficher / quitter), lancement au démarrage,

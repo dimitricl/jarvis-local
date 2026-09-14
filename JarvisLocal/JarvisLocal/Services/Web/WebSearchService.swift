@@ -1,5 +1,6 @@
 import Foundation
-import Darwin // getaddrinfo / inet_pton pour le garde SSRF (URLSafety)
+import Network // P0 senior : IPv4Address/IPv6Address pour les littéraux (plus d'inet_pton), NWPathMonitor dispo pour le réseau
+import Darwin // getaddrinfo conservé uniquement pour la résolution DNS (pas d'API publique NWResolver)
 #if canImport(SwiftSoup)
 import SwiftSoup
 #endif
@@ -9,6 +10,9 @@ import SwiftSoup
 /// localhost, loopback, RFC1918, link-local, `.local` — Y COMPRIS après résolution
 /// DNS (un nom public qui résout vers 127.0.0.1 = rebinding = refusé). Fail-closed :
 /// résolution impossible ou forme numérique obfusquée → refus.
+/// P0 senior : les littéraux IP sont parsés avec `Network.framework`
+/// (`IPv4Address`/`IPv6Address`) au lieu d'`inet_pton`; la résolution DNS reste
+/// sur `getaddrinfo` (pas de résolveur public dans Network.framework).
 /// NOTE : fonctions pures `static`, testables sans réseau (sauf resolve, testée en
 /// intégration sur localhost qui doit être bloquée).
 enum URLSafety {
@@ -18,12 +22,10 @@ enum URLSafety {
         guard let host = url.host?.lowercased(), !host.isEmpty else { return true }
         if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local")
             || host.hasSuffix(".invalid") || host.hasSuffix(".internal") { return true }
-        // IPv4 littéral ?
-        var v4 = in_addr()
-        if inet_pton(AF_INET, host, &v4) == 1 { return isPrivateV4(v4) }
+        // IPv4 littéral ? (Network.framework, plus d'inet_pton)
+        if let v4 = IPv4Address(host) { return isPrivateV4(v4) }
         // IPv6 littéral (URL.host retire les crochets) ?
-        var v6 = in6_addr()
-        if inet_pton(AF_INET6, host, &v6) == 1 { return isNonPublicV6(v6) }
+        if let v6 = IPv6Address(host) { return isNonPublicV6(v6) }
         // Forme numérique obfusquée (décimal entier, octal…) : refus direct.
         if host.allSatisfy(\.isNumber) { return true }
         // Nom DNS : TOUS les enregistrements doivent être publics.
@@ -34,8 +36,10 @@ enum URLSafety {
     // MARK: - Plages privées
 
     /// NOTE : `internal` pour les tests.
-    nonisolated static func isPrivateV4(_ addr: in_addr) -> Bool {
-        let n = addr.s_addr.bigEndian // ordre réseau → valeur numérique
+    nonisolated static func isPrivateV4(_ addr: IPv4Address) -> Bool {
+        let b = addr.rawValue // 4 octets ordre réseau
+        guard b.count == 4 else { return true }
+        let n = (UInt32(b[0]) << 24) | (UInt32(b[1]) << 16) | (UInt32(b[2]) << 8) | UInt32(b[3])
         switch n {
         case _ where (n & 0xFF00_0000) == 0x0000_0000: return true // 0.0.0.0/8
         case _ where (n & 0xFF00_0000) == 0x0A00_0000: return true // 10/8
@@ -54,28 +58,26 @@ enum URLSafety {
     }
 
     /// NOTE : `internal` pour les tests.
-    nonisolated static func isNonPublicV6(_ addr: in6_addr) -> Bool {
-        let b = withUnsafeBytes(of: addr) { Array($0) }
+    nonisolated static func isNonPublicV6(_ addr: IPv6Address) -> Bool {
+        let b = addr.rawValue
         guard b.count == 16 else { return true }
         if b.allSatisfy({ $0 == 0 }) { return true } // ::
         if b[0..<15].allSatisfy({ $0 == 0 }) && b[15] == 1 { return true } // ::1
         if b[0] == 0xFE && (b[1] & 0xC0) == 0x80 { return true } // fe80::/10
         if (b[0] & 0xFE) == 0xFC { return true } // fc00::/7 unique-local
         if b[0] == 0xFF { return true } // ff00::/8 multicast
-        // ::ffff:a.b.c.d → juge sur l'IPv4 embarqué (ordre réseau conservé).
+        // ::ffff:a.b.c.d → juge sur l'IPv4 embarqué.
         if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xFF && b[11] == 0xFF {
-            var v4 = in_addr()
-            withUnsafeMutableBytes(of: &v4) { ptr in
-                ptr[0] = b[12]; ptr[1] = b[13]; ptr[2] = b[14]; ptr[3] = b[15]
-            }
-            return isPrivateV4(v4)
+            let v4 = IPv4Address(Data([b[12], b[13], b[14], b[15]]))
+            if let v4 { return isPrivateV4(v4) }
+            return true
         }
         return false
     }
 
     private enum ResolvedAddr {
-        case v4(in_addr)
-        case v6(in6_addr)
+        case v4(IPv4Address)
+        case v6(IPv6Address)
         var isPublic: Bool {
             switch self {
             case .v4(let a): return !isPrivateV4(a)
@@ -99,11 +101,13 @@ enum URLSafety {
             let info = current.pointee
             if let sa = info.ai_addr {
                 if info.ai_family == AF_INET {
-                    let addr = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
-                    out.append(.v4(addr))
+                    let raw = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+                    let bytes = withUnsafeBytes(of: raw) { Data($0) }
+                    if let v4 = IPv4Address(bytes) { out.append(.v4(v4)) }
                 } else if info.ai_family == AF_INET6 {
-                    let addr = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
-                    out.append(.v6(addr))
+                    let raw = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+                    let bytes = withUnsafeBytes(of: raw) { Data($0) }
+                    if let v6 = IPv6Address(bytes) { out.append(.v6(v6)) }
                 }
             }
             cursor = info.ai_next
@@ -288,17 +292,22 @@ actor WebSearchService {
 
     // MARK: - Réseau mutualisé
 
+    /// Plafond de téléchargement : voir WebTools.maxPageBytes (même cause :
+    /// un corps géant chargé via data(for:) + décodé en String = pic mémoire
+    /// en Go sur une seule recherche).
+    static let maxPageBytes = 2_000_000
+
     /// Fetch générique : UA navigateur + timeout court. Une requête qui traîne
     /// ne doit jamais bloquer tout le tour de conversation.
+    /// Corps plafonné avant décodage UTF-8 (cf. WebTools.fetchPage).
     private func fetchPage(_ url: URL, timeout: TimeInterval) async -> String? {
         var req = URLRequest(url: url)
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = timeout
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let html = String(data: data, encoding: .utf8)
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
         else { return nil }
-        return html
+        return String(data: Data(data.prefix(Self.maxPageBytes)), encoding: .utf8)
     }
 
     private func fetchTopPages(_ links: [(title: String, href: String)], base: URL) async -> [String?] {

@@ -33,17 +33,28 @@ actor WebTools {
         return text.count > 100 ? "Source : \(normalized)\n\(text)" : "Source : \(normalized)\nContenu de la page insuffisant ou vide."
     }
 
+    /// Plafond de téléchargement : une page web fait quelques centaines de Ko.
+    /// Sans plafond, un read_url vers un gros fichier (vidéo, ISO, export) charge
+    /// des Go en RAM via URLSession.data (cause possible des alertes mémoire macOS
+    /// à 40+ Go : Data + copie String + copies regex htmlToText).
+    static let maxPageBytes = 2_000_000
+
     /// Fetch générique : UA navigateur + timeout court, une requête qui traîne
     /// ne doit jamais bloquer tout le tour de conversation.
+    /// Lecture streamée et plafonnée : on coupe au-delà de maxPageBytes au lieu
+    /// de charger toute la réponse en mémoire.
     private func fetchPage(_ url: URL, timeout: TimeInterval) async -> String? {
         var req = URLRequest(url: url)
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = timeout
-        guard let (data, response) = try? await URLSession.shared.data(for: req),
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let html = String(data: data, encoding: .utf8)
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
         else { return nil }
-        return html
+        // Garde : on ne convertit jamais plus de maxPageBytes en String (la
+        // conversion Data → String double transitoirement le pic mémoire).
+        // Un binaire géant (vidéo…) échoue ici le décodage UTF-8 → nil.
+        let capped = data.prefix(Self.maxPageBytes)
+        return String(data: Data(capped), encoding: .utf8)
     }
 
     /// Open-Meteo plutôt que search_web : sans clé API, JSON stable, pas de
@@ -56,10 +67,11 @@ actor WebTools {
               let geoURL = URL(string: "https://geocoding-api.open-meteo.com/v1/search?name=\(encodedCity)&count=1&language=fr&format=json")
         else { return "Erreur d'encodage du nom de ville." }
 
-        guard let geoData = try? await URLSession.shared.data(for: {
+        guard let (geoDataRaw, _) = try? await URLSession.shared.data(for: {
             var r = URLRequest(url: geoURL); r.timeoutInterval = 20; return r
-        }()).0,
-              let geoJSON = try? JSONSerialization.jsonObject(with: geoData) as? [String: Any],
+        }()),
+              geoDataRaw.count < Self.maxPageBytes,
+              let geoJSON = try? JSONSerialization.jsonObject(with: geoDataRaw) as? [String: Any],
               let results = geoJSON["results"] as? [[String: Any]],
               let first = results.first,
               let lat = first["latitude"] as? Double,
@@ -76,6 +88,7 @@ actor WebTools {
         guard let (data, response) = try? await URLSession.shared.data(for: {
             var r = URLRequest(url: forecastURL); r.timeoutInterval = 20; return r
         }()),
+              data.count < Self.maxPageBytes,
               let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let current = json["current"] as? [String: Any]

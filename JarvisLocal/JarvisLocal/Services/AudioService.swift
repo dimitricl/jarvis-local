@@ -49,10 +49,22 @@ final class AudioService: NSObject {
     /// Helpers verrouillés (sections synchrones, jamais d'await sous verrou).
     /// Règle : les `_vars` bruts ne sont touchés QUE dans ces helpers ou dans des blocs
     /// ttsStateLock explicites — jamais directement depuis le reste de la classe.
+    /// Plafonds file TTS : sur une très longue réponse streamée, les phrases sont
+    /// enfilées plus vite que le synthé ne les lit. Sans borne, la file (Strings
+    /// + utterances) grossit sans limite si l'utilisateur ne coupe jamais le son.
+    static let maxTTSQueueItems = 50
+    static let maxTTSQueueChars = 20_000
+
     private func ttsQueueAppend(_ text: String) {
         ttsStateLock.lock(); defer { ttsStateLock.unlock() }
         _stopRequested = false // une nouvelle parole annule l'état "stop"
         _audioQueue.append(text)
+        // Dégrade gracieusement : on jette les plus anciennes (déjà dépassées par
+        // le streaming) plutôt que de laisser la file diverger en mémoire.
+        while _audioQueue.count > Self.maxTTSQueueItems
+                || _audioQueue.reduce(0, { $0 + $1.count }) > Self.maxTTSQueueChars {
+            _audioQueue.removeFirst()
+        }
     }
     private func ttsQueueIsEmpty() -> Bool {
         ttsStateLock.lock(); defer { ttsStateLock.unlock() }
@@ -409,6 +421,12 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var continuation: CheckedContinuation<String, Error>?
     private var silenceTimer: DispatchSourceTimer?
+    /// Garde-fou absolu : SFSpeechAudioBufferRecognitionRequest bufferise TOUT
+    /// l'audio jusqu'à endAudio(). Sans parole continue (bruit de fond, TV),
+    /// le détecteur de silence ne se déclenche jamais et la requête grossit sans
+    /// limite (Go en session prolongée). Ce timer force une fin après 120s.
+    private var maxDurationTimer: DispatchSourceTimer?
+    static let maxRecordingDuration: TimeInterval = 120
     private var isRecording = false
     private var restartCountValue = 0
     private var partialHandler: ((String) -> Void)?
@@ -514,6 +532,7 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         }
 
         scheduleSilenceTimerLocked()
+        scheduleMaxDurationTimerLocked()
     }
 
     /// Traite un événement de recognitionTask. Appelé UNIQUEMENT sur stateQueue
@@ -632,11 +651,30 @@ final class STTService: NSObject, SFSpeechRecognizerDelegate {
         silenceTimer = timer
     }
 
+    /// Borne absolue de la prise (voir maxDurationTimer) : force endAudio() pour
+    /// vider le buffer Speech même en parole/bruit continu. Le résultat final
+    /// arrive alors via handleRecognitionEventLocked comme une fin normale.
+    private func scheduleMaxDurationTimerLocked() {
+        dispatchPrecondition(condition: .onQueue(stateQueue))
+        maxDurationTimer?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: stateQueue)
+        timer.schedule(deadline: .now() + Self.maxRecordingDuration, repeating: .never)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.isRecording else { return }
+            self.recognitionRequest?.endAudio()
+        }
+        timer.activate()
+        maxDurationTimer = timer
+    }
+
     private func stopRecordingLocked() {
         dispatchPrecondition(condition: .onQueue(stateQueue))
         isRecording = false
         silenceTimer?.cancel()
         silenceTimer = nil
+        maxDurationTimer?.cancel()
+        maxDurationTimer = nil
         recognitionRequest?.endAudio()
         recognitionRequest = nil
         recognitionTask?.cancel()

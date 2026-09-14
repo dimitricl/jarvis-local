@@ -1,26 +1,13 @@
-/// Formats a file size in bytes into a human-readable string (e.g., "1.2 KB", "5.6 MB").
-/// - Parameter bytes: The size in bytes.
-/// - Returns: A string representing the size in a human-readable format.
+import Foundation
+
+/// Formatte une taille en octets en chaîne lisible ("1,2 Mo", "5,6 Go").
+/// P1 senior : `ByteCountFormatter` natif (localisé FR, unités 1024/1000 correctes)
+/// au lieu du découpage manuel KB/MB/GB. API inchangée pour les appelants.
+/// - Parameter bytes: La taille en octets.
+/// - Returns: Une chaîne représentant la taille de façon lisible.
 func humanReadableSize(bytes: Int) -> String {
-    let kb: Double = Double(bytes) / 1024
-    if kb < 1 {
-        return "\(bytes) B"
-    }
-
-    let mb: Double = kb / 1024
-    if mb < 1 {
-        return String(format: "%.1f KB", kb)
-    }
-
-    let gb: Double = mb / 1024
-    if gb < 1 {
-        return String(format: "%.1f MB", mb)
-    }
-
-    let tb: Double = gb / 1024
-    if tb < 1 {
-        return String(format: "%.1f GB", gb)
-    }
-
-    return String(format: "%.1f TB", tb)
+    let fmt = ByteCountFormatter()
+    fmt.countStyle = .file
+    fmt.allowedUnits = .useAll
+    return fmt.string(fromByteCount: Int64(bytes))
 }

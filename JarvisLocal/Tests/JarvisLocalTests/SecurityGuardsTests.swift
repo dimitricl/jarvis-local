@@ -1,5 +1,5 @@
 @testable import JarvisLocal
-import Darwin // inet_pton pour construire les in_addr de test
+import Network // IPv4Address pour construire les IP de test (P0 : plus d'inet_pton)
 import Foundation // URL
 import Testing
 
@@ -27,9 +27,10 @@ struct SecurityGuardsTests {
 
     // MARK: - URLSafety
 
-    private func v4(_ string: String) -> in_addr {
-        var addr = in_addr()
-        precondition(inet_pton(AF_INET, string, &addr) == 1, "IP de test invalide : \(string)")
+    private func v4(_ string: String) -> IPv4Address {
+        guard let addr = IPv4Address(string) else {
+            preconditionFailure("IP de test invalide : \(string)")
+        }
         return addr
     }
 

@@ -13,8 +13,12 @@
     <key>com.apple.security.personal-information.calendars</key>
     <true/>
     <!-- Contrôle d'autres apps via Apple Events (Messages, Notes, System Events…).
-         `true` en dev ; resserrer en release vers les bundle IDs ciblés avec
-         com.apple.security.automation.apple-events + dict par cible. -->
+         App non-sandboxée (hardened runtime) : la valeur `true` est la forme
+         correcte — le scoping fin par bundleID (dict) ne s'applique qu'avec
+         App Sandbox + `com.apple.security.scripting-targets`. La restriction
+         réelle est donc : templates AppleScript figés (AppleScriptRunner),
+         confirmation utilisateur obligatoire (sensitiveTools), TCC par cible.
+         Cibles utilisées : com.apple.Notes, com.apple.MobileSMS, com.apple.systemevents. -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
 </dict>

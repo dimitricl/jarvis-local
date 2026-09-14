@@ -17,9 +17,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>0.5.1</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>0.5.1</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSMicrophoneUsageDescription</key>
@@ -34,6 +34,8 @@
     <string>Jarvis a besoin de contrôler d'autres applications via AppleScript.</string>
     <key>NSContactsUsageDescription</key>
     <string>Jarvis a besoin d'accéder à vos contacts pour envoyer des messages.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Jarvis utilise votre position approximative pour la météo (WeatherKit) et la recherche de lieux (MapKit).</string>
     <key>NSScreenCaptureDescription</key>
     <string>Jarvis a besoin de capture d'écran pour prendre des screenshots.</string>
     <key>NSAppTransportSecurity</key>

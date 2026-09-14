@@ -795,6 +795,14 @@ final class AppViewModel {
         var truncated = false
         // Nombre de caractères (sur le texte "strippé") déjà envoyés au TTS
         var spokenCount = 0
+        // Throttle anti-O(n²) : stripThinking()/stableSpeakable() scannent tout le
+        // contenu accumulé. Les appeler à chaque delta (souvent 1 mot) recopie des
+        // centaines de Ko des milliers de fois → pic mémoire + CPU sur les longues
+        // réponses. On rafraîchit l'UI/TTS au plus tous les N caractères nouveaux.
+        var lastUIUpdateCount = 0
+        var lastTTSScanCount = 0
+        let uiRefreshStep = 500
+        let ttsScanStep = 200
 
         // Définitions fusionnées natif + MCP : le modèle voit les outils distants
         // quand iMCP est connecté, et `execute()` les route vers le bon transport.
@@ -804,13 +812,17 @@ final class AppViewModel {
             switch event {
             case .delta(let text):
                 content += text
-                let stripped = stripThinking(content)
-                streamingText = stripped
 
-                if Settings.shared.ttsEnabled {
+                if content.count - lastUIUpdateCount >= uiRefreshStep {
+                    streamingText = stripThinking(content)
+                    lastUIUpdateCount = content.count
+                }
+
+                if Settings.shared.ttsEnabled, content.count - lastTTSScanCount >= ttsScanStep {
+                    lastTTSScanCount = content.count
                     // stableSpeakable évite de lire un bloc <think> encore ouvert
                     let stable = stableSpeakable(content)
-                    let suffix = stable.dropFirst(spokenCount)
+                    let suffix = stable.dropFirst(min(spokenCount, stable.count))
                     if let idx = suffix.lastIndex(where: { $0 == "." || $0 == "!" || $0 == "?" }) {
                         let sentence = String(suffix[...idx])
                         if sentence.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 {
@@ -832,6 +844,13 @@ final class AppViewModel {
 
         guard !Task.isCancelled else { throw CancellationError() }
 
+        // Refresh final : le throttle ci-dessus peut avoir sauté les derniers
+        // caractères (< uiRefreshStep). L'appelant strippe de toute façon `content`
+        // pour la sauvegarde, mais l'UI live doit afficher le texte complet.
+        if lastUIUpdateCount != content.count {
+            streamingText = stripThinking(content)
+        }
+
         if content.isEmpty && (toolCalls == nil) {
             errorMessage = "Pas de réponse du modèle Ollama. Vérifie que le modèle '\(Settings.shared.model)' existe."
         }
@@ -843,6 +862,9 @@ final class AppViewModel {
     /// mais pas encore fermé, tout ce qui suit son ouverture est instable (peut encore être
     /// complété par "</think>") — on ne renvoie que ce qui précède.
     private func stableSpeakable(_ raw: String) -> String {
+        // Fast path (cas courant : pas de raisonnement) : évite la regex + la
+        // copie de toute la chaîne à chaque scan TTS pendant le streaming.
+        guard raw.contains("<think") else { return raw }
         if let open = raw.range(of: "<think>"), raw.range(of: "</think>") == nil {
             return stripThinking(String(raw[..<open.lowerBound]))
         }
