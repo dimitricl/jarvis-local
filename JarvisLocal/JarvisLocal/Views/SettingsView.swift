@@ -9,6 +9,11 @@ struct SettingsView: View {
             Section("Ollama") {
                 TextField("URL :", text: Bindable(settings).ollamaURL)
                     .textFieldStyle(.roundedBorder)
+                if !settings.ollamaHostIsLocal {
+                    Text("⚠ Serveur distant : l'historique, les faits et les résultats d'outils sont envoyés à cet hôte (souvent en clair en http). Local par défaut : http://localhost:11434.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
                 TextField("Modèle principal :", text: Bindable(settings).model)
                     .textFieldStyle(.roundedBorder)
                 TextField("Modèle rapide :", text: Bindable(settings).fastModel)
@@ -72,38 +77,18 @@ struct SettingsView: View {
                 Toggle("Reconnaissance vocale (STT)", isOn: Bindable(settings).voiceEnabled)
 
                 if settings.ttsEnabled {
-                    Picker("Moteur", selection: Bindable(settings).ttsEngine) {
-                        ForEach(TTSEngine.allCases, id: \.self) { engine in
-                            Text(engine.label).tag(engine)
+                    // 100 % on-device (AVSpeechSynthesizer). L'ancien moteur cloud edge-tts
+                    // (process Python + réseau Microsoft) a été supprimé : pour une meilleure
+                    // voix FR, télécharge une voix Enhanced/Premium dans Réglages Système
+                    // → Accessibilité → Contenu énoncé → Voix système.
+                    Picker("Voix TTS", selection: Bindable(settings).ttsVoiceIdentifier) {
+                        Text("Auto (meilleure dispo)").tag("")
+                        ForEach(settings.availableFrenchVoices, id: \.identifier) { voice in
+                            Text("\(voice.name) (\(voice.quality == .premium ? "Premium" : voice.quality == .enhanced ? "Enhanced" : "Compact")) — \(voice.language)")
+                                .tag(voice.identifier)
                         }
                     }
                     .pickerStyle(.menu)
-
-                    switch settings.ttsEngine {
-                    case .system:
-                        Picker("Voix TTS", selection: Bindable(settings).ttsVoiceIdentifier) {
-                            Text("Auto (meilleure dispo)").tag("")
-                            ForEach(settings.availableFrenchVoices, id: \.identifier) { voice in
-                                Text("\(voice.name) (\(voice.quality == .premium ? "Premium" : voice.quality == .enhanced ? "Enhanced" : "Compact")) — \(voice.language)")
-                                    .tag(voice.identifier)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    case .edgeTTS:
-                        TextField("Voix edge-tts :", text: Bindable(settings).edgeTTSVoice)
-                            .textFieldStyle(.roundedBorder)
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(settings.edgeTTSAvailable ? Color.green : Color.red)
-                                .frame(width: 8, height: 8)
-                            Text(settings.edgeTTSAvailable ? "edge-tts détecté" : "edge-tts introuvable — installer avec `pip install edge-tts`")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Text("Ex : fr-FR-VivienneMultilingualNeural, fr-FR-HenriNeural, fr-FR-DeniseNeural. Liste complète : `edge-tts --list-voices` dans un terminal.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             }
 

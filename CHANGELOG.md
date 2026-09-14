@@ -17,6 +17,17 @@
   accordée mais non effective sans `killall iMCP` + relance
 - README (racine + paquet) à jour : section MCP opt-in, archi `Tools/`, 251 tests,
   procédure release avec garde CHANGELOG
+- Audit sécurité/concurrence : outil `applescript` générique SUPPRIMÉ (RCE triviale
+  par concaténation, non filtrable) → capacités typées (`PowerAction`, templates
+  figés) ; `create_note`/`open_app`/`get_clipboard` passent en confirmation ; les
+  outils MCP héritent du statut sensible de leur équivalent natif ; `read_url`
+  marquée donnée externe + garde anti-SSRF (LAN/`file://`/rebinding refusés,
+  aussi sur le fetch `search_web`) ; ATS restreint au seul `localhost` ;
+  avertissement Réglages si Ollama distant ; edge-tts supprimé (TTS 100 % on-device,
+  `os_log` C → `Logger`) ; `synthesizer` main-thread-only (fini `nonisolated(unsafe)`,
+  restart via MainActor) ; instrumentation SSE `/tmp` retirée ; DB en WAL + FK +
+  index ; CI : lint strict, build release signée hardened + entitlements
+  (261 tests : 252 XCTest + 9 Swift Testing)
 
 ## 0.4.1 (2026-09-13)
 

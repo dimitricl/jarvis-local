@@ -204,6 +204,13 @@ struct InputBarView: View {
             inputText = ""
             vm.showFacts.toggle()
             return
+        case "/tools":
+            inputText = ""
+            vm.showTools.toggle()
+            if vm.showTools {
+                Task { await vm.loadToolRuns() }
+            }
+            return
         case "/help":
             inputText = ""
             vm.showHelp.toggle()

@@ -11,23 +11,20 @@ final class JarvisLocalSettingsTests: XCTestCase {
         settings = Settings.shared
     }
 
-    // MARK: - TTSEngine
+    // MARK: - Hôte Ollama local vs distant
 
-    func testTTSEngineLabels() {
-        XCTAssertEqual(TTSEngine.system.label, "Synthèse macOS")
-        XCTAssertEqual(TTSEngine.edgeTTS.label, "Edge TTS (en ligne)")
+    func testLocalHostnamesAreLocal() {
+        XCTAssertTrue(Settings.isLocalHostname("localhost"))
+        XCTAssertTrue(Settings.isLocalHostname("127.0.0.1"))
+        XCTAssertTrue(Settings.isLocalHostname("127.0.0.2"))
+        XCTAssertTrue(Settings.isLocalHostname("::1"))
     }
 
-    func testTTSEngineAllCases() {
-        XCTAssertEqual(TTSEngine.allCases.count, 2)
-        XCTAssertTrue(TTSEngine.allCases.contains(.system))
-        XCTAssertTrue(TTSEngine.allCases.contains(.edgeTTS))
-    }
-
-    func testTTSEngineRawValues() {
-        XCTAssertEqual(TTSEngine(rawValue: "system"), .system)
-        XCTAssertEqual(TTSEngine(rawValue: "edgeTTS"), .edgeTTS)
-        XCTAssertNil(TTSEngine(rawValue: "unknown"))
+    func testRemoteHostnamesAreNotLocal() {
+        XCTAssertFalse(Settings.isLocalHostname("example.com"))
+        XCTAssertFalse(Settings.isLocalHostname("192.168.1.10"))
+        XCTAssertFalse(Settings.isLocalHostname("vps.example.com"))
+        XCTAssertFalse(Settings.isLocalHostname(""))
     }
 
     // MARK: - Voices

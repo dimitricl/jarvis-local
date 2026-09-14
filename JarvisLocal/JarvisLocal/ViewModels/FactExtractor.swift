@@ -19,7 +19,7 @@ struct FactExtractor: Sendable {
             // rien enregistrer. Filtrée par nameValueExclusions (adjectifs, métiers, locutions).
             ("user.name", #"(?:je suis|moi c[’']est|c[’']est moi)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+)?)"#),
             ("user.city", #"(?:j'habite\s+(?:à|a|au|en)|je vis\s+(?:à|a|au|en))\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+)"#),
-            ("user.birthday", #"(?:je suis né(?:e)?\s+le|mon anniversaire\s+(?:est|c'est)\s+le)\s+(\d{1,2}(?:er)?\s+[a-zéûôî]+(?:\s+\d{4})?)"#),
+            ("user.birthday", #"(?:je suis né(?:e)?\s+le|mon anniversaire\s+(?:est|c'est)\s+le)\s+(\d{1,2}(?:er)?\s+[a-zéûôî]+(?:\s+\d{4})?)"#)
         ]
         return patterns.compactMap { (key, pattern) in
             // caseInsensitive : sans lui, "je suis né le 15 Mai 1990" ne matchait pas ([a-zéûôî]
@@ -61,7 +61,7 @@ struct FactExtractor: Sendable {
         "patron", "chef", "employe", "ouvrier", "cadre", "fonctionnaire", "commercant",
         "boulanger", "marin", "soldat", "benevole",
         "papa", "maman", "pere", "mere", "fils", "fille", "frere", "soeur",
-        "oncle", "tante", "cousin", "cousine",
+        "oncle", "tante", "cousin", "cousine"
     ]
 
     /// Mots qui ne terminent jamais un prénom : "je suis Dimitri et toi" capture
@@ -75,7 +75,7 @@ struct FactExtractor: Sendable {
         "toujours", "ici", "y", "en", "a", "au", "est", "suis",
         "il", "elle", "ils", "elles", "je", "tu", "nous", "vous",
         "mon", "ma", "mes", "ton", "ta", "son", "sa", "ce", "cette", "ces",
-        "toi", "moi", "lui", "eux",
+        "toi", "moi", "lui", "eux"
     ]
 
     nonisolated static func normalizeNameToken(_ token: some StringProtocol) -> String {

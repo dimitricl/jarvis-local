@@ -28,6 +28,12 @@ actor DatabaseService {
         if rc != SQLITE_OK {
             throw DatabaseError.couldNotOpen(message: String(cString: sqlite3_errmsg(db)))
         }
+        // WAL : lecteurs ne bloquent plus l'écrivain (tour de conversation + UI) ;
+        // FOREIGN KEYS : refermet la porte aux orphelins (appliqué à chaque open,
+        // SQLite ne le persiste pas). synchronous=NORMAL = compromis WAL standard.
+        try exec("PRAGMA journal_mode=WAL")
+        try exec("PRAGMA foreign_keys=ON")
+        try exec("PRAGMA synchronous=NORMAL")
         try migrate()
     }
 
@@ -57,6 +63,24 @@ actor DatabaseService {
                 updated_at INTEGER DEFAULT (unixepoch())
             )
         """)
+        try exec("""
+            CREATE TABLE IF NOT EXISTS tool_runs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE,
+                tool            TEXT    NOT NULL,
+                args            TEXT    NOT NULL DEFAULT '',
+                status          TEXT    NOT NULL DEFAULT '',
+                result          TEXT    NOT NULL DEFAULT '',
+                created_at      INTEGER DEFAULT (unixepoch())
+            )
+        """)
+        // Index du chemin chaud getMessages(conversation_id) : sans lui, chaque tour
+        // scannait toute la table messages. Idempotent (IF NOT EXISTS).
+        try exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)")
+        try exec("CREATE INDEX IF NOT EXISTS idx_tool_runs_conversation ON tool_runs(conversation_id)")
+        // FK ajoutées après coup (anciennes bases créées sans ON DELETE CASCADE) :
+        // purge les tool_runs dont la conversation n'existe plus.
+        try exec("DELETE FROM tool_runs WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM conversations)")
         let count = (try querySingle("SELECT COUNT(*) as c FROM conversations"))?["c"] as? Int ?? 0
         if count == 0 {
             try exec("INSERT INTO conversations (id, title) VALUES (1, 'Général')")
@@ -159,6 +183,20 @@ actor DatabaseService {
         try exec("DELETE FROM facts")
     }
 
+    // MARK: - Tool runs (audit)
+
+    /// Journalise une exécution d'outil. Tronque args/résultat : c'est un journal
+    /// d'audit, pas une archive — 500 caractères de résultat suffisent à dire si
+    /// l'action a vraiment eu lieu.
+    func logToolRun(conversationId: Int?, tool: String, args: String, status: String, result: String) throws {
+        try exec("INSERT INTO tool_runs (conversation_id, tool, args, status, result) VALUES (?, ?, ?, ?, ?)",
+                 params: [conversationId as Any?, tool as Any?, String(args.prefix(200)) as Any?, status as Any?, String(result.prefix(500)) as Any?])
+    }
+
+    func getRecentToolRuns(limit: Int = 100) throws -> [ToolRun] {
+        try query("SELECT id, conversation_id, tool, args, status, result, created_at FROM tool_runs ORDER BY id DESC LIMIT ?", args: [limit])
+    }
+
     // MARK: - Query helpers
 
     // NOTE : params est [Any?] (et plus [String?]) pour que les id INTEGER soient liés
@@ -234,6 +272,26 @@ actor DatabaseService {
                     key: colText(stmt, 1),
                     value: colText(stmt, 2),
                     updatedAt: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int(stmt, 3)))
+                ))
+            }
+            return results
+        }
+    }
+
+    private func query(_ sql: String, args: [Any] = []) throws -> [ToolRun] {
+        try withStmt(sql) { stmt in
+            bindArgs(stmt, args)
+            var results: [ToolRun] = []
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                let cid = sqlite3_column_type(stmt, 1) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 1)) : nil
+                results.append(ToolRun(
+                    id: Int(sqlite3_column_int(stmt, 0)),
+                    tool: colText(stmt, 2),
+                    args: colText(stmt, 3),
+                    status: colText(stmt, 4),
+                    result: colText(stmt, 5),
+                    conversationId: cid,
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int(stmt, 6)))
                 ))
             }
             return results

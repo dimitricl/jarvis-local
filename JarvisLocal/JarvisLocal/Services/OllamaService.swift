@@ -314,7 +314,7 @@ final class OllamaService: @unchecked Sendable {
             var msg = msg
             if let calls = msg.toolCalls, !calls.isEmpty {
                 let kept = calls.filter { answeredIds.contains($0.id) }
-                if kept.isEmpty, (msg.content?.isEmpty ?? true) {
+                if kept.isEmpty, msg.content?.isEmpty ?? true {
                     return nil
                 }
                 msg.toolCalls = kept.isEmpty ? nil : kept

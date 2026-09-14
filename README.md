@@ -19,11 +19,7 @@ ollama pull gemma4    # recommandé
 ollama pull llama3.2  # alternative plus légère
 ```
 
-- **edge-tts** (optionnel) — voix TTS de meilleure qualité :
-
-```bash
-pip install edge-tts
-```
+- TTS 100 % on-device (AVSpeechSynthesizer, voix FR Enhanced/Premium via Réglages Système). L'ancien moteur cloud edge-tts a été supprimé.
 
 ## Installation
 
@@ -54,11 +50,16 @@ Le script compile le projet, injecte la version depuis le dernier tag git, copie
 
 ### Fonctionnalités
 
-- **Chat local** avec Ollama — aucune donnée envoyée sur le cloud
+- **Chat local** avec Ollama — local par défaut (`http://localhost:11434`). Réseau réel, à connaître :
+  - `search_web` → DuckDuckGo (requête envoyée), `get_weather` → Open-Meteo (ville envoyée),
+    `read_url` → la page demandée (uniquement http/https publique : localhost, LAN et
+    `file://` refusés par le garde anti-SSRF), vérification de mise à jour → api.github.com.
+  - Si tu configures une **URL Ollama distante**, tout l'historique et les faits y sont envoyés
+    (avertissement affiché dans les Réglages). ATS restreint : seul `localhost` en HTTP est autorisé.
 - **23+ outils natifs** : recherche web (cascade API DuckDuckGo → DOM → fallback), lecture d'URL avec citation des sources, météo Open-Meteo, Apple Notes, Rappels, Calendrier, iMessage, presse-papiers, capture d'écran, AppleScript, Raccourcis, Sleep du Mac, etc.
 - **Client MCP (opt-in, désactivé par défaut)** : via [iMCP](https://github.com/mattt/iMCP) — calendrier, rappels, contacts et messages en lecture/création. Voir « MCP » ci-dessous.
 - **Mémoire persistante** (`/facts`) — Jarvis retient vos informations personnelles entre les sessions
-- **Mode vocal mains-libres** — reconnaissance Apple Speech + synthèse (AVSpeechSynthesizer ou edge-tts)
+- **Mode vocal mains-libres** — reconnaissance Apple Speech + synthèse 100 % on-device (AVSpeechSynthesizer)
 - **Barge-in** — interrompez Jarvis pendant qu'il parle
 - **Sécurité** — confirmation avant toute action sensible (écriture, envoi, AppleScript)
 - **Mise à jour intégrée** — détection automatique des nouvelles releases GitHub

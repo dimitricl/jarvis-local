@@ -89,9 +89,9 @@ struct MCPServerConfig: Codable, Sendable, Equatable {
                 delegatedTools: [
                     "events_create", "events_fetch", "calendars_list",
                     "reminders_create", "reminders_fetch", "reminders_lists",
-                    "contacts_search",
+                    "contacts_search"
                 ]
-            ),
+            )
         ]
     }
 }

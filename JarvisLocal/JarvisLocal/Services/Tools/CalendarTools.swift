@@ -17,9 +17,7 @@ actor CalendarTools {
         let dateStr = args["date"] as? String ?? ""
         let startTime = args["start_time"] as? String ?? "09:00"
         let duration: Int
-        if let d = args["duration_minutes"] as? Int { duration = d }
-        else if let d = args["duration_minutes"] as? Double { duration = Int(d) }
-        else { duration = 60 }
+        if let d = args["duration_minutes"] as? Int { duration = d } else if let d = args["duration_minutes"] as? Double { duration = Int(d) } else { duration = 60 }
         let notes = args["notes"] as? String
         let calName = args["calendar"] as? String
         let location = args["location"] as? String

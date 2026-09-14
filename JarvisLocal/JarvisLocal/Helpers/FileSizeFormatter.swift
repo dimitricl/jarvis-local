@@ -6,21 +6,21 @@ func humanReadableSize(bytes: Int) -> String {
     if kb < 1 {
         return "\(bytes) B"
     }
-    
+
     let mb: Double = kb / 1024
     if mb < 1 {
         return String(format: "%.1f KB", kb)
     }
-    
+
     let gb: Double = mb / 1024
     if gb < 1 {
         return String(format: "%.1f MB", mb)
     }
-    
+
     let tb: Double = gb / 1024
     if tb < 1 {
         return String(format: "%.1f GB", gb)
     }
-    
+
     return String(format: "%.1f TB", tb)
 }

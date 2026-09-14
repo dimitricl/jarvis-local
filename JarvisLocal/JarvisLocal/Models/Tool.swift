@@ -48,3 +48,16 @@ struct ToolResult {
     let toolCallId: String
     let content: String
 }
+
+/// Une exécution d'outil persistée : qui, quoi, avec quels arguments, quel statut,
+/// quel résultat (tronqué). Alimente la commande /tools — la réponse à "est-ce qu'il
+/// l'a VRAIMENT fait ?" ne doit plus dépendre de la mémoire du modèle.
+struct ToolRun: Identifiable, Hashable {
+    let id: Int
+    let tool: String
+    let args: String
+    let status: String
+    let result: String
+    let conversationId: Int?
+    let createdAt: Date
+}

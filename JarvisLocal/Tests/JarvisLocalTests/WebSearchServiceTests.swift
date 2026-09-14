@@ -44,7 +44,7 @@ final class WebSearchServiceTests: XCTestCase {
     func testFormatIncludesSourceURL() {
         let out = WebSearchService.format([
             (title: "T", href: "https://example.com/p", text: "Contenu"),
-            (title: "V", href: "https://example.com/v", text: nil),
+            (title: "V", href: "https://example.com/v", text: nil)
         ])
         XCTAssertTrue(out.contains("Source : https://example.com/p"))
         XCTAssertTrue(out.contains("--- V ---"))
@@ -55,7 +55,7 @@ final class WebSearchServiceTests: XCTestCase {
     func testFormatSearchResultsAliasInToolService() {
         // Alias de compat : l'ancien entry-point reste vert pendant la migration.
         let out = ToolService.formatSearchResults([
-            (title: "Exemple", href: "https://example.com/page", text: "Utile"),
+            (title: "Exemple", href: "https://example.com/page", text: "Utile")
         ])
         XCTAssertTrue(out.contains("Source : https://example.com/page"))
     }

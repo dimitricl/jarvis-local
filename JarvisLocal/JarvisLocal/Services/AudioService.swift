@@ -1,17 +1,24 @@
 import Foundation
 @preconcurrency import AVFoundation
 import Speech
-import os.log
+import os
 
+/// Voix système 100 % on-device (AVSpeechSynthesizer + voix FR Enhanced/Premium
+/// téléchargeables depuis Réglages Système). Le fallback cloud edge-tts (process Python
+/// + réseau Microsoft) a été supprimé : latence, dépendance externe et exfiltration
+/// du texte lu vers un tiers pour un gain de naturalité qui ne justifie pas le coût.
 final class AudioService: NSObject {
     static let shared = AudioService()
 
-    // swiftlint:ignore next line
-    nonisolated(unsafe) private let synthesizer = AVSpeechSynthesizer()
+    private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "tts")
+
+    // AVSpeechSynthesizer est main-thread-only : tout accès (speak/stop/isSpeaking)
+    // passe par MainActor (speakSystemTTS) ou par un Task @MainActor (stopSpeaking).
+    // Le flag miroir _isSpeaking, lui, est lisible depuis n'importe quel thread sous
+    // ttsStateLock — c'est lui que consultent speak() et isSpeaking, jamais le synthé.
+    private let synthesizer = AVSpeechSynthesizer()
     private var speechContinuation: CheckedContinuation<Void, Never>?
-    private var audioPlayerContinuation: CheckedContinuation<Void, Never>?
-    private var audioPlayer: AVAudioPlayer?
-    
+
     // État TTS partagé entre la boucle de lecture (Task héritant d'un contexte quelconque),
     // stopSpeaking()/enqueue()/speak() (MainActor, tests) et les delegates audio (hop MainActor) :
     // TOUJOURS manipulé sous ttsStateLock, jamais hors-verrou. Le verrou n'est jamais tenu
@@ -34,6 +41,10 @@ final class AudioService: NSObject {
     private var _isProcessingQueue = false
     private var _stopRequested = false
     private var _speechGeneration = 0
+    /// Miroir de `synthesizer.isSpeaking` lisible hors main thread (voir le commentaire
+    /// sur `synthesizer`). Mis à true avant chaque speak, à false par les delegates
+    /// didFinish/didCancel et par stopSpeaking — toujours sous ttsStateLock.
+    private var _isSpeaking = false
 
     /// Helpers verrouillés (sections synchrones, jamais d'await sous verrou).
     /// Règle : les `_vars` bruts ne sont touchés QUE dans ces helpers ou dans des blocs
@@ -67,6 +78,17 @@ final class AudioService: NSObject {
         ttsStateLock.lock(); defer { ttsStateLock.unlock() }
         return gen == _speechGeneration
     }
+    /// Lecture du miroir de parole (jamais `synthesizer.isSpeaking` hors main thread).
+    private func ttsIsSpeaking() -> Bool {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        return _isSpeaking || !_audioQueue.isEmpty
+    }
+    /// Marque le début/fin de parole. Appelé sous verrou par speakSystemTTS (true),
+    /// les delegates didFinish/didCancel et stopSpeaking (false).
+    private func ttsSetSpeaking(_ value: Bool) {
+        ttsStateLock.lock(); defer { ttsStateLock.unlock() }
+        _isSpeaking = value
+    }
     /// Prend la continuation en cours (take-and-clear) : garantit une reprise UNIQUE même
     /// si stopSpeaking() et un callback delegate se croisent. Reprendre HORS verrou.
     private func ttsTakeSpeechContinuation() -> CheckedContinuation<Void, Never>? {
@@ -88,6 +110,7 @@ final class AudioService: NSObject {
     private override init() {
         super.init()
         synthesizer.delegate = self
+        log.info("TTS 100 % on-device (AVSpeechSynthesizer)")
     }
 
     // MARK: - TTS Routing
@@ -109,8 +132,7 @@ final class AudioService: NSObject {
     /// (annonces de confirmation, fin de tour en mode vocal).
     func speak(_ text: String) async {
         enqueue(text)
-        while ttsIsProcessing() || !ttsQueueIsEmpty()
-                || synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false) {
+        while ttsIsProcessing() || ttsIsSpeaking() {
             try? await Task.sleep(nanoseconds: 60_000_000)
         }
     }
@@ -143,14 +165,7 @@ final class AudioService: NSObject {
             // continuation (le relaunch du defer confie la suite à une boucle courante).
             guard ttsIsCurrentGeneration(gen) else { break }
             guard let text = ttsQueuePop() else { break }
-            let settings = Settings.shared
-
-            switch settings.ttsEngine {
-            case .system:
-                await speakSystemTTS(text, generation: gen)
-            case .edgeTTS:
-                await speakEdgeTTS(text)
-            }
+            await speakSystemTTS(text, generation: gen)
         }
     }
 
@@ -161,8 +176,7 @@ final class AudioService: NSObject {
     }
 
     /// Lit un item de la file phrase par phrase. `generation` est la carte d'identité de la
-    /// boucle processeur appelante (nil = appel hors boucle, cas du fallback edge-tts : pas
-    /// de contrôle de génération, comportement historique).
+    /// boucle processeur appelante.
     /// Protocole anti-leak, vérifié à CHAQUE itération AVANT toute création de continuation :
     /// Task non annulé + pas de stop demandé + génération toujours courante. L'enregistrement
     /// dans le slot partagé est atomique avec ce test (même verrou que le bump de génération
@@ -172,6 +186,8 @@ final class AudioService: NSObject {
     /// synthé aussitôt : le didCancel/didFinish qui suit reprend NOTRE continuation (toujours
     /// dans le slot — créateur unique). Sans ça, un speak() ignoré par le synthé après un stop
     /// laissait la continuation en vol (le warning CI).
+    /// Le synthé (main-thread-only) n'est touché que via MainActor ; l'état observable
+    /// (`_isSpeaking`) est maintenu sous ttsStateLock.
     private func speakSystemTTS(_ text: String, generation gen: Int? = nil) async {
         let voice = selectedVoice
         let baseRate: Float
@@ -204,95 +220,25 @@ final class AudioService: NSObject {
                 ttsStateLock.lock()
                 let fresh = gen.map { $0 == _speechGeneration } ?? true
                     && !_stopRequested
-                if fresh { speechContinuation = continuation }
+                if fresh { speechContinuation = continuation; _isSpeaking = true }
                 ttsStateLock.unlock()
                 guard fresh else {
                     continuation.resume()
                     return
                 }
-                synthesizer.speak(utterance)
+                // AVSpeechSynthesizer est main-thread-only : hop explicite, jamais
+                // d'accès direct depuis la boucle processeur (thread de fond). Le body
+                // de continuation est synchrone : fire-and-forget sérialisés dans
+                // l'ordre par le MainActor (speak puis éventuel stop).
+                Task { @MainActor [weak self] in self?.synthesizer.speak(utterance) }
                 // Un stop a pu passer entre l'enregistrement et le speak : cette phrase est
                 // déjà périmée, on coupe le synthé pour que le callback qui suit (didCancel
                 // ou didFinish) reprenne cette continuation au lieu de l'abandonner.
                 if ttsStopRequested() || gen.map({ !ttsIsCurrentGeneration($0) }) ?? false {
-                    synthesizer.stopSpeaking(at: .immediate)
+                    Task { @MainActor [weak self] in self?.synthesizer.stopSpeaking(at: .immediate) }
                 }
             }
         }
-    }
-
-    // MARK: - Edge TTS
-
-    private func speakEdgeTTS(_ text: String) async {
-        guard let edgeTTSPath = findEdgeTTS() else {
-            os_log("edge-tts introuvable, fallback sur la synthèse macOS")
-            await speakSystemTTS(text)
-            return
-        }
-
-        let voice = Settings.shared.edgeTTSVoice
-        guard !voice.isEmpty else {
-            await speakSystemTTS(text)
-            return
-        }
-
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("jarvis_\(UUID().uuidString).mp3")
-
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-
-        let process = Process()
-        process.executableURL = edgeTTSPath
-        process.arguments = ["--voice", voice, "--text", text, "--write-media", tempURL.path]
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            os_log("Échec edge-tts : \(error.localizedDescription), fallback macOS")
-            await speakSystemTTS(text)
-            return
-        }
-
-        guard process.terminationStatus == 0, FileManager.default.fileExists(atPath: tempURL.path) else {
-            os_log("edge-tts status \(process.terminationStatus), fallback macOS")
-            await speakSystemTTS(text)
-            return
-        }
-
-        do {
-            let player = try AVAudioPlayer(contentsOf: tempURL)
-            player.delegate = self
-            self.audioPlayer = player
-
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                audioPlayerContinuation = continuation
-                player.play()
-            }
-        } catch {
-            os_log("Échec lecture audio edge-tts : \(error.localizedDescription), fallback macOS")
-            await speakSystemTTS(text)
-        }
-    }
-
-    /// NOTE : `internal` pour les tests
-    func findEdgeTTS() -> URL? {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        task.arguments = ["edge-tts"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-        do {
-            try task.run()
-            task.waitUntilExit()
-        } catch {
-            return nil
-        }
-        guard task.terminationStatus == 0 else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return path.isEmpty ? nil : URL(fileURLWithPath: path)
     }
 
     func stopSpeaking() {
@@ -303,32 +249,22 @@ final class AudioService: NSObject {
         // réveillé reverrouille). NOTE : isProcessingQueue n'est VOLONTAIREMENT plus remis
         // à false ici (voir sa déclaration) : seule la boucle elle-même constate sa sortie,
         // sinon un enqueue suivant démarre une deuxième boucle concurrente (le leak CI).
+        // Le synthé (main-thread-only) est coupé via un Task @MainActor : stopSpeaking()
+        // reste synchrone et ne bloque jamais l'appelant.
         ttsStateLock.lock()
         _stopRequested = true
         _speechGeneration += 1
         _audioQueue.removeAll()
+        _isSpeaking = false
         let c = speechContinuation
         speechContinuation = nil
         ttsStateLock.unlock()
-        synthesizer.stopSpeaking(at: .immediate)
+        Task { @MainActor [weak self] in self?.synthesizer.stopSpeaking(at: .immediate) }
         if let c { c.resume() }
-        if let player = audioPlayer {
-            player.stop()
-            player.currentTime = 0
-            if let c2 = audioPlayerContinuation {
-                audioPlayerContinuation = nil
-                c2.resume()
-            }
-            audioPlayer = nil
-        } else if let c2 = audioPlayerContinuation {
-            audioPlayerContinuation = nil
-            c2.resume()
-        }
     }
 
-    var isSpeaking: Bool {
-        synthesizer.isSpeaking || (audioPlayer?.isPlaying ?? false) || ttsQueueCount() > 0
-    }
+    /// Miroir verrouillé, jamais `synthesizer.isSpeaking` (main-thread-only).
+    var isSpeaking: Bool { ttsIsSpeaking() }
 
     /// NOTE : `internal` pour les tests
     func splitIntoSentences(_ text: String) -> [String] {
@@ -369,7 +305,7 @@ final class AudioService: NSObject {
         }
         let regexes: [(pattern: String, replacement: String)] = [
             ( "[`*#_~>|]", "" ),
-            ( "\\n{3,}", "\n\n" ),
+            ( "\\n{3,}", "\n\n" )
         ]
         for (pattern, replacement) in regexes {
             t = t.replacingOccurrences(of: pattern, with: replacement, options: .regularExpression)
@@ -410,7 +346,7 @@ final class AudioService: NSObject {
             ( "%", " pour cent" ),
             ( "&", " et" ),
             ( "\\+", " plus" ),
-            ( "/", " sur " ),
+            ( "/", " sur " )
         ]
         for (pattern, replacement) in replacements {
             t = t.replacingOccurrences(of: pattern, with: replacement, options: [.regularExpression, .caseInsensitive])
@@ -419,26 +355,15 @@ final class AudioService: NSObject {
     }
 }
 
-extension AudioService: AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
-    // Les delegates AVSpeechSynthesizer et AVAudioPlayer sont appelés depuis un thread
-    // arbitraire (queue interne du framework audio). Les continuations sont des checked
-    // continuations qui peuvent être reprises depuis n'importe quel thread, mais stopSpeaking()
-    // les lit aussi depuis MainActor. On dispatch sur MainActor pour éviter la race.
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in
-            if let c = self.audioPlayerContinuation {
-                self.audioPlayerContinuation = nil
-                c.resume()
-            }
-            self.audioPlayer = nil
-        }
-    }
-
+extension AudioService: AVSpeechSynthesizerDelegate {
+    // Les delegates AVSpeechSynthesizer sont appelés depuis un thread arbitraire
+    // (queue interne du framework audio). On dispatch sur MainActor (comportement
+    // historique), et le take-and-clear se fait sous le même verrou que le grab de
+    // stopSpeaking : une continuation n'est reprise qu'UNE fois même si les deux se
+    // croisent (un 2e resume trap). Reprise hors verrou.
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
-            // Take-and-clear sous le même verrou que le grab de stopSpeaking : une
-            // continuation n'est reprise qu'UNE fois même si les deux se croisent
-            // (un 2e resume trap). Reprise hors verrou.
+            self.ttsSetSpeaking(false)
             if let c = self.ttsTakeSpeechContinuation() {
                 c.resume()
             }
@@ -447,6 +372,7 @@ extension AudioService: AVSpeechSynthesizerDelegate, AVAudioPlayerDelegate {
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in
+            self.ttsSetSpeaking(false)
             if let c = self.ttsTakeSpeechContinuation() {
                 c.resume()
             }

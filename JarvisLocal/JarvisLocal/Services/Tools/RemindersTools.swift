@@ -50,7 +50,7 @@ actor RemindersTools {
         }
 
         let reminders = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[EKReminder], Error>) in
-            let _ = ctx.eventStore.fetchReminders(matching: predicate) { items in
+            _ = ctx.eventStore.fetchReminders(matching: predicate) { items in
                 cont.resume(returning: items ?? [])
             }
         }

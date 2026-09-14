@@ -24,9 +24,10 @@ final class JarvisLocalModelsTests: XCTestCase {
     }
 
     func testMessageDecodingSnakeCase() throws {
-        let json = """
+        let raw = """
         {"id": 3, "role": "user", "content": "test", "conversation_id": 5, "created_at": 1700000000}
-        """.data(using: .utf8)!
+        """
+        let json = Data(raw.utf8)
         let msg = try JSONDecoder().decode(Message.self, from: json)
         XCTAssertEqual(msg.conversationId, 5)
         // Le timestamp est interprété en Cocoa epoch (2001), pas Unix epoch (1970).
@@ -44,9 +45,10 @@ final class JarvisLocalModelsTests: XCTestCase {
     }
 
     func testFactDecodingSnakeCase() throws {
-        let json = """
+        let raw = """
         {"id": 2, "key": "user.city", "value": "Paris", "updated_at": 1700000000}
-        """.data(using: .utf8)!
+        """
+        let json = Data(raw.utf8)
         let fact = try JSONDecoder().decode(Fact.self, from: json)
         XCTAssertEqual(fact.key, "user.city")
         XCTAssertEqual(fact.value, "Paris")
@@ -282,7 +284,7 @@ final class JarvisLocalDatabaseServiceTests: XCTestCase {
         let db = DatabaseService.shared
         try await db.open(path: ":memory:")
         let conv = try await db.createConversation(title: "A Supprimer")
-        let _ = try await db.insertMessage(role: "user", content: "msg", conversationId: conv.id)
+        _ = try await db.insertMessage(role: "user", content: "msg", conversationId: conv.id)
         try await db.deleteConversation(id: conv.id)
         let fetched = try await db.getConversation(id: conv.id)
         XCTAssertNil(fetched)
@@ -395,8 +397,8 @@ final class JarvisLocalToolServiceSecurityTests: XCTestCase {
     /// projet qui force à se poser explicitement la question "confirmation obligatoire ou pas ?".
     func testKnownSideEffectToolsAreAllMarkedSensitive() async {
         let sideEffectTools: Set<String> = [
-            "sleep_mac", "send_message", "applescript", "edit_note",
-            "run_shortcut", "remember_fact", "add_calendar_event", "add_reminder",
+            "sleep_mac", "send_message", "create_note", "open_app", "get_clipboard",
+            "edit_note", "run_shortcut", "remember_fact", "add_calendar_event", "add_reminder",
             "set_clipboard", "search_maps", "take_screenshot"
         ]
         let viewModel = await MainActor.run { AppViewModel() }

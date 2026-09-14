@@ -120,19 +120,16 @@ final class JarvisLocalAudioServiceTests: XCTestCase {
         XCTAssertGreaterThan(sentences.count, 0)
     }
 
-    // MARK: - TTS Engine Selection Tests
+    // MARK: - TTS 100 % on-device (edge-tts supprimé)
 
-    func testSystemTTSIsDefault() {
-        let settings = Settings.shared
-        XCTAssertEqual(settings.ttsEngine, .system)
+    func testTTSSharedInstanceExists() {
+        XCTAssertNotNil(AudioService.shared)
     }
 
-    // MARK: - Edge TTS Tests
-
-    func testFindEdgeTTSReturnsNilOrPath() {
-        let path = audioService.findEdgeTTS()
-        // Either edge-tts is installed or not
-        XCTAssertTrue(path == nil || path != nil)
+    func testStopSpeakingClearsSpeakingMirror() async {
+        audioService.stopSpeaking()
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertFalse(audioService.isSpeaking)
     }
 
     // MARK: - Helper
@@ -156,7 +153,7 @@ final class JarvisLocalAudioServiceNormalizationTests: XCTestCase {
             ("# Heading", ["#"]),
             ("- item", ["- "]),
             ("1. item", ["1."]),
-            ("```code```", ["```"]),
+            ("```code```", ["```"])
         ]
 
         for testCase in testCases {
@@ -173,7 +170,7 @@ final class JarvisLocalAudioServiceNormalizationTests: XCTestCase {
             "Hello 😀",
             "Test 🎉🎊",
             "No emojis here",
-            "😀🎉",
+            "😀🎉"
         ]
 
         for input in testCases {
@@ -194,7 +191,7 @@ final class JarvisLocalAudioServiceNormalizationTests: XCTestCase {
             ("Dr. House", "Docteur House"),
             ("10 €", "10 euros"),
             ("50 %", "50 pour cent"),
-            ("A & B", "A et B"),
+            ("A & B", "A et B")
         ]
 
         for testCase in testCases {

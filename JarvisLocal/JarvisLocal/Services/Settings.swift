@@ -65,25 +65,6 @@ final class Settings {
     var ttsVoiceIdentifier: String {
         didSet { UserDefaults.standard.set(ttsVoiceIdentifier, forKey: "tts_voice") }
     }
-    var ttsEngine: TTSEngine {
-        didSet { UserDefaults.standard.set(ttsEngine.rawValue, forKey: "tts_engine") }
-    }
-    var edgeTTSVoice: String {
-        didSet { UserDefaults.standard.set(edgeTTSVoice, forKey: "edge_tts_voice") }
-    }
-    private(set) var edgeTTSAvailable = false
-
-    func refreshEdgeTTSAvailability() {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        task.arguments = ["edge-tts"]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-        try? task.run()
-        task.waitUntilExit()
-        edgeTTSAvailable = task.terminationStatus == 0
-    }
 
     /// Coupe-circuit pour le barge-in. À désactiver si le Mac n'a pas de casque et que le micro
     /// capte sa propre sortie audio (pas d'AEC fiable sur haut-parleurs internes selon le device) :
@@ -207,8 +188,6 @@ private init() {
         self.ttsEnabled = defaults.bool(forKey: "tts_enabled")
         self.voiceEnabled = defaults.bool(forKey: "voice_enabled")
         self.ttsVoiceIdentifier = defaults.string(forKey: "tts_voice") ?? ""
-        self.ttsEngine = TTSEngine(rawValue: defaults.string(forKey: "tts_engine") ?? "") ?? .system
-        self.edgeTTSVoice = defaults.string(forKey: "edge_tts_voice") ?? "fr-FR-HenriNeural"
         // Remis à true par défaut : le déclencheur est maintenant protégé par une fenêtre de grâce
         // de 600ms + un debounce (2 partials consécutifs requis) côté AppViewModel, ce qui devrait
         // éliminer la plupart des faux positifs qui avaient probablement motivé le passage à false.
@@ -217,23 +196,28 @@ private init() {
         self.bargeInEnabled = defaults.object(forKey: "barge_in_enabled") as? Bool ?? true
         self.mcpEnabled = defaults.object(forKey: "mcp_enabled") as? Bool ?? false
         self.imcpPath = defaults.string(forKey: "imcp_path") ?? ""
-        
+
         // Restore last check date for update throttling
         let savedLastCheck = defaults.object(forKey: "last_check_date") as? Double
         self.lastCheckDate = savedLastCheck.map { Date(timeIntervalSince1970: $0) }
-        
-        refreshEdgeTTSAvailability()
     }
-}
 
-enum TTSEngine: String, CaseIterable, Hashable {
-    case system
-    case edgeTTS
-
-    var label: String {
-        switch self {
-        case .system:   "Synthèse macOS"
-        case .edgeTTS:  "Edge TTS (en ligne)"
+    /// true si l'hôte Ollama configuré est local (localhost, 127.x, ::1).
+    /// Utilisé par les Réglages pour avertir qu'une URL distante envoie
+    /// l'historique et les faits hors de la machine (souvent en clair).
+    var ollamaHostIsLocal: Bool {
+        guard let host = URL(string: ollamaURL.trimmingCharacters(in: .whitespacesAndNewlines))?.host?.lowercased() else {
+            return false
         }
+        return Self.isLocalHostname(host)
+    }
+
+    /// NOTE : `internal`/`static` pour les tests — fonction pure.
+    nonisolated static func isLocalHostname(_ host: String) -> Bool {
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" { return true }
+        // 127.0.0.0/8 en entier (127.0.0.2, 127.1…).
+        let parts = host.split(separator: ".")
+        if parts.count == 4, parts[0] == "127", parts.allSatisfy({ $0.allSatisfy(\.isNumber) }) { return true }
+        return false
     }
 }

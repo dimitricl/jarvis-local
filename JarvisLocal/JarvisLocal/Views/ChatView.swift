@@ -35,6 +35,9 @@ struct ChatView: View {
         .sheet(isPresented: Bindable(vm).showSearch) {
             SearchPanelView()
         }
+        .sheet(isPresented: Bindable(vm).showTools) {
+            ToolRunsPanel()
+        }
     }
 
     private var header: some View {
@@ -210,5 +213,110 @@ struct ChatView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Panneau d'audit des outils (commande /tools) : la preuve persistée de ce que Jarvis
+/// a VRAIMENT exécuté — nom, arguments, statut, extrait du résultat, horodatage.
+private struct ToolRunsPanel: View {
+    @Environment(AppViewModel.self) private var vm
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "wrench.and.screwdriver.fill")
+                    .foregroundStyle(JarvisTheme.amber)
+                Text("Outils exécutés")
+                    .font(.headline)
+                    .foregroundStyle(JarvisTheme.textPrimary)
+                Spacer()
+                Button("Actualiser") { Task { await vm.loadToolRuns() } }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(JarvisTheme.accent)
+            }
+
+            if vm.toolRuns.isEmpty {
+                Text("Aucun outil exécuté pour l'instant. Les appels (réussis, refusés, échoués) apparaîtront ici.")
+                    .font(.caption)
+                    .foregroundStyle(JarvisTheme.textTertiary)
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(vm.toolRuns) { run in
+                            runRow(run)
+                        }
+                    }
+                }
+                .frame(minHeight: 200, maxHeight: 420)
+            }
+
+            HStack {
+                Spacer()
+                Button("Fermer") { dismiss() }
+                    .keyboardShortcut(.escape)
+            }
+        }
+        .padding(16)
+        .frame(width: 560)
+        .background(JarvisTheme.background)
+        .task { await vm.loadToolRuns() }
+    }
+
+    private func runRow(_ run: ToolRun) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(run.tool)
+                    .font(JarvisTheme.mono(12, weight: .semibold))
+                    .foregroundStyle(JarvisTheme.textPrimary)
+                Text(run.status)
+                    .font(JarvisTheme.mono(11, weight: .bold))
+                    .foregroundStyle(statusColor(run.status))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(statusColor(run.status).opacity(0.12))
+                    .clipShape(Capsule())
+                Spacer()
+                Text(Self.timestamp(run.createdAt))
+                    .font(JarvisTheme.mono(10))
+                    .foregroundStyle(JarvisTheme.textTertiary)
+            }
+            if !run.args.isEmpty {
+                Text(run.args)
+                    .font(JarvisTheme.mono(10))
+                    .foregroundStyle(JarvisTheme.textSecondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+            }
+            if !run.result.isEmpty {
+                Text(run.result)
+                    .font(.caption2)
+                    .foregroundStyle(JarvisTheme.textTertiary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(JarvisTheme.panelElevated)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func statusColor(_ status: String) -> Color {
+        switch status {
+        case "✓": JarvisTheme.accent
+        case "✗": JarvisTheme.danger
+        case "refusé": JarvisTheme.amber
+        default: JarvisTheme.textSecondary
+        }
+    }
+
+    private static func timestamp(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "dd/MM HH:mm"
+        return f.string(from: date)
     }
 }

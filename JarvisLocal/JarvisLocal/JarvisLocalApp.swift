@@ -1,9 +1,10 @@
 import SwiftUI
-import os.log
+import os
 
 @main
 struct JarvisLocalApp: App {
     @State private var viewModel = AppViewModel()
+    private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "app")
 
     var body: some Scene {
         WindowGroup {
@@ -36,7 +37,7 @@ struct JarvisLocalApp: App {
     private func logVersion() {
         let version = Settings.shared.currentVersion
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
-        os_log("JarvisLocal v%@ (%@) — https://github.com/dimitricl/jarvis-local", log: .default, type: .info, version, build)
+        log.info("JarvisLocal v\(version, privacy: .public) (\(build, privacy: .public))")
         print("🚀 JarvisLocal v\(version) (build \(build))")
     }
 }

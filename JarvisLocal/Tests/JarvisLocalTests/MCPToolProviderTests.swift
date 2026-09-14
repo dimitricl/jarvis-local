@@ -7,7 +7,7 @@ final class MCPToolProviderTests: XCTestCase {
     func testParseToolsListMapsInputSchema() {
         let res: [String: Any] = ["tools": [
             ["name": "add_calendar_event", "description": "Crée un événement",
-             "inputSchema": ["properties": ["title": ["type": "string", "description": "Titre"]], "required": ["title"]]],
+             "inputSchema": ["properties": ["title": ["type": "string", "description": "Titre"]], "required": ["title"]]]
         ]]
         let got = MCPToolProvider.parseToolsList(res, serverId: "imcp-calendar")
         XCTAssertEqual(got.count, 1)
@@ -81,7 +81,7 @@ final class MCPToolProviderTests: XCTestCase {
             "location_current", "location_geocode", "location_reverse-geocode",
             "weather_current", "weather_daily", "weather_hourly", "weather_minute",
             "shortcuts_list", "shortcuts_run",
-            "capture_take_picture", "capture_record_audio", "capture_take_screenshot",
+            "capture_take_picture", "capture_record_audio", "capture_take_screenshot"
         ]
         for cfg in MCPServerConfig.imcpDefaults() {
             for t in cfg.delegatedTools {

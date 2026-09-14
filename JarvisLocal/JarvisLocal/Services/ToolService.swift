@@ -106,14 +106,6 @@ actor ToolService {
             )
         )),
         ToolDef(function: ToolFunction(
-            name: "applescript",
-            description: "Exécute un script AppleScript.",
-            parameters: ToolParameters(
-                properties: ["script": ToolProperty(type: "string", description: "Le code AppleScript")],
-                required: ["script"]
-            )
-        )),
-        ToolDef(function: ToolFunction(
             name: "get_weather",
             description: "Donne la météo ACTUELLE d'une ville précise (température, conditions, vent). Utilise TOUJOURS cet outil pour toute question météo — jamais search_web, jamais add_reminder, jamais add_calendar_event. Une question météo n'est ni un rappel ni un événement de calendrier.",
             parameters: ToolParameters(
@@ -276,7 +268,6 @@ actor ToolService {
         case "open_app": return try await system.openApp(args["app"] as? String ?? "", url: args["url"] as? String)
         case "create_note": return try await notes.create(title: args["title"] as? String ?? "", body: args["body"] as? String ?? "")
         case "edit_note": return try await notes.edit(searchTitle: args["search_title"] as? String ?? "", body: args["body"] as? String ?? "", newTitle: args["new_title"] as? String)
-        case "applescript": return try await system.runAppleScript(args["script"] as? String ?? "")
         case "add_reminder": return try await reminders.add(title: args["title"] as? String ?? "", notes: args["notes"] as? String, dueDate: args["due_date"] as? String, dueTime: args["due_time"] as? String)
         case "add_calendar_event": return try await calendar.addEvent(args: args)
         case "get_calendars": return try await calendar.getCalendars()
@@ -340,4 +331,3 @@ actor ToolService {
         }
     }
 }
-

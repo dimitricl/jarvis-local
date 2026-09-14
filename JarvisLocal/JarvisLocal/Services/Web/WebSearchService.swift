@@ -1,7 +1,116 @@
 import Foundation
+import Darwin // getaddrinfo / inet_pton pour le garde SSRF (URLSafety)
 #if canImport(SwiftSoup)
 import SwiftSoup
 #endif
+
+/// Garde anti-SSRF partagé (`read_url` + fetch des pages `search_web`) : n'autorise
+/// que http/https vers des hôtes publics. Bloque les schémas non-http (file://…),
+/// localhost, loopback, RFC1918, link-local, `.local` — Y COMPRIS après résolution
+/// DNS (un nom public qui résout vers 127.0.0.1 = rebinding = refusé). Fail-closed :
+/// résolution impossible ou forme numérique obfusquée → refus.
+/// NOTE : fonctions pures `static`, testables sans réseau (sauf resolve, testée en
+/// intégration sur localhost qui doit être bloquée).
+enum URLSafety {
+    /// true si l'URL doit être REFUSÉE.
+    nonisolated static func isBlocked(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return true }
+        guard let host = url.host?.lowercased(), !host.isEmpty else { return true }
+        if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local")
+            || host.hasSuffix(".invalid") || host.hasSuffix(".internal") { return true }
+        // IPv4 littéral ?
+        var v4 = in_addr()
+        if inet_pton(AF_INET, host, &v4) == 1 { return isPrivateV4(v4) }
+        // IPv6 littéral (URL.host retire les crochets) ?
+        var v6 = in6_addr()
+        if inet_pton(AF_INET6, host, &v6) == 1 { return isNonPublicV6(v6) }
+        // Forme numérique obfusquée (décimal entier, octal…) : refus direct.
+        if host.allSatisfy(\.isNumber) { return true }
+        // Nom DNS : TOUS les enregistrements doivent être publics.
+        guard let addrs = resolve(host), !addrs.isEmpty else { return true }
+        return addrs.contains(where: { !$0.isPublic })
+    }
+
+    // MARK: - Plages privées
+
+    /// NOTE : `internal` pour les tests.
+    nonisolated static func isPrivateV4(_ addr: in_addr) -> Bool {
+        let n = addr.s_addr.bigEndian // ordre réseau → valeur numérique
+        switch n {
+        case _ where (n & 0xFF00_0000) == 0x0000_0000: return true // 0.0.0.0/8
+        case _ where (n & 0xFF00_0000) == 0x0A00_0000: return true // 10/8
+        case _ where (n & 0xFFF0_0000) == 0xAC10_0000: return true // 172.16/12
+        case _ where (n & 0xFFFF_0000) == 0xC0A8_0000: return true // 192.168/16
+        case _ where (n & 0xFF00_0000) == 0x7F00_0000: return true // 127/8
+        case _ where (n & 0xFFFF_0000) == 0xA9FE_0000: return true // 169.254/16
+        case _ where (n & 0xFFC0_0000) == 0x6440_0000: return true // 100.64/10 CGNAT
+        case _ where (n & 0xF000_0000) == 0xE000_0000: return true // 224/4 multicast
+        case _ where (n & 0xFFFF_FF00) == 0xC000_0000: return true // 192.0.0/24
+        case _ where (n & 0xFFFF_FF00) == 0xC000_0200: return true // 192.0.2/24 TEST
+        case _ where (n & 0xFFFF_FF00) == 0xC633_6400: return true // 198.51.100/24 TEST
+        case _ where (n & 0xFFFF_FF00) == 0xCB00_7100: return true // 203.0.113/24 TEST
+        default: return false
+        }
+    }
+
+    /// NOTE : `internal` pour les tests.
+    nonisolated static func isNonPublicV6(_ addr: in6_addr) -> Bool {
+        let b = withUnsafeBytes(of: addr) { Array($0) }
+        guard b.count == 16 else { return true }
+        if b.allSatisfy({ $0 == 0 }) { return true } // ::
+        if b[0..<15].allSatisfy({ $0 == 0 }) && b[15] == 1 { return true } // ::1
+        if b[0] == 0xFE && (b[1] & 0xC0) == 0x80 { return true } // fe80::/10
+        if (b[0] & 0xFE) == 0xFC { return true } // fc00::/7 unique-local
+        if b[0] == 0xFF { return true } // ff00::/8 multicast
+        // ::ffff:a.b.c.d → juge sur l'IPv4 embarqué (ordre réseau conservé).
+        if b[0..<10].allSatisfy({ $0 == 0 }) && b[10] == 0xFF && b[11] == 0xFF {
+            var v4 = in_addr()
+            withUnsafeMutableBytes(of: &v4) { ptr in
+                ptr[0] = b[12]; ptr[1] = b[13]; ptr[2] = b[14]; ptr[3] = b[15]
+            }
+            return isPrivateV4(v4)
+        }
+        return false
+    }
+
+    private enum ResolvedAddr {
+        case v4(in_addr)
+        case v6(in6_addr)
+        var isPublic: Bool {
+            switch self {
+            case .v4(let a): return !isPrivateV4(a)
+            case .v6(let a): return !isNonPublicV6(a)
+            }
+        }
+    }
+
+    /// Résolution synchrone (appelée hors chemin chaud : read_url + top-3 search).
+    /// nil = échec → l'appelant refuse (fail-closed).
+    private static func resolve(_ host: String) -> [ResolvedAddr]? {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        var res: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &res) == 0, let first = res else { return nil }
+        defer { freeaddrinfo(res) }
+        var out: [ResolvedAddr] = []
+        var cursor: UnsafeMutablePointer<addrinfo>? = first
+        while let current = cursor {
+            let info = current.pointee
+            if let sa = info.ai_addr {
+                if info.ai_family == AF_INET {
+                    let addr = sa.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { $0.pointee.sin_addr }
+                    out.append(.v4(addr))
+                } else if info.ai_family == AF_INET6 {
+                    let addr = sa.withMemoryRebound(to: sockaddr_in6.self, capacity: 1) { $0.pointee.sin6_addr }
+                    out.append(.v6(addr))
+                }
+            }
+            cursor = info.ai_next
+        }
+        return out
+    }
+}
 
 /// Résultat web normalisé : titre + URL absolue + extrait texte.
 /// Pourquoi un type propre : l'ancien code manipulait des tuples anonymes
@@ -158,7 +267,7 @@ actor WebSearchService {
             #"<a[^>]*class="result-link"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#,
             #"<a[^>]*href="([^"]*)"[^>]*class="result-link"[^>]*>([^<]*)</a>"#,
             #"<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)</a>"#,
-            #"<a[^>]*rel="nofollow"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#,
+            #"<a[^>]*rel="nofollow"[^>]*href="([^"]*)"[^>]*>(.*?)</a>"#
         ]
         for pattern in patterns {
             guard let rx = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators]) else { continue }
@@ -197,7 +306,10 @@ actor WebSearchService {
             for (i, r) in links.enumerated() {
                 group.addTask { [weak self] in
                     guard let self,
-                          let u = URL(string: r.href, relativeTo: base),
+                          let u = URL(string: r.href, relativeTo: base)?.absoluteURL,
+                          // Anti-SSRF : un résultat DDG pointant vers le LAN
+                          // (routeur, intranet, rebinding DNS) n'est jamais fetché.
+                          !URLSafety.isBlocked(u),
                           let html = await self.fetchPage(u, timeout: 15)
                     else { return (i, nil) }
                     let t = html.htmlToText(maxLength: 3000)

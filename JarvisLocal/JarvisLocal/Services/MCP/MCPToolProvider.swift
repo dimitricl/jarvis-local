@@ -20,7 +20,7 @@ actor MCPToolProvider {
         "sleep_mac", "applescript", "take_screenshot",
         "get_clipboard", "set_clipboard", "search_web", "read_url",
         "get_system_info", "file_search", "run_shortcut", "remember_fact",
-        "open_app", "create_note", "edit_note", "run_routine", "get_weather",
+        "open_app", "create_note", "edit_note", "run_routine", "get_weather"
     ]
 
     init(configs: [MCPServerConfig]? = nil) {
@@ -43,7 +43,7 @@ actor MCPToolProvider {
                 _ = try await t.request(method: "initialize", params: [
                     "protocolVersion": "2024-11-05",
                     "capabilities": [:] as [String: Any],
-                    "clientInfo": ["name": "JarvisLocal", "version": "0.4.0"],
+                    "clientInfo": ["name": "JarvisLocal", "version": "0.4.0"]
                 ])
                 try await t.notify(method: "notifications/initialized")
                 // Settle : iMCP relaie vers l'app via Bonjour de façon asynchrone ;
@@ -88,7 +88,7 @@ actor MCPToolProvider {
         "get_calendars": "calendars_list",
         "get_upcoming_events": "events_fetch",
         "add_reminder": "reminders_create",
-        "list_reminders": "reminders_fetch",
+        "list_reminders": "reminders_fetch"
     ]
 
     /// Noms natifs masqués de la liste Ollama car couverts par MCP en ligne.

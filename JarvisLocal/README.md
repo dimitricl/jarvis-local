@@ -6,7 +6,7 @@ Assistant IA personnel pour macOS, 100% local — dans l'esprit du JARVIS d'Iron
 
 - macOS 14.0+
 - [Ollama](https://ollama.ai) avec un modèle compatible (gemma4, llama3, etc.)
-- Optionnel : `edge-tts` pour la synthèse vocale améliorée (`pip install edge-tts`)
+- Rien d'autre : synthèse vocale 100 % on-device (AVSpeechSynthesizer)
 
 ## Installation
 
@@ -32,7 +32,7 @@ L'application demande l'accès à :
 Depuis l'icône ⚙️ dans l'interface :
 - URL du serveur Ollama (défaut : `http://localhost:11434`)
 - Modèle LLM
-- Synthèse vocale : système (AVSpeechSynthesizer) ou edge-tts
+- Synthèse vocale 100 % on-device (AVSpeechSynthesizer, voix FR Enhanced/Premium)
 - Reconnaissance vocale (français)
 - Barge-in (interruption du TTS par la parole)
 - MCP (optionnel, désactivé par défaut) : iMCP pour Calendrier/Rappels/Contacts/Messages — voir « MCP » ci-dessous

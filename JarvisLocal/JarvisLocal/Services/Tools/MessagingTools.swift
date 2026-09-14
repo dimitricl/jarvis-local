@@ -8,13 +8,26 @@ import AppKit
 /// (AppleScript Messages, main-thread) sont deux échecs distincts — l'isolement
 /// rend chaque message d'erreur testable ("introuvable" vs "envoi impossible").
 actor MessagingTools {
+    /// Template AppleScript FIGÉ : le modèle ne fournit que deux paramètres validés
+    /// (destinataire issu de Contacts, corps borné). Aucun contrôle de structure —
+    /// la classe "injection AppleScript" est éliminée, pas filtrée.
     func send(contact: String, message: String) async throws -> String {
+        let body = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !body.isEmpty, body.count <= 1000 else {
+            return "Message vide ou trop long (max 1000 caractères)."
+        }
         let handle = try await lookupContactHandle(contact)
         guard !handle.isEmpty else {
             return "Contact \"\(contact)\" introuvable dans l'app Contacts."
         }
+        // Allowlist de destination : numéro international ou email PROVENANT de
+        // Contacts — jamais une chaîne libre (un handle forgé ne peut pas
+        // détourner le template, même avec l'échappement ci-dessous).
+        guard Self.isValidHandle(handle) else {
+            return "Destinataire invalide."
+        }
 
-        let escapedMessage = message.escapingForAppleScript
+        let escapedMessage = body.escapingForAppleScript
         let escapedHandle = handle.escapingForAppleScript
 
         let script = """
@@ -55,7 +68,7 @@ actor MessagingTools {
             CNContactPhoneNumbersKey as CNKeyDescriptor,
             CNContactEmailAddressesKey as CNKeyDescriptor,
             CNContactGivenNameKey as CNKeyDescriptor,
-            CNContactFamilyNameKey as CNKeyDescriptor,
+            CNContactFamilyNameKey as CNKeyDescriptor
         ]
         let predicate = CNContact.predicateForContacts(matchingName: name)
         let contacts = try store.unifiedContacts(matching: predicate, keysToFetch: keys)
@@ -77,6 +90,24 @@ actor MessagingTools {
             return email
         }
         return ""
+    }
+
+    /// Allowlist de destinataire : `+` suivi de chiffres/espaces (≥ 7 chiffres),
+    /// ou email simple sans caractères de rupture. Fonction pure, testée sans Contacts.
+    /// `internal`/`static` pour les tests.
+    nonisolated static func isValidHandle(_ handle: String) -> Bool {
+        if handle.hasPrefix("+") {
+            let rest = handle.dropFirst()
+            guard rest.allSatisfy({ $0.isNumber || $0 == " " }),
+                  rest.filter(\.isNumber).count >= 7
+            else { return false }
+            return true
+        }
+        // Email : pas d'espace, pas de guillemet, un @ et un point après.
+        guard !handle.contains(" "), !handle.contains("\""), !handle.contains("\\") else { return false }
+        let parts = handle.split(separator: "@")
+        guard parts.count == 2, !parts[0].isEmpty else { return false }
+        return parts[1].contains(".") && !parts[1].hasPrefix(".")
     }
 
     /// Normalisation pure d'un numéro brut (sans accès Contacts).

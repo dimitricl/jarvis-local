@@ -6,6 +6,14 @@
 - **Troncature post-tool** — défaut `maxTokens` 8192 → 32768 ; cause précise non
   identifiée (pas de raisonnement caché mesuré), piste `/api/chat` + `think:false`
   documentée si récidive
+- **Audit sécurité/concurrence** — outil `applescript` générique SUPPRIMÉ (RCE par
+  concaténation) → `PowerAction` typée + templates figés ; `create_note`/`open_app`/
+  `get_clipboard` en confirmation ; outils MCP héritent du statut sensible natif ;
+  `read_url` wrappée + anti-SSRF (LAN, `file://`, rebinding — aussi sur `search_web`) ;
+  ATS restreint à `localhost`, warning Ollama distant ; edge-tts supprimé (TTS on-device,
+  `Logger`) ; synthé via MainActor (restart corrigé) ; diag SSE `/tmp` retirée ;
+  DB WAL + FK + index ; CI lint strict + release signée hardened + entitlements
+  (261 tests : 252 XCTest + 9 Swift Testing)
 
 ### Diagnostics (sans code)
 - **« Succès mensongers »** — cause = `qwen3.5:9b`, retour `gemma4:e4b` requis ;

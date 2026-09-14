@@ -15,8 +15,16 @@ actor WebTools {
     }
 
     func readURL(_ urlString: String) async -> String {
-        let normalized = urlString.hasPrefix("http") ? urlString : "https://\(urlString)"
+        // Même règle que SystemTools.httpURL : pas de préfixe aveugle (un file://…
+        // ne doit jamais devenir "https://file/…"), puis garde anti-SSRF.
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
         guard let url = URL(string: normalized) else { return "URL invalide : \(urlString)." }
+        // Anti-SSRF (même garde que search_web) : pas de file://, localhost, LAN,
+        // ni de nom public rebondissant vers une IP privée — fail-closed.
+        if URLSafety.isBlocked(url) {
+            return "Source : \(normalized)\nURL refusée : seules les pages web publiques (http/https) peuvent être lues."
+        }
         guard let html = await fetchPage(url, timeout: 20) else {
             return "Source : \(normalized)\nImpossible de récupérer le contenu de \(urlString) (page inaccessible ou timeout)."
         }
@@ -113,7 +121,7 @@ actor WebTools {
         61: "pluie légère", 63: "pluie modérée", 65: "pluie forte",
         71: "neige légère", 73: "neige modérée", 75: "neige forte",
         80: "averses légères", 81: "averses modérées", 82: "averses violentes",
-        95: "orage", 96: "orage avec grêle légère", 99: "orage avec grêle forte",
+        95: "orage", 96: "orage avec grêle légère", 99: "orage avec grêle forte"
     ]
 
     func searchMaps(_ query: String) async throws -> String {

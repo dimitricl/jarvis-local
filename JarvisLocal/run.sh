@@ -31,7 +31,17 @@ swift build $SWIFT_FLAGS
 killall "${APP_NAME}" 2>/dev/null || true
 sleep 0.5
 
-# Build in a temp location first, then copy to /Applications with admin privileges
+# Build in a temp location first, then copy to /Applications.
+# Plus de `with administrator privileges` : si l'ancien bundle (installé jadis en
+# admin, root-owned) ou le dossier résiste au simple cp, on replie sur
+# ~/Applications — aucun sudo requis dans tous les cas.
+if [ -w "/Applications" ] && rm -rf "/Applications/${APP_NAME}.app" 2>/dev/null; then
+    APP_BUNDLE="/Applications/${APP_NAME}.app"
+else
+    APP_BUNDLE="$HOME/Applications/${APP_NAME}.app"
+    mkdir -p "$HOME/Applications"
+    echo "    /Applications non modifiable sans admin → ${APP_BUNDLE}"
+fi
 TMP_BUNDLE="/tmp/${APP_NAME}.app"
 rm -rf "${TMP_BUNDLE}"
 mkdir -p "${TMP_BUNDLE}/Contents/MacOS" "${TMP_BUNDLE}/Contents/Resources"
@@ -44,12 +54,12 @@ cp JarvisLocal/Info.plist "${TMP_BUNDLE}/Contents/Info.plist"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "${TMP_BUNDLE}/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$VERSION" "${TMP_BUNDLE}/Contents/Info.plist"
 
-# Install to /Applications with admin privileges (GUI password prompt)
-osascript -e "
-do shell script \"
-  rm -rf '${APP_BUNDLE}'
-  cp -R '${TMP_BUNDLE}' '${APP_BUNDLE}'
-\" with administrator privileges
-" 2>/dev/null
+# Signature ad-hoc + hardened runtime (la signature Developer ID, elle, se fait en CI release).
+codesign -s - --options runtime --entitlements JarvisLocal.entitlements "${TMP_BUNDLE}/Contents/MacOS/${APP_NAME}" 2>/dev/null || {
+    echo "    (signature ad-hoc impossible, bundle non signé)"
+}
+
+rm -rf "${APP_BUNDLE}"
+cp -R "${TMP_BUNDLE}" "${APP_BUNDLE}"
 
 open "${APP_BUNDLE}"

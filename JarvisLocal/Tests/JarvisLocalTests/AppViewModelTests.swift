@@ -29,8 +29,8 @@ final class JarvisLocalAppViewModelTests: XCTestCase {
     func testSelectConversationLoadsMessages() async {
         await viewModel.newConversation()
         let conv = viewModel.currentConversation!
-        let _ = try? await viewModel.db.insertMessage(role: "user", content: "Hello", conversationId: conv.id)
-        let _ = try? await viewModel.db.insertMessage(role: "assistant", content: "Hi", conversationId: conv.id)
+        _ = try? await viewModel.db.insertMessage(role: "user", content: "Hello", conversationId: conv.id)
+        _ = try? await viewModel.db.insertMessage(role: "assistant", content: "Hi", conversationId: conv.id)
 
         await viewModel.selectConversation(conv)
         XCTAssertEqual(viewModel.messages.count, 2)
@@ -263,6 +263,48 @@ final class JarvisLocalAppViewModelFactExtractionEdgeCasesTests: XCTestCase {
         let facts = viewModel.extractCandidateFacts(from: text)
         XCTAssertTrue(facts.isEmpty)
     }
+
+    /// Cas réel observé : "je suis dimitri et toi ?" ne matchait AUCUN pattern (seuls
+    /// "je m'appelle / mon nom est" existaient) — le modèle répondait "je vais m'en
+    /// souvenir" sans rien enregistrer.
+    func testExtractCandidateFactsNameJeSuis() {
+        let facts = viewModel.extractCandidateFacts(from: "je suis dimitri et toi ?")
+        XCTAssertEqual(facts.count, 1)
+        XCTAssertEqual(facts.first?.key, "user.name")
+        XCTAssertEqual(facts.first?.value, "dimitri")
+    }
+
+    func testExtractCandidateFactsNameVariants() {
+        for text in ["moi c'est Dimitri", "mon prénom est Dimitri", "c'est moi Dimitri"] {
+            let facts = viewModel.extractCandidateFacts(from: text)
+            XCTAssertEqual(facts.count, 1, "Should extract name from: \(text)")
+            XCTAssertEqual(facts.first?.key, "user.name")
+        }
+    }
+
+    /// Le pattern large "je suis X" ne doit pas produire de popup pour des états,
+    /// métiers ou locutions.
+    func testJeSuisNonNamesAreExcluded() {
+        for text in [
+            "je suis d'accord",
+            "je suis en retard",
+            "je suis fatigué",
+            "je suis développeur",
+            "je suis content",
+            "je suis au boulot",
+            "je suis 100% d'accord"
+        ] {
+            let facts = viewModel.extractCandidateFacts(from: text)
+            XCTAssertTrue(facts.isEmpty, "Should NOT extract name from: \(text)")
+        }
+    }
+
+    /// "Je suis né le…" reste un anniversaire, pas un prénom "né".
+    func testBirthdayDoesNotProduceName() {
+        let facts = viewModel.extractCandidateFacts(from: "Je suis né le 15 mai 1990")
+        XCTAssertEqual(facts.count, 1)
+        XCTAssertEqual(facts.first?.key, "user.birthday")
+    }
 }
 
 @MainActor
@@ -276,7 +318,7 @@ final class JarvisLocalToolBatchDedupTests: XCTestCase {
         var seen = Set<String>()
         let calls = [
             makeCall(name: "get_weather", args: #"{"city":"Paris"}"#),
-            makeCall(name: "read_url", args: #"{"url":"https://example.com"}"#),
+            makeCall(name: "read_url", args: #"{"url":"https://example.com"}"#)
         ]
         let (fresh, dups) = AppViewModel.partitionFreshToolCalls(calls, seen: &seen)
         XCTAssertEqual(fresh.count, 2)
@@ -315,6 +357,91 @@ final class JarvisLocalToolBatchDedupTests: XCTestCase {
         let (fresh, dups) = AppViewModel.partitionFreshToolCalls([makeCall(name: "get_weather", args: #"{"city":"Lyon"}"#)], seen: &seen)
         XCTAssertEqual(fresh.count, 1)
         XCTAssertTrue(dups.isEmpty)
+    }
+}
+
+@MainActor
+final class JarvisLocalSourcesCitationTests: XCTestCase {
+
+    func testExtractSourceURLs() {
+        let result = "--- Titre ---\nSource : https://example.com/a\nContenu : x\nSource : notaurl\nSource : https://example.com/b\n"
+        XCTAssertEqual(AppViewModel.extractSourceURLs(from: result),
+                       ["https://example.com/a", "https://example.com/b"])
+    }
+
+    func testAppendMissingSourcesAppendsWhenAbsent() {
+        let out = AppViewModel.appendMissingSources(
+            to: "L'iPhone 18 Pro coûte 1 479 €.",
+            sources: ["https://a.fr/x", "https://b.fr/y", "https://a.fr/x"])
+        XCTAssertTrue(out.hasPrefix("L'iPhone 18 Pro coûte 1 479 €.\n\nSources :\n"))
+        XCTAssertTrue(out.contains("- https://a.fr/x"))
+        XCTAssertTrue(out.contains("- https://b.fr/y"))
+        // Dédupliqué : une seule occurrence.
+        XCTAssertEqual(out.components(separatedBy: "https://a.fr/x").count - 1, 1)
+    }
+
+    func testAppendMissingSourcesNoOpWhenCitedOrEmpty() {
+        XCTAssertEqual(
+            AppViewModel.appendMissingSources(to: "Voir https://a.fr/x", sources: ["https://b.fr/y"]),
+            "Voir https://a.fr/x")
+        XCTAssertEqual(
+            AppViewModel.appendMissingSources(to: "Texte", sources: []),
+            "Texte")
+        // Le mot "sources" (insensible à la casse) compte comme citation.
+        XCTAssertEqual(
+            AppViewModel.appendMissingSources(to: "Sources : voir ailleurs", sources: ["https://b.fr/y"]),
+            "Sources : voir ailleurs")
+    }
+
+    func testArgsSummary() {
+        XCTAssertEqual(AppViewModel.argsSummary(["b": "2", "a": "1"]), "a=1, b=2")
+        XCTAssertEqual(AppViewModel.argsSummary([:] as [String: Any]), "")
+    }
+}
+
+@MainActor
+final class JarvisLocalToolRunsAuditTests: XCTestCase {
+
+    var viewModel: AppViewModel!
+
+    override func setUp() async throws {
+        try await super.setUp()
+        viewModel = AppViewModel()
+        try await viewModel.db.open(path: ":memory:")
+    }
+
+    func testLogAndFetchToolRuns() async throws {
+        try await viewModel.db.logToolRun(conversationId: 1, tool: "search_web",
+                                          args: "query=iPhone", status: "✓", result: "Résultat : 1 479 €")
+        try await viewModel.db.logToolRun(conversationId: 1, tool: "sleep_mac",
+                                          args: "action=sleep", status: "refusé", result: "Refusé.")
+        let runs = try await viewModel.db.getRecentToolRuns()
+        XCTAssertEqual(runs.count, 2)
+        // Plus récent d'abord.
+        XCTAssertEqual(runs[0].tool, "sleep_mac")
+        XCTAssertEqual(runs[0].status, "refusé")
+        XCTAssertEqual(runs[1].tool, "search_web")
+        XCTAssertEqual(runs[1].conversationId, 1)
+    }
+
+    func testLogToolRunTruncates() async throws {
+        try await viewModel.db.logToolRun(conversationId: nil, tool: "read_url",
+                                          args: String(repeating: "a", count: 500),
+                                          status: "✓",
+                                          result: String(repeating: "b", count: 2000))
+        let runs = try await viewModel.db.getRecentToolRuns()
+        XCTAssertEqual(runs.count, 1)
+        XCTAssertLessThanOrEqual(runs[0].args.count, 200)
+        XCTAssertLessThanOrEqual(runs[0].result.count, 500)
+        XCTAssertNil(runs[0].conversationId)
+    }
+
+    func testLoadToolRunsPopulatesViewModel() async throws {
+        try await viewModel.db.logToolRun(conversationId: nil, tool: "get_weather",
+                                          args: "city=Paris", status: "✓", result: "25°C")
+        await viewModel.loadToolRuns()
+        XCTAssertEqual(viewModel.toolRuns.count, 1)
+        XCTAssertEqual(viewModel.toolRuns.first?.tool, "get_weather")
     }
 }
 

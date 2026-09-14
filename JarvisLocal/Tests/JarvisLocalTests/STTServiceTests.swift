@@ -68,7 +68,7 @@ final class JarvisLocalSTTServiceTests: XCTestCase {
 
     func testTranscribeWithoutPermissionThrowsOrReturns() async {
         do {
-            let _ = try await sttService.transcribe()
+            _ = try await sttService.transcribe()
             // If we get here, permission was granted
             XCTAssertTrue(true)
         } catch STTError.notAuthorized {

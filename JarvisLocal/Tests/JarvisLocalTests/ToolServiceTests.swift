@@ -9,7 +9,7 @@ final class JarvisLocalToolServiceTests: XCTestCase {
         let names = Set(defs.map { $0.function.name })
 
         let expectedTools: Set<String> = [
-            "search_web", "open_app", "create_note", "edit_note", "applescript",
+            "search_web", "open_app", "create_note", "edit_note",
             "get_weather", "add_reminder", "add_calendar_event", "get_calendars",
             "search_maps", "run_shortcut", "send_message", "get_system_info",
             "get_clipboard", "set_clipboard", "take_screenshot", "sleep_mac",
@@ -54,7 +54,7 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     func testFormatSearchResultsIncludesSourceURL() {
         let out = ToolService.formatSearchResults([
             (title: "Exemple", href: "https://example.com/page", text: "Contenu utile"),
-            (title: "Sans contenu", href: "https://example.com/vide", text: nil),
+            (title: "Sans contenu", href: "https://example.com/vide", text: nil)
         ])
         XCTAssertTrue(out.contains("Source : https://example.com/page"))
         XCTAssertTrue(out.contains("Contenu utile"))
@@ -81,28 +81,17 @@ final class JarvisLocalToolServiceTests: XCTestCase {
         XCTAssertTrue(result.contains("Erreur") || result.contains("Note introuvable") || result.isEmpty == false)
     }
 
-    func testAppleScriptRejectedForDangerousCommands() async throws {
+    /// L'outil générique exposait un AppleScript ARBITRAIRE au modèle (RCE triviale
+    /// par concaténation de chaînes, `tell app "Terminal"…` — classe de bug non
+    /// filtrable par denylist). Supprimé au profit de capacités typées (PowerAction,
+    /// templates figés). Ce test verrouille la suppression : toute réintroduction
+    /// fait échouer la suite.
+    func testGenericAppleScriptToolRemoved() async throws {
         let tools = ToolService.shared
-
-        let dangerousScripts = [
-            "do shell script \"rm -rf /\"",
-            "tell application \"System Events\" to keystroke \"a\"",
-            "run script \"malicious\"",
-            "load script file \"evil\"",
-            "do JavaScript \"alert(1)\" in document 1"
-        ]
-
-        for script in dangerousScripts {
-            let result = try await tools.execute(name: "applescript", args: ["script": script])
-            // Vérifie juste que ça ne crashe pas et retourne une string
-            XCTAssertFalse(result.isEmpty)
-        }
-    }
-
-    func testAppleScriptAllowedForSafeCommands() async throws {
-        let tools = ToolService.shared
-        let result = try await tools.execute(name: "applescript", args: ["script": "return \"hello world\""])
-        XCTAssertTrue(result.contains("hello world") || result.contains("Exécuté"))
+        let names = Set(await tools.toolDefs.map { $0.function.name })
+        XCTAssertFalse(names.contains("applescript"), "L'outil applescript générique ne doit jamais revenir")
+        let result = try await tools.execute(name: "applescript", args: ["script": "return 1"])
+        XCTAssertEqual(result, "Outil inconnu : applescript")
     }
 
     func testAddReminderRequiresTitle() async throws {
@@ -207,10 +196,40 @@ final class JarvisLocalToolServiceTests: XCTestCase {
         XCTAssertFalse(result.isEmpty)
     }
 
-    func testReadURLReturnsContentOrError() async throws {
+    func testReadURLRejectsLocalTargets() async throws {
+        // Anti-SSRF : file://, localhost, loopback et LAN refusés SANS réseau
+        // (littéraux et noms réservés — aucune résolution DNS requise).
+        let tools = ToolService.shared
+        for url in ["file:///etc/passwd", "http://localhost:11434/api/tags",
+                    "http://127.0.0.1/", "http://192.168.1.1/", "http://169.254.169.254/"] {
+            let result = try await tools.execute(name: "read_url", args: ["url": url])
+            XCTAssertTrue(result.contains("refusée"), "read_url aurait dû refuser \(url) : \(result)")
+        }
+    }
+
+    func testReadURLAlwaysCitesSource() async throws {
+        // Avec ou sans réseau : le préfixe "Source :" est garanti (succès comme échec),
+        // pour que le modèle puisse citer — ou dire qu'il n'a rien récupéré.
         let tools = ToolService.shared
         let result = try await tools.execute(name: "read_url", args: ["url": "https://example.com"])
-        XCTAssertTrue(result.contains("Erreur") || result.contains("indisponible") || result.count > 0)
+        XCTAssertTrue(result.contains("Source : https://example.com"))
+    }
+
+    func testHttpURLAllowlist() {
+        XCTAssertNotNil(SystemTools.httpURL(from: "https://example.com/page"))
+        XCTAssertNotNil(SystemTools.httpURL(from: "example.com"))
+        XCTAssertNil(SystemTools.httpURL(from: "file:///etc/passwd"))
+        XCTAssertNil(SystemTools.httpURL(from: "ftp://example.com/x"))
+        XCTAssertNil(SystemTools.httpURL(from: ""))
+    }
+
+    func testSendMessageRejectsEmptyAndOversizedBody() async throws {
+        // Validé AVANT tout accès Contacts : pas de permission requise.
+        let tools = ToolService.shared
+        let empty = try await tools.execute(name: "send_message", args: ["contact": "X", "message": ""])
+        XCTAssertTrue(empty.contains("vide ou trop long"))
+        let big = try await tools.execute(name: "send_message", args: ["contact": "X", "message": String(repeating: "a", count: 1001)])
+        XCTAssertTrue(big.contains("vide ou trop long"))
     }
 
     func testRunRoutineUnknownReturnsError() async throws {

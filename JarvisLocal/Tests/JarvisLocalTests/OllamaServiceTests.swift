@@ -303,7 +303,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
         let msgs = [
             OllamaMessage(role: "system", content: "sys"),
             OllamaMessage(role: "user", content: "bonjour"),
-            OllamaMessage(role: "assistant", content: "salut"),
+            OllamaMessage(role: "assistant", content: "salut")
         ]
         let out = OllamaService.trimMessagesForContext(msgs, maxChars: 10_000)
         XCTAssertEqual(out.count, 3)
@@ -319,7 +319,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
             ]),
             OllamaMessage(role: "tool", content: huge, toolCallId: "c1"),
             OllamaMessage(role: "assistant", content: "voici la réponse"),
-            OllamaMessage(role: "user", content: "merci !"),
+            OllamaMessage(role: "user", content: "merci !")
         ]
         let out = OllamaService.trimMessagesForContext(msgs, maxChars: 4000)
         // Le vieux résultat "tool" est tronqué avec marqueur, pas supprimé (le
@@ -344,7 +344,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
             OllamaMessage(role: "assistant", content: nil, toolCalls: [
                 ToolCall(id: "c9", type: "function", function: ToolCallFunction(name: "search_web", arguments: "{}"))
             ]),
-            OllamaMessage(role: "tool", content: big, toolCallId: "c9"),
+            OllamaMessage(role: "tool", content: big, toolCallId: "c9")
         ]
         // Budget minuscule : même en dernier recours, les 2 derniers (résultats frais
         // du tour en cours) doivent survivre tels quels.
@@ -400,7 +400,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
             OllamaMessage(role: "system", content: "sys"),
             OllamaMessage(role: "assistant", content: String(repeating: "a", count: 3000),
                            toolCalls: [toolCall("c1")]),
-            OllamaMessage(role: "tool", content: "ok", toolCallId: "c1"),
+            OllamaMessage(role: "tool", content: "ok", toolCallId: "c1")
         ]
         for i in 1...6 {
             msgs.append(OllamaMessage(role: "user", content: "filler\(i)" + String(repeating: "u", count: 1500)))
@@ -420,7 +420,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
         let msgs = [
             OllamaMessage(role: "system", content: "sys"),
             OllamaMessage(role: "tool", content: "résultat fantôme", toolCallId: "ghost"),
-            OllamaMessage(role: "user", content: "bonjour"),
+            OllamaMessage(role: "user", content: "bonjour")
         ]
         let out = OllamaService.dropOrphanedToolLinkage(msgs)
         XCTAssertFalse(out.contains { $0.toolCallId == "ghost" })
@@ -432,7 +432,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
             OllamaMessage(role: "system", content: "sys"),
             // Appel sans résultat, mais avec du texte : on retire l'appel, on garde le texte.
             OllamaMessage(role: "assistant", content: "Je vais chercher ça",
-                           toolCalls: [toolCall("dead")]),
+                           toolCalls: [toolCall("dead")])
         ]
         let out = OllamaService.dropOrphanedToolLinkage(msgs)
         XCTAssertEqual(out.count, 2)
@@ -445,7 +445,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
             OllamaMessage(role: "system", content: "sys"),
             // Appel sans résultat et sans texte (cas réel : contenu nil) : message vide,
             // on le retire entièrement plutôt que d'envoyer des tool_calls orphelins.
-            OllamaMessage(role: "assistant", content: nil, toolCalls: [toolCall("dead")]),
+            OllamaMessage(role: "assistant", content: nil, toolCalls: [toolCall("dead")])
         ]
         let out = OllamaService.dropOrphanedToolLinkage(msgs)
         XCTAssertEqual(out.count, 1)
@@ -457,7 +457,7 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
             OllamaMessage(role: "system", content: "sys"),
             OllamaMessage(role: "assistant", content: nil,
                            toolCalls: [toolCall("kept"), toolCall("dead")]),
-            OllamaMessage(role: "tool", content: "résultat", toolCallId: "kept"),
+            OllamaMessage(role: "tool", content: "résultat", toolCallId: "kept")
         ]
         let out = OllamaService.dropOrphanedToolLinkage(msgs)
         XCTAssertEqual(out[1].toolCalls?.map { $0.id }, ["kept"])
@@ -478,21 +478,21 @@ final class JarvisLocalHistoryBudgetTests: XCTestCase {
                 OllamaMessage(role: "user", content: big),
                 OllamaMessage(role: "assistant", content: nil, toolCalls: [toolCall("c2")]),
                 OllamaMessage(role: "tool", content: big, toolCallId: "c2"),
-                OllamaMessage(role: "user", content: "et après ?"),
+                OllamaMessage(role: "user", content: "et après ?")
             ],
             // Tool déjà orphelin en entrée.
             [
                 OllamaMessage(role: "system", content: "sys"),
                 OllamaMessage(role: "tool", content: big, toolCallId: "ghost"),
-                OllamaMessage(role: "user", content: big),
+                OllamaMessage(role: "user", content: big)
             ],
             // Assistant avec appels sans résultats + texte.
             [
                 OllamaMessage(role: "system", content: "sys"),
                 OllamaMessage(role: "assistant", content: "Je m'en occupe",
                                toolCalls: [toolCall("dead1"), toolCall("dead2")]),
-                OllamaMessage(role: "user", content: big),
-            ],
+                OllamaMessage(role: "user", content: big)
+            ]
         ]
         for history in histories {
             for budget in [100, 2000, 50_000] {

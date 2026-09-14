@@ -301,7 +301,7 @@ struct MessageBubbleView: View {
         let transformations: [(pattern: String, style: InlineStyle)] = [
             ("`([^`]+)`", .code),
             ("\\*\\*([^*]+)\\*\\*", .bold),
-            ("\\*([^*]+)\\*", .italic),
+            ("\\*([^*]+)\\*", .italic)
         ]
 
         for (pattern, style) in transformations {

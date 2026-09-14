@@ -70,7 +70,7 @@ final class JarvisLocalSearchAndExportTests: XCTestCase {
         let json = viewModel.exportConversationAsJSON()
         XCTAssertNotNil(json)
 
-        let data = json!.data(using: .utf8)!
+        let data = json.map { Data($0.utf8) } ?? Data()
         let parsed = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(parsed["title"] as? String, "JSON test")
         let msgs = parsed["messages"] as! [[String: Any]]

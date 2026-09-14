@@ -55,10 +55,10 @@ final class ToolRoutingTests: XCTestCase {
 
     func testSearchWebFormatAliasDelegatesToWebSearchService() {
         let viaAlias = ToolService.formatSearchResults([
-            (title: "T", href: "https://example.com/a", text: "Texte"),
+            (title: "T", href: "https://example.com/a", text: "Texte")
         ])
         let viaService = WebSearchService.format([
-            (title: "T", href: "https://example.com/a", text: "Texte"),
+            (title: "T", href: "https://example.com/a", text: "Texte")
         ])
         XCTAssertEqual(viaAlias, viaService)
     }

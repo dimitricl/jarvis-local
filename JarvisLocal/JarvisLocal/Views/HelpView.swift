@@ -16,8 +16,9 @@ struct HelpView: View {
         .init(command: "/clear", description: "Démarre une nouvelle conversation"),
         .init(command: "/facts", description: "Affiche/masque la mémoire de faits personnels"),
         .init(command: "/search <texte>", description: "Recherche dans toutes les conversations"),
+        .init(command: "/tools", description: "Audit : ce que Jarvis a VRAIMENT exécuté comme outils"),
         .init(command: "/export md", description: "Exporte la conversation en Markdown"),
-        .init(command: "/export json", description: "Exporte la conversation en JSON"),
+        .init(command: "/export json", description: "Exporte la conversation en JSON")
     ]
 
     var body: some View {

@@ -153,7 +153,7 @@ struct AutoResizingTextView: NSViewRepresentable {
     }
 }
 
-fileprivate class AutoSizingScrollView: NSScrollView {
+private class AutoSizingScrollView: NSScrollView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         syncTextContainerWidth()

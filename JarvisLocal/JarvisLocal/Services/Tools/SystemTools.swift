@@ -1,11 +1,12 @@
 import Foundation
 import AppKit
 
-/// Runner AppleScript partagé (Messages + Notes + System).
-/// Pourquoi centralisé : trois domaines appelaient `NSAppleScript` chacun
-/// avec leur propre copie du filtre sécurité. Une seule implémentation =
-/// un seul filtre à auditer. `NSAppleScript` est main-thread-only : le hop
-/// MainActor garantit un comportement déterministe depuis un actor background.
+/// Runner AppleScript RÉSERVÉ AUX TEMPLATES INTERNES FIGÉS (Messages, Notes, Plans).
+/// L'outil générique `applescript` exposé au modèle a été SUPPRIMÉ (RCE triviale via
+/// concaténation de chaînes, `tell app "Terminal"…`, etc. — une denylist sur texte
+/// ne peut pas fermer cette classe de bug). Le LLM ne fournit plus jamais de code,
+/// uniquement des paramètres validés (PowerAction, nom d'app, destinataire Contacts).
+/// La denylist restante est de la défense en profondeur sur des templates déjà figés.
 enum AppleScriptRunner {
     // NOTE DE SÉCURITÉ : liste noire sur du texte → défense en profondeur,
     // pas une garantie. AppleScript permet de reconstruire une chaîne
@@ -16,7 +17,7 @@ enum AppleScriptRunner {
         let patterns = [
             #"doshellscript"#, #"withadministratorprivileges"#,
             #"systemeventskeystroke"#, #"systemeventskeycode"#,
-            #"runscript"#, #"loadscript"#, #"dojavascript"#,
+            #"runscript"#, #"loadscript"#, #"dojavascript"#
         ]
         return patterns.compactMap { try? NSRegularExpression(pattern: $0, options: [.caseInsensitive]) }
     }()
@@ -27,10 +28,8 @@ enum AppleScriptRunner {
         // cassait la contiguïté de "doshellscript" et passait au travers.
         let flat = script.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
             .map(String.init).joined()
-        for p in forbiddenPatterns {
-            if p.firstMatch(in: flat, range: NSRange(flat.startIndex..., in: flat)) != nil {
-                return "Script refusé : commande dangereuse détectée (shell / privilèges admin / clavier via System Events / run-load script / do JavaScript)."
-            }
+        for p in forbiddenPatterns where p.firstMatch(in: flat, range: NSRange(flat.startIndex..., in: flat)) != nil {
+            return "Script refusé : commande dangereuse détectée (shell / privilèges admin / clavier via System Events / run-load script / do JavaScript)."
         }
         var error: NSDictionary?
         let result = try await MainActor.run { () -> NSAppleEventDescriptor? in
@@ -52,13 +51,22 @@ actor SystemTools {
     private let ctx: ToolContext
     init(ctx: ToolContext = .live()) { self.ctx = ctx }
 
-    // MARK: - AppleScript brut (outil exposé au modèle)
-
-    func runAppleScript(_ script: String) async throws -> String {
-        try await AppleScriptRunner.run(script)
-    }
-
     // MARK: - open_app
+
+    /// N'accepte que http/https : ni file://, ni schéma exotique. On ne préfixe
+    /// en https que les chaînes SANS schéma explicite ("example.com") — jamais un
+    /// "file://…" (sinon "https://file/…" deviendrait une URL http au host "file").
+    /// NOTE : `internal`/`static` pour les tests.
+    nonisolated static func httpURL(from raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let s = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let u = URL(string: s), let scheme = u.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = u.host, !host.isEmpty
+        else { return nil }
+        return u
+    }
 
     func openApp(_ app: String, url: String?) async throws -> String {
         let nameMap: [String: String] = [
@@ -129,21 +137,21 @@ actor SystemTools {
 
         if let appURL {
             if let u = url {
-                let urlStr = u.hasPrefix("http") ? u : "https://\(u)"
-                if let urlObj = URL(string: urlStr) {
-                    try await ws.open([urlObj], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
-                    return "\(resolved) ouvert sur \(u)."
+                guard let urlObj = Self.httpURL(from: u) else {
+                    return "URL refusée : http/https uniquement."
                 }
+                try await ws.open([urlObj], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
+                return "\(resolved) ouvert sur \(u)."
             }
             try await ws.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
             return "\(resolved) ouvert."
         }
         if let u = url {
-            let urlStr = u.hasPrefix("http") ? u : "https://\(u)"
-            if let urlObj = URL(string: urlStr) {
-                ws.open(urlObj)
-                return "URL ouverte."
+            guard let urlObj = Self.httpURL(from: u) else {
+                return "URL refusée : http/https uniquement."
             }
+            ws.open(urlObj)
+            return "URL ouverte."
         }
         return "Application \(app) introuvable. Vérifie qu'elle est bien installée (dans /Applications ou ailleurs sur le disque)."
     }
@@ -187,7 +195,12 @@ actor SystemTools {
             }
         }
 
-        let query = "kMDItemContentType == 'com.apple.application-bundle' && kMDItemDisplayName == '\(appName)*'cd"
+        // Le nom vient du modèle : on l'échappe pour le langage de requête mdfind
+        // (guillemets doubles + backslash), sinon `"` casse la requête voire l'injecte.
+        let safe = appName
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let query = "kMDItemContentType == 'com.apple.application-bundle' && kMDItemDisplayName == \"\(safe)*\"cd"
         if let (out, _) = try? await ctx.runProcess("/usr/bin/mdfind", [query], 10) {
             if let line = out.components(separatedBy: "\n").first(where: { $0.hasSuffix(".app") }) {
                 return URL(fileURLWithPath: line.trimmingCharacters(in: .whitespaces))
@@ -289,13 +302,39 @@ actor SystemTools {
         return "Capture d'écran enregistrée et ouverte : \(filename) (ouverte dans Aperçu)"
     }
 
-    // MARK: - sleep_mac
+    // MARK: - sleep_mac (allowlist typée)
+
+    /// Le modèle ne fournit que la raw value d'un enum fermé, jamais du code ni une
+    /// commande. Il n'y a rien à filtrer parce qu'il n'y a rien de variable.
+    /// NOTE : `internal` pour les tests.
+    enum PowerAction: String, CaseIterable, Sendable {
+        case sleep, lock, shutdown, restart
+
+        /// Alias français acceptés (le modèle parle français).
+        /// NOTE : `internal` pour les tests.
+        init?(userInput: String) {
+            switch userInput.lowercased().folding(options: .diacriticInsensitive, locale: .current) {
+            case "sleep", "veille": self = .sleep
+            case "lock", "verrouiller": self = .lock
+            case "shutdown", "eteindre": self = .shutdown
+            case "restart", "redemarrer": self = .restart
+            default: return nil
+            }
+        }
+    }
 
     func sleepMac(_ action: String) async throws -> String {
-        let lower = action.lowercased()
+        guard let power = PowerAction(userInput: action) else {
+            return "Action inconnue. Utilise sleep, lock, shutdown ou restart."
+        }
+        return try await setPower(power)
+    }
 
-        switch lower {
-        case "sleep", "veille":
+    /// Exécute une action typée. Commandes et scripts FIGÉS, zéro interpolation
+    /// de texte LLM : la classe "injection AppleScript/shell" est éliminée, pas filtrée.
+    func setPower(_ action: PowerAction) async throws -> String {
+        switch action {
+        case .sleep:
             afterSpeechThen {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
@@ -303,13 +342,13 @@ actor SystemTools {
                 try? proc.run()
             }
             return "Mise en veille."
-        case "lock", "verrouiller":
+        case .lock:
             _ = try? await ctx.runProcess(
                 "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
                 ["-suspend"], 45
             )
             return "Mac verrouillé."
-        case "shutdown", "eteindre":
+        case .shutdown:
             afterSpeechThen {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
@@ -317,17 +356,16 @@ actor SystemTools {
                 try? proc.run()
             }
             return "Extinction."
-        case "restart", "redemarrer":
+        case .restart:
+            // NSAppleScript est main-thread-only : hop explicite. Avant, ce script
+            // s'exécutait sur le thread de fond d'afterSpeechThen → crash/UB.
             afterSpeechThen {
-                let script = """
-                tell application "System Events" to restart
-                """
-                var error: NSDictionary?
-                _ = NSAppleScript(source: script)?.executeAndReturnError(&error)
+                Task { @MainActor in
+                    var error: NSDictionary?
+                    _ = NSAppleScript(source: #"tell application "System Events" to restart"#)?.executeAndReturnError(&error)
+                }
             }
             return "Redémarrage."
-        default:
-            return "Action inconnue. Utilise sleep, lock, shutdown ou restart."
         }
     }
 
@@ -392,7 +430,7 @@ func appStoreBundlePath(for appName: String) -> String? {
         "Terminal": "com.apple.Terminal",
         "System Settings": "com.apple.systempreferences",
         "Weather": "com.apple.weather",
-        "Home": "com.apple.home",
+        "Home": "com.apple.home"
     ]
     guard let bid = bundleIDs[appName] ?? bundleIDs[appName.lowercased()] else { return nil }
     guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) else { return nil }

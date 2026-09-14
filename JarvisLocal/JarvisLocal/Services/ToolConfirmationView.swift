@@ -5,7 +5,6 @@
 //  Created by Dimitri claverie on 05/07/2026.
 //
 
-
 import SwiftUI
 
 /// Écran de confirmation avant l'exécution d'un tool sensible.
