@@ -42,7 +42,8 @@ final class JarvisLocalSTTServiceTests: XCTestCase {
 
     // MARK: - Authorization Tests
 
-    func testRequestAuthorizationReturnsBool() async {
+    func testRequestAuthorizationReturnsBool() async throws {
+        try skipIfCIHeadless("Speech : prompt TCC sans humain en CI")
         let authorized = await sttService.requestAuthorization()
         // Result depends on system permissions, just verify it returns
         XCTAssertTrue(authorized || !authorized)
@@ -66,7 +67,8 @@ final class JarvisLocalSTTServiceTests: XCTestCase {
 
     // MARK: - Transcribe Tests (Integration - may need permissions)
 
-    func testTranscribeWithoutPermissionThrowsOrReturns() async {
+    func testTranscribeWithoutPermissionThrowsOrReturns() async throws {
+        try skipIfCIHeadless("Speech/micro : prompt TCC + moteur audio sans humain en CI")
         do {
             _ = try await sttService.transcribe()
             // If we get here, permission was granted

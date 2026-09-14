@@ -95,18 +95,21 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testAddReminderRequiresTitle() async throws {
+        try skipIfCIHeadless("EventKit (Rappels) : prompt TCC sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "add_reminder", args: ["title": "Test reminder"])
         XCTAssertTrue(result.contains("créé") || result.contains("Erreur") || result.contains("Accès"))
     }
 
     func testAddCalendarEventRequiresTitleAndDate() async throws {
+        try skipIfCIHeadless("EventKit (Calendrier) : prompt TCC sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "add_calendar_event", args: ["title": "Test", "date": "25/12/2025"])
         XCTAssertTrue(result.contains("créé") || result.contains("Erreur") || result.contains("Accès"))
     }
 
     func testGetCalendarsReturnsListOrError() async throws {
+        try skipIfCIHeadless("EventKit (Calendrier) : prompt TCC sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "get_calendars", args: [:])
         XCTAssertTrue(result.contains("écriture") || result.contains("lecture") || result.contains("Accès") || result.contains("Aucun"))
@@ -125,6 +128,7 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testSendMessageUnknownContactReturnsError() async throws {
+        try skipIfCIHeadless("Contacts : prompt TCC sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "send_message", args: ["contact": "ContactInconnu12345", "message": "test"])
         XCTAssertTrue(result.contains("introuvable") || result.contains("Erreur") || result.contains("Accès"))
@@ -152,6 +156,7 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testTakeScreenshotReturnsPathOrError() async throws {
+        try skipIfCIHeadless("screencapture : prompt capture d'écran sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "take_screenshot", args: [:])
         XCTAssertTrue(result.contains("Capture d'écran") || result.contains("Erreur"))
@@ -183,6 +188,7 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testGetUpcomingEventsReturnsListOrError() async throws {
+        try skipIfCIHeadless("EventKit (Calendrier) : prompt TCC sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "get_upcoming_events", args: ["days": 7])
         // Vérifie juste que ça ne crashe pas et retourne une string
@@ -190,6 +196,7 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testListRemindersReturnsListOrError() async throws {
+        try skipIfCIHeadless("EventKit (Rappels) : prompt TCC sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "list_reminders", args: [:])
         // Vérifie juste que ça ne crashe pas et retourne une string
