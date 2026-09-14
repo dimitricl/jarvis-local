@@ -21,7 +21,12 @@ jobs:
         run: brew install swiftlint
 
       - name: Lint
+        # Depuis la RACINE du repo : les chemins included/excluded du
+        # .swiftlint.yml y sont relatifs. Lancé depuis JarvisLocal/, les
+        # exclusions (.build, checkouts SwiftSoup) cassent et 9000+ violations
+        # parasites font échouer --strict (constaté en réel).
         run: swiftlint lint --strict
+        working-directory: ./
 
   build-and-test:
     name: Build & Test
