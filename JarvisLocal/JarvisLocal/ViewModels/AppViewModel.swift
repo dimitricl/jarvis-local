@@ -371,19 +371,24 @@ final class AppViewModel {
                     if Self.shouldContinueAfterTruncation(truncated: truncated, used: continuationsUsed, max: maxContinuations) {
                         continuedText += content
                         streamingText = stripThinking(continuedText)
-                        ollamaMessages.append(OllamaMessage(role: "user", content: "Continue exactement où tu t'es arrêté, sans répéter ni reformuler le début."))
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "Continue exactement où tu t'es arrêté, sans répéter ni reformuler le début. Sans commentaire : uniquement la suite du texte."))
                         ollamaMessages = trimmedForContext(ollamaMessages)
                         continuationsUsed += 1
                         continue
                     }
+                    // Les relances ci-dessous ré-ancrent la DEMANDE D'ORIGINE et interdisent
+                    // la méta-réponse : sans ça, le petit modèle grondé s'excuse et promet
+                    // ("je comprends, je ferai mieux…") au lieu d'agir — et ce verbiage
+                    // pollue la réponse sauvegardée. Cas réel constaté en production.
+                    let noMetaTalk = "Ne commente pas ce message : ni excuses, ni promesses, ni résumé de consignes. "
                     if Self.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: !turnSources.isEmpty, used: correctiveRetries) {
-                        ollamaMessages.append(OllamaMessage(role: "user", content: "Ta réponse n'utilise pas vraiment les résultats de recherche reçus ce tour (liens seuls, sans contenu rédigé). Reformule une réponse complète qui reprend ces résultats et cite leurs URL, et appelle les outils nécessaires à la demande (ex. create_note pour créer la note) au lieu de t'arrêter."))
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "\(noMetaTalk)Rappel de la demande d'origine : « \(userText) ». Exécute-la maintenant : reformule une réponse complète qui reprend les résultats de recherche reçus et cite leurs URL, et appelle les outils nécessaires (ex. create_note pour créer la note) au lieu de t'arrêter."))
                         ollamaMessages = trimmedForContext(ollamaMessages)
                         correctiveRetries += 1
                         continue
                     }
                     if correctiveRetries < 1, Self.isRefusalAnswer(finalText) {
-                        ollamaMessages.append(OllamaMessage(role: "user", content: "Ton message affirme que tu ne peux pas faire la demande, mais c'est faux : appelle les outils nécessaires au lieu d'expliquer. Si un outil retourne vraiment une erreur ou un contenu vide, rapporte son message exact au lieu d'inventer une limitation."))
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "\(noMetaTalk)Rappel de la demande d'origine : « \(userText) ». Ton message précédent affirmait que tu ne peux pas la faire, mais c'est faux : appelle les outils nécessaires au lieu d'expliquer. Si un outil retourne vraiment une erreur ou un contenu vide, rapporte son message exact au lieu d'inventer une limitation."))
                         ollamaMessages = trimmedForContext(ollamaMessages)
                         correctiveRetries += 1
                         continue
