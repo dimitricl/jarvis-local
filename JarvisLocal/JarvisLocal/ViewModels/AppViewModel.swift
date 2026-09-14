@@ -297,6 +297,7 @@ final class AppViewModel {
             - Quand l'utilisateur te donne une info personnelle (prénom, nom, ville, âge, métier, goûts, famille…), appelle remember_fact EN PLUS de ta réponse (clé user.name, user.city… et valeur exacte) — et ne dis JAMAIS « c'est noté / je m'en souviendrai » sans avoir appelé remember_fact dans la même réponse.
             - Quand un outil retourne un résultat, cite-le EXACTEMENT sans inventer. Si take_screenshot retourne un chemin, réponds "C'est fait. Capture enregistrée et ouverte : <nom>" et n'ajoute JAMAIS "je n'ai pas de fichier".
             - Quand ta réponse s'appuie sur search_web ou read_url, termine par une ligne "Sources :" avec les URL fournies dans les résultats (n'utilise QUE ces URL-là, ne les invente jamais). Si un chiffre n'y figure pas, dis que tu ne l'as pas trouvé au lieu de le deviner.
+            - Quand tu as reçu des résultats d'outils (recherche, météo, calendrier…), ta réponse DOIT les reprendre et les citer : une phrase générique qui les ignore est une erreur.
 
             \(toolList)
 
@@ -333,6 +334,10 @@ final class AppViewModel {
             var totalSpoken = 0
             var continuationsUsed = 0
             let maxContinuations = 2
+            // Relance anti-réponse-vide (cas réel : le modèle ignore les résultats
+            // web et sort une phrase générique — les Sources auto-ajoutées ne
+            // suffisent pas). Une seule relance par tour, sinon on sauvegarde tel quel.
+            var vacuousRetries = 0
 
             for _ in 0..<maxLoops {
                 try Task.checkCancellation()
@@ -356,6 +361,12 @@ final class AppViewModel {
                         ollamaMessages.append(OllamaMessage(role: "user", content: "Continue exactement où tu t'es arrêté, sans répéter ni reformuler le début."))
                         ollamaMessages = trimmedForContext(ollamaMessages)
                         continuationsUsed += 1
+                        continue
+                    }
+                    if Self.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: !turnSources.isEmpty, used: vacuousRetries) {
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "Ta réponse n'utilise pas les résultats de recherche reçus ce tour. Reformule une réponse complète qui reprend ces résultats et cite leurs URL, sans phrase générique."))
+                        ollamaMessages = trimmedForContext(ollamaMessages)
+                        vacuousRetries += 1
                         continue
                     }
                     if !finalText.isEmpty {
@@ -649,6 +660,18 @@ final class AppViewModel {
     /// de reprises du tour n'est pas épuisé. Fonction pure — `internal` pour les tests.
     nonisolated static func shouldContinueAfterTruncation(truncated: Bool, used: Int, max: Int = 2) -> Bool {
         truncated && used < max
+    }
+
+    /// Détecte une réponse finale « vide de substance » alors que des résultats web
+    /// existent : courte, sans URL, alors que search_web/read_url ont rapporté des
+    /// sources. Le petit modèle a ignoré les tools (phrase générique + Sources
+    /// auto-ajoutées). Une seule relance avec consigne explicite — un modèle qui
+    /// ne sait pas utiliser les résultats échouera pareil à la 2e tentative, inutile
+    /// d'insister. Fonction pure — `internal` pour les tests.
+    nonisolated static func shouldRetryVacuousAnswer(finalText: String, hasWebSources: Bool, used: Int, max: Int = 1, minChars: Int = 300) -> Bool {
+        guard hasWebSources, used < max else { return false }
+        let t = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.count < minChars && !t.contains("http")
     }
 
     /// Applique le plafond de contexte (dérivé de num_ctx, voir OllamaService) à un

@@ -95,4 +95,25 @@ struct SecurityGuardsTests {
         #expect(!AppViewModel.shouldContinueAfterTruncation(truncated: true, used: 2, max: 2))
         #expect(!AppViewModel.shouldContinueAfterTruncation(truncated: false, used: 0, max: 2))
     }
+
+    @Test @MainActor func vacuousAnswerRetriedOnceWhenSourcesIgnored() {
+        // Cas réel : phrase générique courte sans URL alors que des sources existent.
+        #expect(AppViewModel.shouldRetryVacuousAnswer(
+            finalText: "Que veux-tu que je fasse pour toi ?",
+            hasWebSources: true, used: 0))
+        // Réponse qui cite : on laisse passer, même courte.
+        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+            finalText: "Voir https://example.com/a",
+            hasWebSources: true, used: 0))
+        // Réponse longue : on laisse passer même sans URL explicite.
+        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+            finalText: String(repeating: "résultat détaillé. ", count: 30),
+            hasWebSources: true, used: 0))
+        // Pas de résultats web : réponse courte légitime (ex. "C'est fait.").
+        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+            finalText: "C'est fait.", hasWebSources: false, used: 0))
+        // Une seule relance : pas de boucle si le modèle ne sait pas faire.
+        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+            finalText: "Que veux-tu ?", hasWebSources: true, used: 1))
+    }
 }
