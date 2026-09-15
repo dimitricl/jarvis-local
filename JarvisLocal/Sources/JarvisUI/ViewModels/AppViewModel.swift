@@ -769,7 +769,7 @@ public final class AppViewModel {
         return remainder.count < minChars
     }
 
-    /// Applique le plafond de contexte (dérivé de num_ctx, voir OllamaService) à un
+    /// Applique le plafond de contexte (dérivé de num_ctx, voir ContextTrimming) à un
     /// historique avant envoi au modèle. Petit wrapper pour ne pas dupliquer le calcul
     /// du budget aux deux points d'appel (historique initial + fin d'itération de tools).
     private func trimmedForContext(_ messages: [OllamaMessage]) -> [OllamaMessage] {

@@ -13,10 +13,20 @@ func retryDelay(for attempt: Int) -> TimeInterval {
 }
 
 /// Implémentation Ollama de LLMProvider (JarvisCore) : streaming OpenAI-compatible
-/// + tool calling. Le ViewModel ne retient que le protocol ; cette classe reste
-/// le point de contact réseau/serveur (étape 2 : factory).
+/// + tool calling. Une implémentation parmi d'autres : la sélection passe par
+/// LLMProviderFactory, le ViewModel ne retient que le protocol.
+/// La configuration (endpoint, modèle, options) est INJECTÉE via le protocol
+/// AppSettingsProtocol — jamais lue sur le singleton concret : deux instances
+/// peuvent ainsi viser deux serveurs/modèles différents (tests, futur multi-LLM).
 public final class OllamaService: @unchecked Sendable, LLMProvider {
-    public static let shared = OllamaService()
+    /// Instance historique : câblée sur Settings.shared, conservée pour les tests
+    /// et le câblage test. La production passe par LLMProviderFactory.
+    public static let shared = OllamaService(settings: Settings.shared)
+
+    /// Référence non-Sendable couverte par @unchecked : en pratique, les lectures
+    /// (endpoint, modèle, options) sont des accès à des propriétés @Observable
+    /// confinées au MainActor, comme avant via le singleton.
+    private let settings: any AppSettingsProtocol
 
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
@@ -25,11 +35,13 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
         return URLSession(configuration: c)
     }()
 
-    private init() {}
+    public init(settings: any AppSettingsProtocol) {
+        self.settings = settings
+    }
 
     /// NOTE : `internal` pour les tests
     func makeURL() -> URL? {
-        let s = Settings.shared.ollamaURL
+        let s = settings.ollamaURL
         if s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
         if s.hasSuffix("/chat/completions") { return URL(string: s) }
         return URL(string: "\(s)/v1/chat/completions")
@@ -38,7 +50,7 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
     /// URL de base du serveur Ollama, sans le suffixe /v1/chat/completions éventuel.
     /// Sert pour l'API native (/api/generate) que l'endpoint OpenAI /v1 ne couvre pas.
     private func makeBaseURL() -> URL? {
-        var s = Settings.shared.ollamaURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        var s = settings.ollamaURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty { return nil }
         for suffix in ["/v1/chat/completions", "/v1", "/"] where s.hasSuffix(suffix) {
             s = String(s.dropLast(suffix.count))
@@ -110,7 +122,7 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
                 guard let self else { return }
                 let pi = ProcessInfo.processInfo
                 if !Self.keepAliveShouldSkip(lowPowerMode: pi.isLowPowerModeEnabled, thermalState: pi.thermalState) {
-                    let model = Settings.shared.model
+                    let model = self.settings.model
                     _ = await self.warmUp(model: model)
                 }
                 try? await Task.sleep(nanoseconds: 4 * 60 * 1_000_000_000)
@@ -130,7 +142,7 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
         guard let url = makeURL() else {
             return AsyncThrowingStream { $0.finish(throwing: OllamaError.invalidURL) }
         }
-        let m = Settings.shared.model
+        let m = settings.model
         let s = session
         let body = makeRequestBody(model: m, messages: messages, stream: true, tools: tools)
 
@@ -297,13 +309,13 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
                 return d
             },
             "stream": stream,
-            "options": ["temperature": Settings.shared.temperature, "num_predict": Settings.shared.maxTokens, "num_ctx": Settings.shared.numCtx] as [String: Any]
+            "options": ["temperature": settings.temperature, "num_predict": settings.maxTokens, "num_ctx": settings.numCtx] as [String: Any]
         ]
         // gemma4 est un modèle "thinking" : sans cette limite il passe 20-30s en raisonnement
         // interne AVANT chaque réponse (et ce, à CHAQUE itération de la boucle de tools), pendant
         // lesquelles l'UI n'affiche rien et l'utilisateur croit à un plantage. Mesuré : 32s -> 4s
         // sur un simple "hello" avec reasoning_effort none.
-        body["reasoning_effort"] = Settings.shared.reasoningEffort
+        body["reasoning_effort"] = settings.reasoningEffort
         if let t = tools { body["tools"] = t.map { $0.dictionary } }
         return body
     }

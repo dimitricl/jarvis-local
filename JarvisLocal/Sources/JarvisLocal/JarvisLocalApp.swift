@@ -11,16 +11,26 @@ import JarvisUI
 /// dépendances Package.swift, pas une convention.
 @main
 struct JarvisLocalApp: App {
-    @State private var viewModel = AppViewModel(
-        db: ServiceHosts.store,
-        ollama: ServiceHosts.llm,
-        tools: ServiceHosts.tools,
-        audio: ServiceHosts.tts,
-        stt: ServiceHosts.stt,
-        settings: Settings.shared
-    )
     private let settings = Settings.shared
+    /// Instance LLM retenue par l'app : construite par la factory (aucun singleton
+    /// caché), injectée au ViewModel sous `any LLMProvider`, et son keep-alive
+    /// démarre sur cette même instance — pas sur un `OllamaService.shared` séparé.
+    private let ollama: OllamaService
+    @State private var viewModel: AppViewModel
     private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "app")
+
+    init() {
+        let ollama = LLMProviderFactory.makeOllama(settings: Settings.shared)
+        self.ollama = ollama
+        _viewModel = State(initialValue: AppViewModel(
+            db: ServiceHosts.store,
+            ollama: ollama,
+            tools: ServiceHosts.tools,
+            audio: ServiceHosts.tts,
+            stt: ServiceHosts.stt,
+            settings: Settings.shared
+        ))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -33,7 +43,8 @@ struct JarvisLocalApp: App {
                     // Précharge le modèle sur le serveur et le maintient en mémoire :
                     // sans ça, après 5 min d'inactivité, chaque premier message subit
                     // ~20s de chargement à froid (l'endpoint /v1 ne supporte pas keep_alive).
-                    OllamaService.shared.startKeepAlive()
+                    // Démarré sur l'instance factory retenue par l'app (même config que le chat).
+                    ollama.startKeepAlive()
                     // MCP (chantier 5) : connexion en fond si activée dans Réglages.
                     // Pourquoi en fond : le spawn des process iMCP prend ~1s et ne doit
                     // pas retarder l'ouverture. Hors-ligne = natif en relais, invisible.
