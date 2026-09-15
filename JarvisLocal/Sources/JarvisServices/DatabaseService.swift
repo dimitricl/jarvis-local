@@ -138,13 +138,16 @@ actor DatabaseService {
     /// v3 : faits enrichis pour une mémoire auditable.
     /// - source_message_id : message d'origine (FK souple, SET NULL à la suppression).
     /// - confidence : fiabilité 0-1, défaut 1.0 (faits pré-v3 = pleine confiance).
-    /// - created_at : défaut unixepoch() ; backfillé à updated_at pour les lignes
-    ///   existantes (elles n'en ont pas).
+    /// - created_at : SANS défaut SQL — ADD COLUMN interdit les défauts non constants
+    ///   sur le SQLite embarqué ("Cannot add a column with non-constant default",
+    ///   constaté en prod : migration bloquée à mi-chemin, user_version restée à 2).
+    ///   La colonne est donc nullable, backfillée ci-dessous, et TOUJOURS renseignée
+    ///   explicitement par upsertFact (unixepoch() dans le VALUES — autorisé en DML).
     /// - status : 'active' (défaut) / 'superseded'.
     /// - superseded_by : fait remplaçant.
-    /// Rejouable sans risque : chaque ALTER est gardé par hasColumn (SQLite ne
-    /// connaît pas ADD COLUMN IF NOT EXISTS), le backfill est idempotent
-    /// (ne touche que les lignes à created_at NULL).
+    /// Rejouable sans risque : chaque ALTER est gardé par hasColumn, le backfill est
+    /// idempotent (ne touche que les lignes à created_at NULL) — y compris les bases
+    /// restées coincées à mi-migration v3 par le bug ci-dessus.
     private func migrateToV3() throws {
         if !(try hasColumn(table: "facts", column: "source_message_id")) {
             try exec("ALTER TABLE facts ADD COLUMN source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL")
@@ -153,7 +156,7 @@ actor DatabaseService {
             try exec("ALTER TABLE facts ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0")
         }
         if !(try hasColumn(table: "facts", column: "created_at")) {
-            try exec("ALTER TABLE facts ADD COLUMN created_at INTEGER DEFAULT (unixepoch())")
+            try exec("ALTER TABLE facts ADD COLUMN created_at INTEGER")
         }
         if !(try hasColumn(table: "facts", column: "status")) {
             try exec("ALTER TABLE facts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
@@ -271,7 +274,7 @@ actor DatabaseService {
     /// un éventuel status superseded repasse active : un upsert EST une réaffirmation.
     func upsertFact(key: String, value: String, sourceMessageId: Int?, confidence: Double) throws {
         let clamped = min(max(confidence, 0), 1)
-        try exec("INSERT OR REPLACE INTO facts (key, value, updated_at, source_message_id, confidence) VALUES (?, ?, unixepoch(), ?, ?)",
+        try exec("INSERT OR REPLACE INTO facts (key, value, updated_at, source_message_id, confidence, created_at) VALUES (?, ?, unixepoch(), ?, ?, unixepoch())",
                  params: [key, value, sourceMessageId as Any?, clamped as Any?])
     }
 
