@@ -14,7 +14,7 @@ final class JarvisLocalDatabaseServiceTests: XCTestCase {
         let db = DatabaseService.shared
         try await db.open(path: ":memory:")
         let version = try await db.userVersion()
-        XCTAssertEqual(version, 2)
+        XCTAssertEqual(version, 3)
         let convs = try await db.getAllConversations()
         XCTAssertFalse(convs.isEmpty)
     }

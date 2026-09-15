@@ -46,10 +46,11 @@ final class FakeStore: ConversationStore, FactsStore, ToolRunStore, MessageSearc
         return msg
     }
     func getAllFacts() async throws -> [Fact] { facts }
-    func upsertFact(key: String, value: String) async throws {
+    func upsertFact(key: String, value: String, sourceMessageId: Int?, confidence: Double) async throws {
         nextId += 1
         facts.removeAll { $0.key == key }
-        facts.append(Fact(id: nextId, key: key, value: value, updatedAt: Date()))
+        facts.append(Fact(id: nextId, key: key, value: value, updatedAt: Date(),
+                          sourceMessageId: sourceMessageId, confidence: confidence))
     }
     func deleteFact(key: String) async throws { facts.removeAll { $0.key == key } }
     func deleteAllFacts() async throws { facts = [] }

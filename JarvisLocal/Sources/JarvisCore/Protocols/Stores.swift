@@ -45,9 +45,16 @@ public extension ConversationStore {
 
 public protocol FactsStore {
     func getAllFacts() async throws -> [Fact]
-    func upsertFact(key: String, value: String) async throws
+    func upsertFact(key: String, value: String, sourceMessageId: Int?, confidence: Double) async throws
     func deleteFact(key: String) async throws
     func deleteAllFacts() async throws
+}
+
+public extension FactsStore {
+    /// Appelants historiques (et faits pleinement fiables sans source connue).
+    func upsertFact(key: String, value: String) async throws {
+        try await upsertFact(key: key, value: value, sourceMessageId: nil, confidence: 1.0)
+    }
 }
 
 public protocol ToolRunStore {

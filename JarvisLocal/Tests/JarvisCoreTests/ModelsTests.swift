@@ -236,3 +236,36 @@ final class JarvisLocalStringExtensionsTests: XCTestCase {
         XCTAssertFalse(result.contains("ab"))
     }
 }
+
+// MARK: - Fact v3 Codable (rétrocompatibilité)
+
+// Les JSON pré-v3 (sans les nouvelles clés) doivent décoder avec des défauts
+// sains ; les JSON v3 doivent survivre à l'aller-retour. FactExtractor n'est
+// pas concerné (aucune modification de sa logique dans cette étape).
+final class JarvisLocalFactV3CodableTests: XCTestCase {
+    func testOldJSONWithoutNewKeysDecodesWithDefaults() throws {
+        let raw = """
+        {"id": 2, "key": "user.city", "value": "Paris", "updated_at": 1700000000}
+        """
+        let fact = try JSONDecoder().decode(Fact.self, from: Data(raw.utf8))
+        XCTAssertEqual(fact.key, "user.city")
+        XCTAssertNil(fact.sourceMessageId)
+        XCTAssertEqual(fact.confidence, 1.0)
+        XCTAssertEqual(fact.status, .active)
+        XCTAssertNil(fact.supersededBy)
+    }
+
+    func testNewKeysRoundTrip() throws {
+        let fact = Fact(id: 1, key: "user.name", value: "Dimitri", updatedAt: Date(),
+                        sourceMessageId: 42, confidence: 0.7,
+                        status: .superseded, supersededBy: 7)
+        let data = try JSONEncoder().encode(fact)
+        let decoded = try JSONDecoder().decode(Fact.self, from: data)
+        XCTAssertEqual(decoded.sourceMessageId, 42)
+        XCTAssertEqual(decoded.confidence, 0.7)
+        XCTAssertEqual(decoded.status, .superseded)
+        XCTAssertEqual(decoded.supersededBy, 7)
+        XCTAssertEqual(decoded.createdAt.timeIntervalSince1970,
+                       fact.createdAt.timeIntervalSince1970, accuracy: 0.001)
+    }
+}

@@ -43,7 +43,8 @@ actor DatabaseService {
         // chaque palier ne s'exécute qu'une fois, dans l'ordre. AVANT : que des
         // CREATE IF NOT EXISTS — impossible d'écrire une vraie migration
         // (ALTER, backfill, purge) sans risquer de la rejouer ou de l'oublier.
-        // Schéma actuel : v1 = tables initiales, v2 = index + purge orphelins.
+        // Schéma actuel : v1 = tables initiales, v2 = index + purge orphelins,
+        // v3 = faits enrichis (source, confidence, created_at, status, superseded_by).
         var version = try userVersion()
         if version < 1 {
             try migrateToV1()
@@ -53,6 +54,11 @@ actor DatabaseService {
         if version < 2 {
             try migrateToV2()
             version = 2
+            try setUserVersion(version)
+        }
+        if version < 3 {
+            try migrateToV3()
+            version = 3
             try setUserVersion(version)
         }
     }
@@ -127,6 +133,46 @@ actor DatabaseService {
     /// explicite des orphelins, rejouable sans risque).
     private func migrateToV2() throws {
         try exec("DELETE FROM tool_runs WHERE conversation_id IS NOT NULL AND conversation_id NOT IN (SELECT id FROM conversations)")
+    }
+
+    /// v3 : faits enrichis pour une mémoire auditable.
+    /// - source_message_id : message d'origine (FK souple, SET NULL à la suppression).
+    /// - confidence : fiabilité 0-1, défaut 1.0 (faits pré-v3 = pleine confiance).
+    /// - created_at : défaut unixepoch() ; backfillé à updated_at pour les lignes
+    ///   existantes (elles n'en ont pas).
+    /// - status : 'active' (défaut) / 'superseded'.
+    /// - superseded_by : fait remplaçant.
+    /// Rejouable sans risque : chaque ALTER est gardé par hasColumn (SQLite ne
+    /// connaît pas ADD COLUMN IF NOT EXISTS), le backfill est idempotent
+    /// (ne touche que les lignes à created_at NULL).
+    private func migrateToV3() throws {
+        if !(try hasColumn(table: "facts", column: "source_message_id")) {
+            try exec("ALTER TABLE facts ADD COLUMN source_message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL")
+        }
+        if !(try hasColumn(table: "facts", column: "confidence")) {
+            try exec("ALTER TABLE facts ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0")
+        }
+        if !(try hasColumn(table: "facts", column: "created_at")) {
+            try exec("ALTER TABLE facts ADD COLUMN created_at INTEGER DEFAULT (unixepoch())")
+        }
+        if !(try hasColumn(table: "facts", column: "status")) {
+            try exec("ALTER TABLE facts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+        }
+        if !(try hasColumn(table: "facts", column: "superseded_by")) {
+            try exec("ALTER TABLE facts ADD COLUMN superseded_by INTEGER REFERENCES facts(id) ON DELETE SET NULL")
+        }
+        try exec("UPDATE facts SET created_at = updated_at WHERE created_at IS NULL")
+        try exec("CREATE INDEX IF NOT EXISTS idx_facts_status ON facts(status)")
+    }
+
+    /// true si la colonne existe (garde des ALTER rejouables). Forme PRAGMA
+    /// classique (comme userVersion) : les fonctions table-valued pragma_*
+    /// n'acceptent pas de paramètre lié sur toutes les versions de SQLite.
+    /// `table` est une constante interne (jamais une entrée utilisateur).
+    /// `internal` pour les tests (vérifie le schéma après migration).
+    func hasColumn(table: String, column: String) throws -> Bool {
+        let rows: [[String: Any]] = try queryRaw("PRAGMA table_info(\(table))")
+        return rows.contains { ($0["name"] as? String) == column }
     }
 
     private func exec(_ sql: String) throws {
@@ -212,11 +258,28 @@ actor DatabaseService {
     // MARK: - Facts
 
     func getAllFacts() throws -> [Fact] {
-        try query("SELECT id, key, value, updated_at FROM facts ORDER BY updated_at DESC")
+        try query("SELECT id, key, value, updated_at, source_message_id, confidence, created_at, status, superseded_by FROM facts ORDER BY updated_at DESC")
     }
 
-    func upsertFact(key: String, value: String) throws {
-        try exec("INSERT OR REPLACE INTO facts (key, value, updated_at) VALUES (?, ?, unixepoch())", params: [key, value])
+    func getFact(key: String) throws -> Fact? {
+        try query("SELECT id, key, value, updated_at, source_message_id, confidence, created_at, status, superseded_by FROM facts WHERE key = ?", args: [key]).first
+    }
+
+    /// Upsert avec traçabilité (étape 3). La confidence est clampée 0-1 (un écart
+    /// de modèle ne doit pas polluer la base).
+    /// NOTE : INSERT OR REPLACE recrée la ligne — created_at repart à maintenant et
+    /// un éventuel status superseded repasse active : un upsert EST une réaffirmation.
+    func upsertFact(key: String, value: String, sourceMessageId: Int?, confidence: Double) throws {
+        let clamped = min(max(confidence, 0), 1)
+        try exec("INSERT OR REPLACE INTO facts (key, value, updated_at, source_message_id, confidence) VALUES (?, ?, unixepoch(), ?, ?)",
+                 params: [key, value, sourceMessageId as Any?, clamped as Any?])
+    }
+
+    /// Marque un fait comme remplacé par un autre (conservé pour l'audit).
+    /// L'exclusion du contexte (prompt système) arrive avec l'exploitation.
+    func supersedeFact(key: String, byFactId: Int) throws {
+        try exec("UPDATE facts SET status = 'superseded', superseded_by = ?, updated_at = unixepoch() WHERE key = ?",
+                 params: [byFactId as Any?, key as Any?])
     }
 
     func deleteFact(key: String) throws {
@@ -311,11 +374,18 @@ actor DatabaseService {
             bindArgs(stmt, args)
             var results: [Fact] = []
             while sqlite3_step(stmt) == SQLITE_ROW {
+                let sourceId = sqlite3_column_type(stmt, 4) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 4)) : nil
+                let replacedBy = sqlite3_column_type(stmt, 8) != SQLITE_NULL ? Int(sqlite3_column_int(stmt, 8)) : nil
                 results.append(Fact(
                     id: Int(sqlite3_column_int(stmt, 0)),
                     key: colText(stmt, 1),
                     value: colText(stmt, 2),
-                    updatedAt: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int(stmt, 3)))
+                    updatedAt: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int(stmt, 3))),
+                    sourceMessageId: sourceId,
+                    confidence: sqlite3_column_double(stmt, 5),
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(sqlite3_column_int(stmt, 6))),
+                    status: FactStatus(rawValue: colText(stmt, 7)) ?? .active,
+                    supersededBy: replacedBy
                 ))
             }
             return results
