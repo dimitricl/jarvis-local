@@ -39,6 +39,7 @@ public protocol AppSettingsProtocol: AnyObject, Observable {
     var numCtx: Int { get set }
     var maxTokens: Int { get set }
     var temperature: Double { get set }
+    var maxToolCallsPerTurn: Int { get set }
     var ttsEnabled: Bool { get set }
     var voiceEnabled: Bool { get set }
     var ttsVoiceIdentifier: String { get set }

@@ -62,6 +62,19 @@ public final class Settings: AppSettingsProtocol {
             UserDefaults.standard.set(temperature, forKey: "temperature")
         }
     }
+    /// Budget anti-boucle (étape 4) : nombre max d'invocations d'UN MÊME outil par
+    /// tour de conversation. Le filtre exact existant (mêmes args) ne coupe pas un
+    /// modèle qui reformule sa requête en boucle avec des args toujours différents —
+    /// ce compteur par nom, si. 4 par défaut : les enchaînements légitimes
+    /// (recherche → lecture → note…) n'appellent jamais 4× le même outil dans un
+    /// tour, une boucle si.
+    public var maxToolCallsPerTurn: Int {
+        didSet {
+            let clamped = max(1, min(maxToolCallsPerTurn, 10))
+            if clamped != maxToolCallsPerTurn { maxToolCallsPerTurn = clamped; return }
+            UserDefaults.standard.set(maxToolCallsPerTurn, forKey: "max_tool_calls_per_turn")
+        }
+    }
     public var ttsEnabled: Bool {
         didSet { UserDefaults.standard.set(ttsEnabled, forKey: "tts_enabled") }
     }
@@ -228,6 +241,8 @@ private init() {
         // think:false explicite plutôt que remonter encore le plafond.
         let savedMaxTokens = defaults.object(forKey: "max_tokens") as? Int ?? 32768
         self.maxTokens = max(256, min(savedMaxTokens, 32768))
+        let savedToolBudget = defaults.object(forKey: "max_tool_calls_per_turn") as? Int ?? 4
+        self.maxToolCallsPerTurn = max(1, min(savedToolBudget, 10))
         let savedTemp = defaults.object(forKey: "temperature") as? Double ?? 0.7
         self.temperature = max(0, min(savedTemp, 2))
         self.ttsEnabled = defaults.bool(forKey: "tts_enabled")

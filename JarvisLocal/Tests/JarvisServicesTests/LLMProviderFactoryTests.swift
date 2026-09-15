@@ -16,6 +16,7 @@ final class StubSettings: AppSettingsProtocol {
     var numCtx = 8192
     var maxTokens = 1024
     var temperature = 0.5
+    var maxToolCallsPerTurn = 3
     var ttsEnabled = false
     var voiceEnabled = false
     var ttsVoiceIdentifier = ""

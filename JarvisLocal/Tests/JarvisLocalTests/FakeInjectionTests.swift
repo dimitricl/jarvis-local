@@ -111,6 +111,7 @@ final class FakeSettings: AppSettingsProtocol {
     var numCtx = 16384
     var maxTokens = 4096
     var temperature = 0.7
+    var maxToolCallsPerTurn = 3
     var ttsEnabled = false
     var voiceEnabled = false
     var ttsVoiceIdentifier = ""

@@ -116,6 +116,25 @@ struct SettingsView<S: AppSettingsProtocol>: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Boucle d'outils") {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Text("Max d'appels par outil et par tour :")
+                        Spacer()
+                        Text("\(settings.maxToolCallsPerTurn)")
+                            .font(JarvisTheme.mono(10))
+                            .foregroundStyle(JarvisTheme.textSecondary)
+                    }
+                    Slider(value: Binding(
+                        get: { Double(settings.maxToolCallsPerTurn) },
+                        set: { settings.maxToolCallsPerTurn = Int($0) }
+                    ), in: 1...10, step: 1)
+                    Text("Coupe-circuit anti-boucle : un modèle qui rappelle search_web en boucle (requêtes reformulées) est stoppé après N invocations du même outil dans le même tour.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Mise à jour") {
                 HStack {
                     Text("Version \(settings.currentVersion)")

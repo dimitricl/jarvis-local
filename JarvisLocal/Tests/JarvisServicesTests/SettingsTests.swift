@@ -73,5 +73,20 @@ final class JarvisLocalSettingsTests: XCTestCase {
         XCTAssertFalse(settings.ollamaURL.isEmpty)
         XCTAssertFalse(settings.model.isEmpty)
         XCTAssertFalse(settings.reasoningEffort.isEmpty)
+        XCTAssertGreaterThanOrEqual(settings.maxToolCallsPerTurn, 1)
+    }
+
+    // MARK: - Budget outils (étape 4)
+
+    func testToolBudgetClampedToSaneRange() {
+        let original = settings.maxToolCallsPerTurn
+        defer { settings.maxToolCallsPerTurn = original }
+
+        settings.maxToolCallsPerTurn = 0
+        XCTAssertEqual(settings.maxToolCallsPerTurn, 1) // plancher : 0 interdirait tout outil
+        settings.maxToolCallsPerTurn = 100
+        XCTAssertEqual(settings.maxToolCallsPerTurn, 10) // plafond
+        settings.maxToolCallsPerTurn = 4
+        XCTAssertEqual(settings.maxToolCallsPerTurn, 4)
     }
 }

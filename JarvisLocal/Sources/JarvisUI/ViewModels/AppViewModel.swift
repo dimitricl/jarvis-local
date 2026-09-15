@@ -361,6 +361,11 @@ public final class AppViewModel {
 
             let maxLoops = 5
             var toolCallHistory = Set<String>()
+            // Budget par NOM de tool (étape 4) : complément du filtre exact ci-dessus,
+            // qui ne voit pas les reformulations (même tool, args différents).
+            // Remis à zéro à chaque tour ; configurable via les réglages.
+            var toolCallCounts: [String: Int] = [:]
+            let toolCallBudget = max(1, settings.maxToolCallsPerTurn)
             // URLs sources réellement consultées ce tour (extraites des résultats
             // search_web/read_url) : si la réponse finale ne cite rien, on les ajoute
             // d'office — la consigne "Sources :" du prompt ne suffit pas, le petit
@@ -474,8 +479,21 @@ public final class AppViewModel {
                     ))
                     await auditTool(conversationId: cid, tool: dup.function.name, args: dup.function.arguments, status: "ignoré", result: "Doublon : déjà appelé avec ces arguments exacts dans ce tour.")
                 }
-                if freshCalls.isEmpty {
-                    ollamaMessages.append(OllamaMessage(role: "user", content: "Même outil déjà appelé. Réponds maintenant avec les résultats déjà obtenus."))
+                // Coupe-circuit par nom (étape 4) : le filtre exact ne voit pas les
+                // reformulations (même tool, args différents). Au-delà du budget, l'appel
+                // n'est PAS exécuté mais reçoit quand même son message "tool" (sinon
+                // tool_call_id orphelin → le backend rejette) + trace d'audit "budget".
+                let (allowedCalls, budgetedCalls) = Self.partitionBudgetedToolCalls(freshCalls, counts: &toolCallCounts, budget: toolCallBudget)
+                for over in budgetedCalls {
+                    ollamaMessages.append(OllamaMessage(
+                        role: "tool",
+                        content: "Appel ignoré : budget épuisé pour « \(over.function.name) » (max \(toolCallBudget) appels par tour). Réponds maintenant avec les résultats déjà obtenus, sans rappeler cet outil.",
+                        toolCallId: over.id
+                    ))
+                    await auditTool(conversationId: cid, tool: over.function.name, args: over.function.arguments, status: "budget", result: "Budget épuisé (\(toolCallBudget)/tour) : appel non exécuté.")
+                }
+                if allowedCalls.isEmpty {
+                    ollamaMessages.append(OllamaMessage(role: "user", content: budgetedCalls.isEmpty ? "Même outil déjà appelé. Réponds maintenant avec les résultats déjà obtenus." : "Budget d'appels épuisé : réponds maintenant avec les résultats déjà obtenus, sans rappeler d'outil."))
                     continue
                 }
 
@@ -489,7 +507,7 @@ public final class AppViewModel {
                     }
                 }
 
-                for tc in freshCalls {
+                for tc in allowedCalls {
                     try Task.checkCancellation()
 
                     // AVANT : un JSON d'arguments malformé (fréquent avec les petits modèles
@@ -683,6 +701,30 @@ public final class AppViewModel {
             }
         }
         return (fresh, duplicates)
+    }
+
+    /// Coupe-circuit par NOM de tool (étape 4) : borne le nombre d'invocations d'un
+    /// même outil par tour de conversation. Couvre le trou du filtre exact
+    /// ci-dessus : un modèle qui rappelle search_web avec des args TOUJOURS
+    /// différents (boucle de reformulation) passait au travers, maxLoops seul
+    /// pouvant laisser passer maxLoops × batchSize invocations.
+    /// Seuls les autorisés incrémentent `counts` ; les refusés reçoivent quand même
+    /// un message "tool" côté appelant (pas d'exécution, pas de tool_call_id orphelin).
+    /// Fonction pure — `internal` pour les tests.
+    nonisolated static func partitionBudgetedToolCalls(_ calls: [ToolCall], counts: inout [String: Int], budget: Int) -> (allowed: [ToolCall], refused: [ToolCall]) {
+        let limit = max(1, budget)
+        var allowed: [ToolCall] = []
+        var refused: [ToolCall] = []
+        for tc in calls {
+            let used = counts[tc.function.name, default: 0]
+            if used < limit {
+                counts[tc.function.name] = used + 1
+                allowed.append(tc)
+            } else {
+                refused.append(tc)
+            }
+        }
+        return (allowed, refused)
     }
 
     /// Parse les arguments d'un tool call. L'implémentation pure vit dans JarvisCore
