@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0 (2026-09-15)
+
+- Architecture en couches vérifiables par le compilateur : `JarvisCore`
+  (models + protocols purs), `JarvisServices` (seul à toucher SQLite),
+  `JarvisUI` (vues + modèles, dépend de Core uniquement) ; tests par module
+- LLM découplé : protocol `LLMProvider` + factory (Ollama = 1re implémentation),
+  configuration injectée au lieu du singleton, keep-alive sur l'instance retenue
+- Mémoire : faits enrichis (message source, confiance 0-1, `created_at`, statut
+  actif/remplacé) + migration DB v3 rejouable, données existantes préservées
+- Budget anti-boucle : max d'appels d'un même outil par tour (défaut 4, réglable
+  dans Réglages > Boucle d'outils), prouvé par test sur `search_web`
+
 ## 0.5.1 (2026-09-14)
 
 - Fix alertes mémoire macOS (pics à 40+ Go) : plafonds sur downloads web

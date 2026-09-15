@@ -55,7 +55,7 @@ plutil -replace CFBundleShortVersionString -string "$VERSION" "${TMP_BUNDLE}/Con
 plutil -replace CFBundleVersion -string "$VERSION" "${TMP_BUNDLE}/Contents/Info.plist"
 
 # Signature ad-hoc + hardened runtime (la signature Developer ID, elle, se fait en CI release).
-codesign -s - --options runtime --entitlements JarvisLocal.entitlements "${TMP_BUNDLE}/Contents/MacOS/${APP_NAME}" 2>/dev/null || {
+codesign -s - --options runtime --entitlements JarvisLocal/JarvisLocal.entitlements "${TMP_BUNDLE}/Contents/MacOS/${APP_NAME}" 2>/dev/null || {
     echo "    (signature ad-hoc impossible, bundle non signé)"
 }
 

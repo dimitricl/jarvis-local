@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0] - 2026-09-15
+
+### Architecture en couches (4 chantiers)
+- Frontières vérifiables par le compilateur : JarvisCore (models + protocols
+  purs), JarvisServices (actors + I/O, seul à toucher SQLite), JarvisUI
+  (Views + ViewModels, dépend de Core uniquement) ; tests par module
+  (CoreTests/ServicesTests/LocalTests) + garde-fous de frontière
+- LLM découplé : protocol LLMProvider + `LLMProviderKind` + factory (Ollama =
+  1re implémentation, pas de second provider) ; configuration injectée via
+  protocol, keep-alive sur l'instance retenue par l'app
+- Mémoire : faits enrichis (message source, confiance 0-1, created_at, statut
+  actif/remplacé) + migration DB v3 rejouable (backfill, données préservées) ;
+  FactExtractor intact
+- Budget anti-boucle : max d'invocations d'un même outil par tour (défaut 4,
+  clamp 1-10, Réglages > Boucle d'outils) ; boucle `search_web` prouvée coupée
+  par test
+
 ## [0.5.1] - 2026-09-14
 
 ### Correctifs mémoire (pics à 40+ Go)
