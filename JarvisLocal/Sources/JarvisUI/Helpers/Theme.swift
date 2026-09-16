@@ -9,35 +9,42 @@ import SwiftUI
 import AppKit
 import JarvisCore
 
-/// Identité visuelle "Jarvis" : palette délibérée plutôt que les couleurs système par défaut,
-/// pour que l'app ne ressemble pas à n'importe quelle fenêtre SwiftUI générique. Inspirée du
-/// registre HUD holographique (cyan/ambre sur fond quasi-noir), pas d'un thème "chat" cutesy —
-/// cohérent avec un assistant système, pas une messagerie.
+/// Identité visuelle : plus de valeurs codées en dur — chaque token est une
+/// couleur SÉMANTIQUE système qui s'adapte au mode clair/sombre/contraste
+/// (recette Apple : jamais de composantes RGB figées).
+/// L'identité restante, volontaire : bleu système (actions), orange (attention),
+/// rouge (danger), mono pour le registre technique. Le HUD holographique
+/// opaque est abandonné au profit des backgrounds système base/élevé.
 enum JarvisTheme {
-    // Fond quasi-noir plutôt que noir pur : évite l'effet "trou" sur un écran, garde une
-    // profondeur perceptible entre les panneaux.
-    static let background = Color(red: 0.043, green: 0.055, blue: 0.075)   // #0B0E13
-    static let panel = Color(red: 0.071, green: 0.086, blue: 0.114)        // #12161D
-    static let panelElevated = Color(red: 0.098, green: 0.114, blue: 0.145) // #191D25
+    // Fond de fenêtre (base) + surfaces élevées : le système gère base/élevé
+    // dans les deux apparences (en sombre, l'élevé est plus clair : la
+    // profondeur est préservée sans coder deux palettes).
+    static let background = Color(nsColor: .windowBackgroundColor)
+    static let panel = Color(nsColor: .controlBackgroundColor)
+    // alternatingContentBackgroundColors est un tableau (lignes zébrées), pas une
+    // couleur : controlColor (face des contrôles) comme neutre élevé L2.
+    static let panelElevated = Color(nsColor: .controlColor)
 
-    // Cyan arc-reactor : la seule couleur "signature" de l'app. Réservée aux éléments actifs
-    // (statut connecté, écoute, streaming) — pas de décoration gratuite ailleurs.
-    static let accent = Color(red: 0.298, green: 0.847, blue: 0.925)       // #4CD8EC
+    // Bleu système (ex-cyan signature) : actions, envoi, liens, statuts OK.
+    // Fixes mais valides dans les deux modes (même rôle que le bleu Messages).
+    static let accent: Color = .blue
     static let accentDim = accent.opacity(0.35)
 
-    // Ambre pour les états d'attention (outil en cours, confirmation requise) — jamais confondu
-    // avec le cyan, jamais confondu avec le rouge d'erreur.
-    static let amber = Color(red: 0.965, green: 0.702, blue: 0.302)        // #F6B34D
-    static let danger = Color(red: 0.937, green: 0.396, blue: 0.373)       // #EF655F
+    // Orange = attention (outil en cours, confirmation, rappels) ; rouge = erreur.
+    // Système, jamais confondus avec le bleu, jamais confondus entre eux.
+    static let amber: Color = .orange
+    static let danger: Color = .red
 
-    static let textPrimary = Color(red: 0.906, green: 0.929, blue: 0.949)  // #E7EDF2
-    static let textSecondary = Color(red: 0.557, green: 0.612, blue: 0.667) // #8E9CAA
-    static let textTertiary = Color(red: 0.373, green: 0.416, blue: 0.463) // #5F6A76
-    static let divider = Color.white.opacity(0.08)
+    // Labels hiérarchiques système : contraste ≥ 4.5:1 garanti par le système
+    // dans les deux apparences (plus de gris hardcodé qui se lave sur fond clair).
+    static let textPrimary: Color = .primary
+    static let textSecondary: Color = .secondary
+    // Pas de Color.tertiary (ShapeStyle uniquement) : équivalent AppKit dynamique.
+    static let textTertiary = Color(nsColor: .tertiaryLabelColor)
+    static let divider = Color(nsColor: .separatorColor)
 
-    // Équivalent NSColor pour les vues AppKit (NSTextView, etc.) qui ne voient pas le thème SwiftUI.
-    // Les valeurs sont les mêmes que leurs équivalents SwiftUI ci-dessus.
-    static let nsTextPrimary: NSColor = NSColor(srgbRed: 0.906, green: 0.929, blue: 0.949, alpha: 1)
+    // Équivalent AppKit dynamique pour NSTextView (ne voit pas le thème SwiftUI).
+    static let nsTextPrimary: NSColor = .labelColor
 
     // Police utilitaire monospace pour tout ce qui relève du "système" (timestamps, statuts,
     // noms de tools) — renforce le registre technique sans en faire trop, réservé aux petits
