@@ -1,9 +1,15 @@
 import SwiftUI
-import AppKit // NSApp (menu bar : afficher/masquer/quitter)
+import AppKit // NSApplicationDelegate (quitter à la fermeture de la fenêtre)
 import os
 import JarvisCore
 import JarvisServices
 import JarvisUI
+
+/// L'app ne vit plus en arrière-plan : fermer la dernière fenêtre quitte.
+/// (Avant, la MenuBarExtra maintenait le process en vie fenêtre fermée.)
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
 
 /// Composition root : seul endroit de l'app qui connaît à la fois les concrets
 /// (JarvisServices) et l'UI (JarvisUI) pour les assembler. Les targets Sources
@@ -16,6 +22,7 @@ struct JarvisLocalApp: App {
     /// caché), injectée au ViewModel sous `any LLMProvider`, et son keep-alive
     /// démarre sur cette même instance — pas sur un `OllamaService.shared` séparé.
     private let ollama: OllamaService
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var viewModel: AppViewModel
     private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "app")
 
@@ -62,24 +69,9 @@ struct JarvisLocalApp: App {
         // système s'étend sur toute la zone haute (phase 1).
         .windowToolbarStyle(.unified)
 
-        // Un assistant qui exige sa fenêtre rate son job : la barre de menu permet
-        // de piloter Jarvis (mode vocal !) sans fenêtre au premier plan.
-        MenuBarExtra("JarvisLocal", systemImage: "waveform") {
-            Button(viewModel.isVoiceMode ? "Quitter le mode vocal" : "Mode vocal mains-libres") {
-                Task { await viewModel.toggleVoiceMode() }
-            }
-            .accessibilityLabel(viewModel.isVoiceMode ? "Quitter le mode vocal" : "Activer le mode vocal mains-libres")
-            Divider()
-            Button("Afficher Jarvis") {
-                NSApp.activate(ignoringOtherApps: true)
-                NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
-            }
-            .accessibilityLabel("Afficher la fenêtre Jarvis")
-            Button("Quitter JarvisLocal") {
-                NSApp.terminate(nil)
-            }
-            .accessibilityLabel("Quitter JarvisLocal")
-        }
+        // Pas de MenuBarExtra : l'app ne reste PAS en arrière-plan fenêtre
+        // fermée — AppDelegate quitte à la fermeture de la dernière fenêtre.
+        // Le mode vocal reste disponible tant que la fenêtre est ouverte.
     }
 
     private func logVersion() {
