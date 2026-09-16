@@ -57,7 +57,7 @@ struct SearchPanelView: View {
         }
         .padding(20)
         .frame(width: 520)
-        .background(JarvisTheme.background)
+        // Pas de fond opaque : la fenêtre de sheet fournit le verre système (phase 1).
         .task {
             // Pré-remplit avec la requête lancée via /search
             query = vm.searchQuery

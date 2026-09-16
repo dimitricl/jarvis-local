@@ -58,6 +58,9 @@ struct JarvisLocalApp: App {
                 }
         }
         .windowResizability(.contentSize)
+        // Chrome Liquid Glass : la toolbar fusionne avec la title bar, le verre
+        // système s'étend sur toute la zone haute (phase 1).
+        .windowToolbarStyle(.unified)
 
         // Un assistant qui exige sa fenêtre rate son job : la barre de menu permet
         // de piloter Jarvis (mode vocal !) sans fenêtre au premier plan.

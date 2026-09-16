@@ -265,7 +265,8 @@ private struct ToolRunsPanel: View {
         }
         .padding(16)
         .frame(width: 560)
-        .background(JarvisTheme.background)
+        // Pas de fond opaque : la fenêtre de sheet fournit le verre système (phase 1).
+        // Les lignes gardent leurs panneaux (phase 3 : migration complète du thème).
         .task { await vm.loadToolRuns() }
     }
 

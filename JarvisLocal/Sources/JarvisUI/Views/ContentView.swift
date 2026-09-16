@@ -26,6 +26,9 @@ public struct ContentView<S: AppSettingsProtocol>: View {
                 Button(action: { vm.showSettings.toggle() }) {
                     Image(systemName: "gearshape")
                 }
+                // Pastille de verre (phase 1) : la toolbar unifiée fond le bouton
+                // dans le chrome système au lieu d'une icône flottante.
+                .glassEffect()
                 .accessibilityLabel("Ouvrir les réglages")
                 .sheet(isPresented: Bindable(vm).showSettings) {
                     SettingsView(settings: settings)

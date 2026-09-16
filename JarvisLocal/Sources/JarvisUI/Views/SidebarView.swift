@@ -25,33 +25,44 @@ struct SidebarView: View {
                 .tracking(1.5)
                 .foregroundStyle(JarvisTheme.textPrimary)
             Spacer()
-            Button(action: { vm.showSearch.toggle() }) {
-                Image(systemName: "magnifyingglass")
+            // Pastilles de verre groupées (phase 1) : le container fusionne les
+            // formes en une surface continue avec morphing ; teintes sémantiques
+            // (ambre = mémoire, accent = création), neutres sinon.
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    Button(action: { vm.showSearch.toggle() }) {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(JarvisTheme.textSecondary)
+                    .glassEffect()
+                    .help("Rechercher dans les conversations (/search)")
+                    .accessibilityLabel("Rechercher dans les conversations")
+                    Button(action: { vm.showHelp.toggle() }) {
+                        Image(systemName: "questionmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(JarvisTheme.textSecondary)
+                    .glassEffect()
+                    .help("Aide des commandes (/help)")
+                    .accessibilityLabel("Aide des commandes")
+                    Button(action: { vm.showFacts.toggle() }) {
+                        Image(systemName: "brain")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(JarvisTheme.amber)
+                    .glassEffect(.regular.tint(JarvisTheme.amber))
+                    .help("Mémoire")
+                    .accessibilityLabel("Afficher la mémoire des faits")
+                    Button(action: { Task { await vm.newConversation() } }) {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(JarvisTheme.accent)
+                    .glassEffect(.regular.tint(JarvisTheme.accent))
+                    .accessibilityLabel("Nouvelle conversation")
+                }
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(JarvisTheme.textSecondary)
-            .help("Rechercher dans les conversations (/search)")
-            .accessibilityLabel("Rechercher dans les conversations")
-            Button(action: { vm.showHelp.toggle() }) {
-                Image(systemName: "questionmark.circle")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(JarvisTheme.textSecondary)
-            .help("Aide des commandes (/help)")
-            .accessibilityLabel("Aide des commandes")
-            Button(action: { vm.showFacts.toggle() }) {
-                Image(systemName: "brain")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(JarvisTheme.textSecondary)
-            .help("Mémoire")
-            .accessibilityLabel("Afficher la mémoire des faits")
-            Button(action: { Task { await vm.newConversation() } }) {
-                Image(systemName: "plus")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(JarvisTheme.textSecondary)
-            .accessibilityLabel("Nouvelle conversation")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
