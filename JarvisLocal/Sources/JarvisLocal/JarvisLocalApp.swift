@@ -24,13 +24,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// Coupe tout ce qui peut retenir la sortie : voix, keep-alive réseau,
-    /// serveurs MCP enfants (sinon orphelins). Best-effort synchrone —
-    /// le process sort de toute façon, mais sans traîner.
+    /// Coupe tout ce qui peut retenir la sortie : keep-alive réseau (synchrone,
+    /// cheap), voix + serveurs MCP (best-effort). Le teardown audio
+    /// (AVAudioEngine.stop sur moteur actif) peut bloquer plusieurs secondes :
+    /// il part donc sur un thread de fond — exit() ne l'attend pas, les
+    /// threads meurent avec le process. Surtout pas de cancel() synchrone
+    /// sur le main thread ici (constaté : ~5 s de sortie après usage vocal).
     func applicationWillTerminate(_ notification: Notification) {
         Self.onWillTerminate?()
-        ServiceHosts.tts.stopSpeaking()
-        ServiceHosts.stt.cancel()
+        DispatchQueue.global(qos: .userInitiated).async {
+            ServiceHosts.tts.stopSpeaking()
+            ServiceHosts.stt.cancel()
+        }
         Task { await ToolService.shared.configureMCP(nil) }
     }
 
