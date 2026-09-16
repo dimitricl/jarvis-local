@@ -21,19 +21,59 @@ public struct ContentView<S: AppSettingsProtocol>: View {
         } detail: {
             ChatView()
         }
+        // Toolbar native (recette Apple) : contrôles standard en styles verre
+        // système — le chrome vient du système, pas de pastilles manuelles.
+        // 3 groupes max (HIG) : création | navigation | réglages.
         .toolbar {
-            ToolbarItemGroup {
+            ToolbarItem(placement: .primaryAction) {
+                Button(action: { Task { await vm.newConversation() } }) {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.glassProminent)
+                .tint(JarvisTheme.accent)
+                .accessibilityLabel("Nouvelle conversation (/clear)")
+                .help("Nouvelle conversation (/clear)")
+            }
+            ToolbarItemGroup(placement: .automatic) {
+                Button(action: { vm.showSearch.toggle() }) {
+                    Image(systemName: "magnifyingglass")
+                }
+                .buttonStyle(.glass)
+                .accessibilityLabel("Rechercher dans les conversations (/search)")
+                .help("Rechercher dans les conversations (/search)")
+                Button(action: { vm.showFacts.toggle() }) {
+                    Image(systemName: "brain")
+                }
+                .buttonStyle(.glass)
+                .tint(JarvisTheme.amber)
+                .accessibilityLabel("Afficher la mémoire des faits (/facts)")
+                .help("Mémoire des faits (/facts)")
+                Button(action: { vm.showHelp.toggle() }) {
+                    Image(systemName: "questionmark.circle")
+                }
+                .buttonStyle(.glass)
+                .accessibilityLabel("Aide des commandes (/help)")
+                .help("Aide des commandes (/help)")
+            }
+            ToolbarItemGroup(placement: .automatic) {
                 Button(action: { vm.showSettings.toggle() }) {
                     Image(systemName: "gearshape")
                 }
-                // Pastille de verre (phase 1) : la toolbar unifiée fond le bouton
-                // dans le chrome système au lieu d'une icône flottante.
-                .glassEffect()
+                .buttonStyle(.glass)
                 .accessibilityLabel("Ouvrir les réglages")
                 .sheet(isPresented: Bindable(vm).showSettings) {
                     SettingsView(settings: settings)
                 }
             }
+        }
+        .sheet(isPresented: Bindable(vm).showHelp) {
+            HelpView()
+        }
+        .sheet(isPresented: Bindable(vm).showSearch) {
+            SearchPanelView()
+        }
+        .sheet(isPresented: Bindable(vm).showTools) {
+            ToolRunsPanel()
         }
         // Confirmation obligatoire avant toute action sensible (extinction, message, applescript, édition de note),
         // pour éviter qu'un modèle local halluciné exécute une action irréversible sans validation humaine.

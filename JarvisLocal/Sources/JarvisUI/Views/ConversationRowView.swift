@@ -1,6 +1,9 @@
 import SwiftUI
 import JarvisCore
 
+/// Ligne de conversation en style système : dans une `List` sidebar native, la
+/// sélection, le survol et l'adaptation clair/sombre viennent du système.
+/// Aucune couleur/typo custom ici — c'est du chrome, pas du contenu.
 struct ConversationRowView: View {
     @Environment(AppViewModel.self) private var vm
     let conversation: Conversation
@@ -12,27 +15,15 @@ struct ConversationRowView: View {
             if isEditing {
                 TextField("Titre", text: $editTitle)
                     .textFieldStyle(.plain)
-                    .font(.caption)
-                    .foregroundStyle(JarvisTheme.textPrimary)
                     .onSubmit(commitRename)
                     .onExitCommand { isEditing = false }
             } else {
                 Text(conversation.title)
-                    .font(.caption)
-                    .foregroundStyle(JarvisTheme.textPrimary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             Spacer()
-            if conversation.id == vm.currentConversation?.id {
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(JarvisTheme.accent)
-            }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 7)
-        .background(conversation.id == vm.currentConversation?.id ? JarvisTheme.accent.opacity(0.12) : Color.clear)
         .onTapGesture(count: 2) {
             editTitle = conversation.title
             isEditing = true

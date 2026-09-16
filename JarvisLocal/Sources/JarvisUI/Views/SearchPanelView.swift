@@ -57,7 +57,8 @@ struct SearchPanelView: View {
         }
         .padding(20)
         .frame(width: 520)
-        // Pas de fond opaque : la fenêtre de sheet fournit le verre système (phase 1).
+        // Panneau dense (résultats) : fond opaque volontaire (voir ToolRunsPanel).
+        .background(JarvisTheme.background)
         .task {
             // Pré-remplit avec la requête lancée via /search
             query = vm.searchQuery

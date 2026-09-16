@@ -67,6 +67,7 @@ struct HelpView: View {
         }
         .padding(20)
         .frame(width: 460)
-        // Pas de fond opaque : la fenêtre de sheet fournit le verre système (phase 1).
+        // Panneau dense (aide) : fond opaque volontaire (voir ToolRunsPanel).
+        .background(JarvisTheme.background)
     }
 }

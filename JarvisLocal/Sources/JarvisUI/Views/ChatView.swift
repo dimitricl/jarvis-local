@@ -30,15 +30,6 @@ struct ChatView: View {
             InputBarView(externalPrompt: $externalPrompt)
         }
         .background(JarvisTheme.background)
-        .sheet(isPresented: Bindable(vm).showHelp) {
-            HelpView()
-        }
-        .sheet(isPresented: Bindable(vm).showSearch) {
-            SearchPanelView()
-        }
-        .sheet(isPresented: Bindable(vm).showTools) {
-            ToolRunsPanel()
-        }
     }
 
     private var header: some View {
@@ -51,15 +42,12 @@ struct ChatView: View {
                 .font(JarvisTheme.mono(10, weight: .semibold))
                 .tracking(0.5)
                 .foregroundStyle(JarvisTheme.textSecondary)
-            // Badge modèle : sait toujours quel modèle répond sans ouvrir les réglages.
-            // Lu via le ViewModel (protocol Settings) : la vue ne touche jamais
-            // JarvisServices directement. Pastille de verre (phase 2).
+            // Badge modèle : simple label de statut, pas un contrôle.
             Text(vm.modelName)
                 .font(JarvisTheme.mono(9))
                 .foregroundStyle(JarvisTheme.textTertiary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
-                .glassEffect()
                 .tracking(0.5)
             if let conv = vm.currentConversation {
                 Text(conv.title)
@@ -106,14 +94,13 @@ struct ChatView: View {
                             .font(.caption)
                             .foregroundStyle(JarvisTheme.textTertiary)
                             .multilineTextAlignment(.center)
-                        // Chips groupées en verre (phase 2) : surface continue + morphing.
-                        GlassEffectContainer(spacing: 8) {
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                                suggestionChip("Quelle est la météo à Paris aujourd'hui ?")
-                                suggestionChip("Rappelle-moi d'appeler le dentiste demain à 10h")
-                                suggestionChip("Crée une note avec ma liste de courses")
-                                suggestionChip("Cherche la dernière actu tech en français")
-                            }
+                        // Chips en styles verre système (phase 2 refonte) : pas de
+                        // container (aucun morphing), pas de fond custom.
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                            suggestionChip("Quelle est la météo à Paris aujourd'hui ?")
+                            suggestionChip("Rappelle-moi d'appeler le dentiste demain à 10h")
+                            suggestionChip("Crée une note avec ma liste de courses")
+                            suggestionChip("Cherche la dernière actu tech en français")
                         }
                         .padding(.horizontal, 40)
                         .padding(.top, 6)
@@ -172,30 +159,30 @@ struct ChatView: View {
                 Image(systemName: "wrench.and.screwdriver")
                     .foregroundStyle(JarvisTheme.amber)
                     .font(.caption2)
-                // Pastilles groupées en verre (phase 2), teintées par statut.
-                GlassEffectContainer(spacing: 4) {
-                    HStack(spacing: 6) {
-                        ForEach(vm.toolTrace) { entry in
-                            HStack(spacing: 2) {
-                                Text(entry.name)
-                                    .font(JarvisTheme.mono(10, weight: .medium))
-                                    .foregroundStyle(JarvisTheme.textSecondary)
-                                Text(entry.status)
-                                    .font(JarvisTheme.mono(10))
-                                    .foregroundStyle(
-                                        entry.status == "✓" ? JarvisTheme.accent
-                                        : entry.status == "✗" ? JarvisTheme.danger
-                                        : JarvisTheme.amber
-                                    )
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .glassEffect(
-                                entry.status == "✓" ? .regular.tint(JarvisTheme.accent)
-                                : entry.status == "✗" ? .regular.tint(JarvisTheme.danger)
-                                : .regular.tint(JarvisTheme.amber)
-                            )
+                // Indicateurs de statut, pas des contrôles : pastilles teintées
+                // opaques (recette Apple — le verre est pour le chrome).
+                HStack(spacing: 6) {
+                    ForEach(vm.toolTrace) { entry in
+                        HStack(spacing: 2) {
+                            Text(entry.name)
+                                .font(JarvisTheme.mono(10, weight: .medium))
+                                .foregroundStyle(JarvisTheme.textSecondary)
+                            Text(entry.status)
+                                .font(JarvisTheme.mono(10))
+                                .foregroundStyle(
+                                    entry.status == "✓" ? JarvisTheme.accent
+                                    : entry.status == "✗" ? JarvisTheme.danger
+                                    : JarvisTheme.amber
+                                )
                         }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            entry.status == "✓" ? JarvisTheme.accent.opacity(0.12)
+                            : entry.status == "✗" ? JarvisTheme.danger.opacity(0.12)
+                            : JarvisTheme.amber.opacity(0.12)
+                        )
+                        .clipShape(Capsule())
                     }
                 }
                 Spacer()
@@ -222,14 +209,14 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8))
+        .buttonStyle(.glass)
     }
 }
 
 /// Panneau d'audit des outils (commande /tools) : la preuve persistée de ce que Jarvis
 /// a VRAIMENT exécuté — nom, arguments, statut, extrait du résultat, horodatage.
-private struct ToolRunsPanel: View {
+/// Interne (pas privé) : présenté depuis ContentView, qui porte la toolbar et les sheets.
+struct ToolRunsPanel: View {
     @Environment(AppViewModel.self) private var vm
     @Environment(\.dismiss) private var dismiss
 
@@ -273,8 +260,9 @@ private struct ToolRunsPanel: View {
         }
         .padding(16)
         .frame(width: 560)
-        // Pas de fond opaque : la fenêtre de sheet fournit le verre système (phase 1).
-        // Les lignes gardent leurs panneaux (phase 3 : migration complète du thème).
+        // Panneau dense (audit) : fond opaque volontaire — le contenu reste
+        // lisible, le verre est réservé au chrome (recette Apple).
+        .background(JarvisTheme.background)
         .task { await vm.loadToolRuns() }
     }
 
