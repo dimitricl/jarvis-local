@@ -99,7 +99,7 @@ struct InputBarView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(JarvisTheme.panelElevated)
+        .background(JarvisTheme.fieldBackground)
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(
             RoundedRectangle(cornerRadius: 6)
@@ -113,9 +113,10 @@ struct InputBarView: View {
             .frame(height: editorHeight)
             .focused($isInputFocused)
             .accessibilityLabel("Message à envoyer à Jarvis")
-            // Champ opaque (recette Apple) : le texte AppKit dense reste lisible ;
-            // le verre est réservé aux contrôles (boutons), pas au contenu éditable.
-            .background(JarvisTheme.panelElevated)
+            // Champ en material texte système (phase C) : le texte AppKit dense
+            // reste lisible en clair comme en sombre ; le verre reste réservé
+            // aux contrôles (boutons), pas au contenu éditable.
+            .background(JarvisTheme.fieldBackground)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             // PAS de .disabled(vm.isStreaming) ici : bloquer la saisie pendant la réponse
             // empêchait de préparer son prochain message et donnait l'impression d'un champ

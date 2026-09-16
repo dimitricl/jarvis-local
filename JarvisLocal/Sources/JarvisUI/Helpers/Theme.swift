@@ -42,6 +42,9 @@ enum JarvisTheme {
     // Pas de Color.tertiary (ShapeStyle uniquement) : équivalent AppKit dynamique.
     static let textTertiary = Color(nsColor: .tertiaryLabelColor)
     static let divider = Color(nsColor: .separatorColor)
+    /// Fond de champ éditable (saisie, recherche vocale) : material texte système,
+    /// pas un panneau — marelle blanche en clair, noire en sombre, comme TextField natif.
+    static let fieldBackground = Color(nsColor: .textBackgroundColor)
 
     // Équivalent AppKit dynamique pour NSTextView (ne voit pas le thème SwiftUI).
     static let nsTextPrimary: NSColor = .labelColor
