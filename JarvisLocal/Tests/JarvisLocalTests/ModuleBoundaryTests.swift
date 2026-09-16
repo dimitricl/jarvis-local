@@ -45,7 +45,7 @@ final class ModuleBoundaryTests: XCTestCase {
             "JarvisServices", "SQLite3", "sqlite3_",
             "DatabaseService", "OllamaService", "ToolService",
             "MCPToolProvider", "MCPServerConfig", "WebSearchService",
-            "AudioService", "STTService", "ServiceHosts", "Settings.shared",
+            "AudioService", "STTService", "ServiceHosts", "Settings.shared"
         ]
         let files = swiftFiles(under: "Sources/JarvisUI")
         XCTAssertFalse(files.isEmpty, "Sources/JarvisUI introuvable depuis \(packageRoot.path)")
@@ -66,7 +66,7 @@ final class ModuleBoundaryTests: XCTestCase {
         let forbidden = [
             "import SwiftUI", "import AppKit", "import SQLite3", "import SwiftSoup",
             "import EventKit", "import Speech", "import AVFoundation",
-            "import ServiceManagement", "import Network", "import UserNotifications",
+            "import ServiceManagement", "import Network", "import UserNotifications"
         ]
         let files = swiftFiles(under: "Sources/JarvisCore")
         XCTAssertFalse(files.isEmpty, "Sources/JarvisCore introuvable depuis \(packageRoot.path)")
