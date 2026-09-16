@@ -1,9 +1,9 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "JarvisLocal",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     dependencies: [
         // Parseur DOM réel pour search_web / read_url.
         // Pourquoi SwiftSoup et pas regex : le markup DDG change souvent ;
@@ -59,5 +59,8 @@ let package = Package(
             dependencies: ["JarvisUI", "JarvisServices", "JarvisCore"],
             path: "Tests/JarvisLocalTests"
         ),
-    ]
+    ],
+    // Mode langage Swift 5 conservé : le passage en mode 6 (strict concurrency)
+    // est un chantier séparé, pas un effet de bord du bump d'outils.
+    swiftLanguageModes: [.v5]
 )
