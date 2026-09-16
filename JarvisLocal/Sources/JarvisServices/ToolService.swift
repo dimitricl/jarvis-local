@@ -47,7 +47,15 @@ public actor ToolService: ToolExecutor {
     }
 
     /// Injecte MCP au démarrage (composition root / executable).
-    public func configureMCP(_ provider: MCPToolProvider?) { self.mcp = provider }
+    /// À la déconnexion (quit inclus), l'ancien provider est déconnecté
+    /// d'abord : ses serveurs enfants sont tués au lieu de rester orphelins.
+    public func configureMCP(_ provider: MCPToolProvider?) {
+        let old = self.mcp
+        self.mcp = provider
+        if provider == nil, let old {
+            Task { await old.disconnectAll() }
+        }
+    }
 
     /// Liste fusionnée envoyée à Ollama : natif + MCP dynamique.
     /// Quand MCP couvre une action, l'équivalent natif est MASQUÉ (table

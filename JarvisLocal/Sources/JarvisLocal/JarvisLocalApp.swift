@@ -12,6 +12,10 @@ import JarvisUI
 /// sortie explicite dès qu'il ne reste plus aucune fenêtre visible ou
 /// miniaturisée — une fenêtre miniaturisée compte comme "toujours là".
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Nettoyage synchrone posé par l'App (retient l'instance Ollama factory).
+    /// Main thread uniquement (init + willTerminate) — pas de concurrence.
+    static var onWillTerminate: (() -> Void)?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NotificationCenter.default.addObserver(
             self, selector: #selector(windowWillClose(_:)),
@@ -20,13 +24,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// Coupe tout ce qui peut retenir la sortie : voix, keep-alive réseau,
+    /// serveurs MCP enfants (sinon orphelins). Best-effort synchrone —
+    /// le process sort de toute façon, mais sans traîner.
+    func applicationWillTerminate(_ notification: Notification) {
+        Self.onWillTerminate?()
+        ServiceHosts.tts.stopSpeaking()
+        ServiceHosts.stt.cancel()
+        Task { await ToolService.shared.configureMCP(nil) }
+    }
+
     @objc private func windowWillClose(_ note: Notification) {
-        // willClose est posté AVANT le retrait effectif : on laisse le runloop
-        // finir la fermeture, puis on quitte s'il ne reste rien à l'écran.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let alive = NSApp.windows.contains { $0.isVisible || $0.isMiniaturized }
-            if !alive { NSApp.terminate(nil) }
+        // Pas de délai : la fenêtre en cours de fermeture est connue via
+        // note.object, on l'exclut du comptage et on quitte immédiatement
+        // s'il ne reste rien de visible ou miniaturisé.
+        let closing = note.object as? NSWindow
+        let alive = NSApp.windows.contains { w in
+            if let c = closing, w === c { return false }
+            return w.isVisible || w.isMiniaturized
         }
+        if !alive { NSApp.terminate(nil) }
     }
 }
 
@@ -48,6 +65,9 @@ struct JarvisLocalApp: App {
     init() {
         let ollama = LLMProviderFactory.makeOllama(settings: Settings.shared)
         self.ollama = ollama
+        // Coupe le keep-alive (warm-up + ping /4 min) à la sortie : sinon la
+        // boucle réseau retient le teardown.
+        AppDelegate.onWillTerminate = { [ollama] in ollama.stopKeepAlive() }
         _viewModel = State(initialValue: AppViewModel(
             db: ServiceHosts.store,
             ollama: ollama,
