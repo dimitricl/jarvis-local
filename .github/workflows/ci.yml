@@ -142,4 +142,5 @@ jobs:
         # son runtime (dyld + chargement) sans aller jusqu'au runloop.
         run: |
           osascript -e 'tell application "Finder" to get name'
-          otool -L .build/release/JarvisLocal | grep -q libSwiftCore
+          # Insensible à la casse : le binaire lie libswiftCore.dylib (s minuscule).
+          otool -L .build/release/JarvisLocal | grep -qi swiftcore
