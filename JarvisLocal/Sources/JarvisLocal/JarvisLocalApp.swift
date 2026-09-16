@@ -12,6 +12,11 @@ import JarvisUI
 /// sortie explicite dès qu'il ne reste plus aucune fenêtre visible ou
 /// miniaturisée — une fenêtre miniaturisée compte comme "toujours là".
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // Journal de diagnostic temporaire : comprendre ce qui retient l'app en
+    // vie après la croix rouge (fenêtre invisible ? terminate non appelé ?).
+    // À retirer une fois le coupable identifié.
+    private let diag = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "quit-diag")
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NotificationCenter.default.addObserver(
             self, selector: #selector(windowWillClose(_:)),
@@ -20,12 +25,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        diag.info("applicationWillTerminate : sortie effective")
+    }
+
     @objc private func windowWillClose(_ note: Notification) {
         // willClose est posté AVANT le retrait effectif : on laisse le runloop
         // finir la fermeture, puis on quitte s'il ne reste rien à l'écran.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let descs = NSApp.windows.map { "\(type(of: $0)) visible=\($0.isVisible) mini=\($0.isMiniaturized)" }
+            self.diag.info("willClose+0.1s fenêtres=\(descs, privacy: .public)")
             let alive = NSApp.windows.contains { $0.isVisible || $0.isMiniaturized }
-            if !alive { NSApp.terminate(nil) }
+            if !alive {
+                self.diag.info("plus de fenêtre → terminate explicite")
+                NSApp.terminate(nil)
+            } else {
+                self.diag.info("fenêtre restante → pas de terminate")
+            }
         }
     }
 }
