@@ -1,6 +1,7 @@
 import Foundation
 import SQLite3
 import JarvisCore
+import os
 
 // SQLITE_TRANSIENT (-1) : demande à SQLite de COPIER la chaîne liée avant le retour
 // de sqlite3_bind_text. Sans ça (nil = SQLITE_STATIC), SQLite garde le pointeur tel quel
@@ -14,6 +15,18 @@ actor DatabaseService {
     static let shared = DatabaseService()
     private var db: OpaquePointer?
 
+    /// Version de schéma courante (dernier palier de migrate()).
+    static let currentSchemaVersion = 3
+
+    /// Journal persistant (Console.app) : migrations, backups, suppressions.
+    /// Les suppressions UI ne laissaient AUCUNE trace — une disparition de
+    /// données était inattribuable (constaté : conversations volatilisées sans
+    /// explication possible). Désormais chaque opération destructive est loggée.
+    private nonisolated let log = Logger(
+        subsystem: "com.dimitriclaverie.JarvisLocal",
+        category: "database"
+    )
+
     private init() {}
 
     private func dbPath() -> URL {
@@ -25,6 +38,16 @@ actor DatabaseService {
 
     func open(path: String? = nil) throws {
         let resolvedPath = path ?? dbPath().path
+        // Filet : copie horodatée AVANT toute migration (pas après un échec).
+        // Best-effort : un backup impossible (permissions…) ne doit jamais
+        // empêcher le lancement — il est juste journalisé.
+        do {
+            if let backup = try Self.backupIfMigratable(at: resolvedPath) {
+                log.info("Backup pré-migration : \(backup, privacy: .public).")
+            }
+        } catch {
+            log.warning("Backup pré-migration impossible (\(error.localizedDescription)) — ouverture quand même.")
+        }
         let rc = sqlite3_open(resolvedPath, &db)
         if rc != SQLITE_OK {
             throw DatabaseError.couldNotOpen(message: String(cString: sqlite3_errmsg(db)))
@@ -46,6 +69,7 @@ actor DatabaseService {
         // Schéma actuel : v1 = tables initiales, v2 = index + purge orphelins,
         // v3 = faits enrichis (source, confidence, created_at, status, superseded_by).
         var version = try userVersion()
+        let startVersion = version
         if version < 1 {
             try migrateToV1()
             version = 1
@@ -60,6 +84,9 @@ actor DatabaseService {
             try migrateToV3()
             version = 3
             try setUserVersion(version)
+        }
+        if startVersion < Self.currentSchemaVersion {
+            log.info("Migration DB v\(startVersion) -> v\(Self.currentSchemaVersion) terminée.")
         }
     }
 
@@ -77,8 +104,72 @@ actor DatabaseService {
         return Int(sqlite3_column_int(stmt, 0))
     }
 
-    private func setUserVersion(_ version: Int) throws {
+    /// NOTE : `internal` pour les tests (simule une ancienne version pour
+    /// rejouer une migration + backup de bout en bout).
+    func setUserVersion(_ version: Int) throws {
         try exec("PRAGMA user_version = \(version)")
+    }
+
+    // MARK: - Backup pré-migration
+
+    /// Copie horodatée (db + -wal + -shm) si le fichier doit migrer, et retourne
+    /// le chemin du backup — nil si rien à faire (:memory:, base neuve, déjà à jour).
+    /// Lecture de version sur connexion sonde éphémère : jamais sur le handle
+    /// principal, jamais après sqlite3_open (qui peut déjà écrire : WAL...).
+    /// `static` (pas d'état d'instance) pour être appelable avant l'ouverture.
+    static func backupIfMigratable(at path: String) throws -> String? {
+        guard path != ":memory:", FileManager.default.fileExists(atPath: path) else { return nil }
+        let version = probeUserVersion(at: path)
+        guard version == nil || version! < currentSchemaVersion else { return nil }
+        let fm = FileManager.default
+        let dirURL = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
+        let tag = version.map { "v\($0)" } ?? "unknown"
+        let base = "memory.backup.\(tag).\(backupTimestamp())"
+        for suffix in ["", "-wal", "-shm"] {
+            let src = path + suffix
+            guard fm.fileExists(atPath: src) else { continue }
+            try fm.copyItem(atPath: src, toPath: dirURL.appendingPathComponent(base + ".db" + suffix).path)
+        }
+        try pruneBackups(in: dirURL)
+        return dirURL.appendingPathComponent(base + ".db").path
+    }
+
+    /// Timestamp triable (UTC) : le tri lexicographique des backups = l'ordre chrono.
+    static func backupTimestamp(for date: Date = Date()) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        f.timeZone = TimeZone(identifier: "UTC")
+        return f.string(from: date)
+    }
+
+    /// Rétention : garde les `keeping` backups les plus récents (+ leurs -wal/-shm).
+    /// `internal`/`static` pour les tests (dossier temporaire).
+    static func pruneBackups(in directory: URL, keeping: Int = 3) throws {
+        let fm = FileManager.default
+        let files = ((try? fm.contentsOfDirectory(atPath: directory.path)) ?? [])
+            .filter { $0.hasPrefix("memory.backup.") && $0.hasSuffix(".db") }
+            .sorted()
+        guard files.count > keeping else { return }
+        for stale in files.prefix(files.count - keeping) {
+            let base = (stale as NSString).deletingPathExtension
+            for suffix in [".db", ".db-wal", ".db-shm"] {
+                try? fm.removeItem(at: directory.appendingPathComponent(base + suffix))
+            }
+        }
+    }
+
+    /// Lit user_version via une connexion éphémère (PRAGMA en lecture n'écrit
+    /// rien). nil si illisible — on sauvegarde quand même (copie brute, tag
+    /// "unknown") : un fichier douteux mérite un filet, pas un abandon.
+    private static func probeUserVersion(at path: String) -> Int? {
+        var probe: OpaquePointer?
+        guard sqlite3_open(path, &probe) == SQLITE_OK, let probe else { return nil }
+        defer { sqlite3_close(probe) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(probe, "PRAGMA user_version", -1, &stmt, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        return Int(sqlite3_column_int(stmt, 0))
     }
 
     private func migrateToV1() throws {
@@ -215,6 +306,8 @@ actor DatabaseService {
         // PRAGMA foreign_keys=ON, un tool_runs orphelin bloque le DELETE parent
         // (les bases existantes n'ont pas le ON DELETE CASCADE) — régression
         // constatée : toute conversation avec activité d'outils devenait insupprimable.
+        // Journal persistant : sans trace, une disparition est inattribuable.
+        log.info("Suppression conversation id=\(id) (+ messages et tool_runs associés).")
         try exec("DELETE FROM tool_runs WHERE conversation_id = ?", params: [id as Any?])
         try exec("DELETE FROM messages WHERE conversation_id = ?", params: [id as Any?])
         try exec("DELETE FROM conversations WHERE id = ?", params: [id as Any?])
@@ -286,10 +379,12 @@ actor DatabaseService {
     }
 
     func deleteFact(key: String) throws {
+        log.info("Suppression fait \(key, privacy: .public).")
         try exec("DELETE FROM facts WHERE key = ?", params: [key])
     }
 
     func deleteAllFacts() throws {
+        log.info("Suppression de TOUS les faits (mémoire vidée).")
         try exec("DELETE FROM facts")
     }
 
