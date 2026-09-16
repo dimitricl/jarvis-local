@@ -28,6 +28,7 @@ public actor ToolService: ToolExecutor {
     private let web = WebTools()
     private let notes = NotesTools()
     private let memory = MemoryTools()
+    private let files = FileTools()
     /// Fournisseur MCP optionnel (chantier 5) : s'il connaît l'outil, il passe devant.
     var mcp: MCPToolProvider?
 
@@ -258,8 +259,120 @@ public actor ToolService: ToolExecutor {
                 properties: ["list": ToolProperty(type: "string", description: "Nom de la liste (optionnel)")],
                 required: []
             )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "complete_reminder",
+            description: "Marque un rappel comme terminé. Liste D'ABORD avec list_reminders pour obtenir son identifiant — jamais d'action sur un identifiant deviné ou un titre approximatif.",
+            parameters: ToolParameters(
+                properties: ["id": ToolProperty(type: "string", description: "Identifiant du rappel (issu de list_reminders)")],
+                required: ["id"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "delete_reminder",
+            description: "Supprime un rappel. Liste D'ABORD avec list_reminders pour obtenir son identifiant — jamais de suppression sur un identifiant deviné ou un titre approximatif.",
+            parameters: ToolParameters(
+                properties: ["id": ToolProperty(type: "string", description: "Identifiant du rappel (issu de list_reminders)")],
+                required: ["id"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "edit_calendar_event",
+            description: "MODIFIE un événement existant. Liste D'ABORD avec get_upcoming_events pour obtenir son identifiant — jamais de modification sur un identifiant deviné ou un titre approximatif. Champs absents = inchangés.",
+            parameters: ToolParameters(
+                properties: [
+                    "id": ToolProperty(type: "string", description: "Identifiant de l'événement (issu de get_upcoming_events)"),
+                    "title": ToolProperty(type: "string", description: "Nouveau titre (optionnel)"),
+                    "date": ToolProperty(type: "string", description: "Nouvelle date DD/MM/YYYY (optionnel)"),
+                    "start_time": ToolProperty(type: "string", description: "Nouvelle heure HH:MM (optionnel)"),
+                    "duration_minutes": ToolProperty(type: "number", description: "Nouvelle durée en minutes (optionnel)"),
+                    "notes": ToolProperty(type: "string", description: "Nouvelles notes (optionnel)"),
+                    "location": ToolProperty(type: "string", description: "Nouvelle adresse (optionnel)"),
+                    "calendar": ToolProperty(type: "string", description: "Nom du calendrier (optionnel)")
+                ],
+                required: ["id"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "delete_calendar_event",
+            description: "Supprime un événement. Liste D'ABORD avec get_upcoming_events pour obtenir son identifiant — jamais de suppression sur un identifiant deviné ou un titre approximatif.",
+            parameters: ToolParameters(
+                properties: ["id": ToolProperty(type: "string", description: "Identifiant de l'événement (issu de get_upcoming_events)")],
+                required: ["id"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "search_notes",
+            description: "Recherche des notes Apple Notes par mot-clé (titre ou contenu). Retourne titre + identifiant — utilise ensuite read_note ou edit_note avec cet identifiant.",
+            parameters: ToolParameters(
+                properties: ["query": ToolProperty(type: "string", description: "Mot-clé à chercher")],
+                required: ["query"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "read_note",
+            description: "Lit le contenu COMPLET d'une note. Cherche D'ABORD avec search_notes pour obtenir son identifiant — jamais de lecture sur un titre approximatif deviné.",
+            parameters: ToolParameters(
+                properties: ["id": ToolProperty(type: "string", description: "Identifiant de la note (issu de search_notes)")],
+                required: ["id"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "list_directory",
+            description: "Liste le contenu d'un dossier. Sandbox : seuls les chemins sous ~/Documents, ~/Desktop ou ~/Downloads sont acceptés — tout autre chemin est refusé.",
+            parameters: ToolParameters(
+                properties: ["path": ToolProperty(type: "string", description: "Chemin du dossier (ex: ~/Documents)")],
+                required: ["path"]
+            )
+        )),
+        ToolDef(function: ToolFunction(
+            name: "read_file",
+            description: "Lit un fichier texte (plafonné à 200 Ko, binaires refusés). Sandbox : seuls les chemins sous ~/Documents, ~/Desktop ou ~/Downloads sont acceptés — tout autre chemin est refusé.",
+            parameters: ToolParameters(
+                properties: ["path": ToolProperty(type: "string", description: "Chemin du fichier (ex: ~/Documents/notes.txt)")],
+                required: ["path"]
+            )
         ))
     ]
+
+    /// Extraction stricte : un paramètre requis absent ou mal typé ne vaut
+    /// JAMAIS une valeur par défaut silencieuse ("", 0, 7…) qui ferait exécuter
+    /// une action non demandée — le modèle reçoit un message explicite et corrige.
+    /// `internal`/`static` pour les tests.
+    nonisolated static func missingParam(_ key: String, tool: String) -> String {
+        "Paramètre '\(key)' manquant ou de type invalide pour l'outil '\(tool)'"
+    }
+
+    /// Erreur de paramètre : enveloppe le message explicite renvoyé au modèle.
+    /// `internal` pour les tests.
+    struct ParamError: Error {
+        let message: String
+    }
+
+    /// Requis String. `internal` pour les tests.
+    nonisolated static func reqString(_ args: [String: Any], key: String, tool: String) -> Result<String, ParamError> {
+        guard let v = args[key] as? String else { return .failure(ParamError(message: missingParam(key, tool: tool))) }
+        return .success(v)
+    }
+
+    /// Optionnel String : absent = nil, présent mais non-String = erreur explicite.
+    /// `internal` pour les tests.
+    nonisolated static func optString(_ args: [String: Any], key: String, tool: String) -> Result<String?, ParamError> {
+        guard let raw = args[key] else { return .success(nil) }
+        guard let v = raw as? String else { return .failure(ParamError(message: missingParam(key, tool: tool))) }
+        return .success(v)
+    }
+
+    /// Nombre optionnel avec défaut : absent = défaut, Int/Double/NSNumber
+    /// acceptés (JSONSerialization), tout autre type = erreur explicite.
+    /// `internal` pour les tests.
+    nonisolated static func optInt(_ args: [String: Any], key: String, tool: String, default def: Int) -> Result<Int, ParamError> {
+        guard let raw = args[key] else { return .success(def) }
+        if let i = raw as? Int { return .success(i) }
+        if let d = raw as? Double { return .success(Int(d)) }
+        if let n = raw as? NSNumber { return .success(n.intValue) }
+        return .failure(ParamError(message: missingParam(key, tool: tool)))
+    }
 
     public func execute(name: String, args: [String: Any]) async throws -> String {
         // MCP d'abord si le nom matche un outil distant (chantier 5).
@@ -267,28 +380,189 @@ public actor ToolService: ToolExecutor {
             return try await mcp.call(tool: name, args: args)
         }
         switch name {
-        case "search_web": return await web.searchWeb(args["query"] as? String ?? "")
-        case "open_app": return try await system.openApp(args["app"] as? String ?? "", url: args["url"] as? String)
-        case "create_note": return try await notes.create(title: args["title"] as? String ?? "", body: args["body"] as? String ?? "")
-        case "edit_note": return try await notes.edit(searchTitle: args["search_title"] as? String ?? "", body: args["body"] as? String ?? "", newTitle: args["new_title"] as? String)
-        case "add_reminder": return try await reminders.add(title: args["title"] as? String ?? "", notes: args["notes"] as? String, dueDate: args["due_date"] as? String, dueTime: args["due_time"] as? String)
+        case "search_web":
+            switch Self.reqString(args, key: "query", tool: name) {
+            case .success(let q): return await web.searchWeb(q)
+            case .failure(let err): return err.message
+            }
+        case "open_app":
+            switch Self.reqString(args, key: "app", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let app):
+                switch Self.optString(args, key: "url", tool: name) {
+                case .failure(let err): return err.message
+                case .success(let url): return try await system.openApp(app, url: url)
+                }
+            }
+        case "create_note":
+            switch Self.reqString(args, key: "title", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let title):
+                switch Self.reqString(args, key: "body", tool: name) {
+                case .failure(let err): return err.message
+                case .success(let body): return try await notes.create(title: title, body: body)
+                }
+            }
+        case "edit_note":
+            switch Self.reqString(args, key: "search_title", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let st):
+                switch Self.reqString(args, key: "body", tool: name) {
+                case .failure(let err): return err.message
+                case .success(let body):
+                    switch Self.optString(args, key: "new_title", tool: name) {
+                    case .failure(let err): return err.message
+                    case .success(let nt): return try await notes.edit(searchTitle: st, body: body, newTitle: nt)
+                    }
+                }
+            }
+        case "add_reminder":
+            switch Self.reqString(args, key: "title", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let title):
+                switch Self.optString(args, key: "notes", tool: name) {
+                case .failure(let err): return err.message
+                case .success(let n):
+                    switch Self.optString(args, key: "due_date", tool: name) {
+                    case .failure(let err): return err.message
+                    case .success(let dd):
+                        switch Self.optString(args, key: "due_time", tool: name) {
+                        case .failure(let err): return err.message
+                        case .success(let dt): return try await reminders.add(title: title, notes: n, dueDate: dd, dueTime: dt)
+                        }
+                    }
+                }
+            }
         case "add_calendar_event": return try await calendar.addEvent(args: args)
         case "get_calendars": return try await calendar.getCalendars()
-        case "search_maps": return try await web.searchMaps(args["query"] as? String ?? "")
-        case "run_shortcut": return try await system.runShortcut(args["name"] as? String ?? "")
-        case "send_message": return try await messaging.send(contact: args["contact"] as? String ?? "", message: args["message"] as? String ?? "")
+        case "search_maps":
+            switch Self.reqString(args, key: "query", tool: name) {
+            case .success(let q): return try await web.searchMaps(q)
+            case .failure(let err): return err.message
+            }
+        case "run_shortcut":
+            switch Self.reqString(args, key: "name", tool: name) {
+            case .success(let n): return try await system.runShortcut(n)
+            case .failure(let err): return err.message
+            }
+        case "send_message":
+            switch Self.reqString(args, key: "contact", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let contact):
+                switch Self.reqString(args, key: "message", tool: name) {
+                case .failure(let err): return err.message
+                case .success(let message): return try await messaging.send(contact: contact, message: message)
+                }
+            }
         case "get_system_info": return try await system.getSystemInfo()
         case "get_clipboard": return await system.getClipboard()
-        case "set_clipboard": return await system.setClipboard(args["text"] as? String ?? "")
+        case "set_clipboard":
+            switch Self.reqString(args, key: "text", tool: name) {
+            case .success(let t): return await system.setClipboard(t)
+            case .failure(let err): return err.message
+            }
         case "take_screenshot": return try await system.takeScreenshot()
-        case "sleep_mac": return try await system.sleepMac(args["action"] as? String ?? "")
-        case "file_search": return try await system.fileSearch(args["query"] as? String ?? "")
-        case "get_upcoming_events": return try await calendar.upcoming(days: args["days"] as? Int ?? 7)
-        case "list_reminders": return try await reminders.list(list: args["list"] as? String)
-        case "read_url": return await web.readURL(args["url"] as? String ?? "")
-        case "get_weather": return await web.getWeather(city: args["city"] as? String ?? "")
-        case "run_routine": return try await runRoutine(args["name"] as? String ?? "")
-        case "remember_fact": return await memory.remember(key: args["key"] as? String ?? "", value: args["value"] as? String ?? "")
+        case "sleep_mac":
+            switch Self.reqString(args, key: "action", tool: name) {
+            case .success(let a): return try await system.sleepMac(a)
+            case .failure(let err): return err.message
+            }
+        case "file_search":
+            switch Self.reqString(args, key: "query", tool: name) {
+            case .success(let q): return try await system.fileSearch(q)
+            case .failure(let err): return err.message
+            }
+        case "get_upcoming_events":
+            switch Self.optInt(args, key: "days", tool: name, default: 7) {
+            case .success(let d): return try await calendar.upcoming(days: d)
+            case .failure(let err): return err.message
+            }
+        case "list_reminders":
+            switch Self.optString(args, key: "list", tool: name) {
+            case .success(let l): return try await reminders.list(list: l)
+            case .failure(let err): return err.message
+            }
+        case "read_url":
+            switch Self.reqString(args, key: "url", tool: name) {
+            case .success(let u): return await web.readURL(u)
+            case .failure(let err): return err.message
+            }
+        case "get_weather":
+            switch Self.reqString(args, key: "city", tool: name) {
+            case .success(let c): return await web.getWeather(city: c)
+            case .failure(let err): return err.message
+            }
+        case "run_routine":
+            switch Self.reqString(args, key: "name", tool: name) {
+            case .success(let n): return try await runRoutine(n)
+            case .failure(let err): return err.message
+            }
+        case "remember_fact":
+            switch Self.reqString(args, key: "key", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let k):
+                switch Self.reqString(args, key: "value", tool: name) {
+                case .failure(let err): return err.message
+                case .success(let v): return await memory.remember(key: k, value: v)
+                }
+            }
+        case "complete_reminder":
+            switch Self.reqString(args, key: "id", tool: name) {
+            case .success(let id): return try await reminders.complete(id: id)
+            case .failure(let err): return err.message
+            }
+        case "delete_reminder":
+            switch Self.reqString(args, key: "id", tool: name) {
+            case .success(let id): return try await reminders.delete(id: id)
+            case .failure(let err): return err.message
+            }
+        case "edit_calendar_event":
+            switch Self.reqString(args, key: "id", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let id):
+                // Les champs optionnels mal typés sont refusés avec le même
+                // contrat strict (pas de "notes: 42" silencieusement ignoré).
+                for k in ["title", "date", "start_time", "notes", "location", "calendar"] {
+                    if args[k] != nil, args[k] as? String == nil { return Self.missingParam(k, tool: name) }
+                }
+                if args["duration_minutes"] != nil {
+                    let isNum = (args["duration_minutes"] as? Int) != nil
+                        || (args["duration_minutes"] as? Double) != nil
+                        || (args["duration_minutes"] as? NSNumber) != nil
+                    if !isNum { return Self.missingParam("duration_minutes", tool: name) }
+                }
+                var changes = args
+                changes.removeValue(forKey: "id")
+                return try await calendar.editEvent(id: id, changes: changes)
+            }
+        case "delete_calendar_event":
+            switch Self.reqString(args, key: "id", tool: name) {
+            case .success(let id): return try await calendar.deleteEvent(id: id)
+            case .failure(let err): return err.message
+            }
+        case "search_notes":
+            switch Self.reqString(args, key: "query", tool: name) {
+            case .failure(let err): return err.message
+            case .success(let q):
+                let hits = try await notes.search(query: q)
+                if hits.isEmpty { return "Aucune note trouvée pour « \(q) »." }
+                return hits.prefix(20).map { "- \($0.title) [id: \($0.id)]" }.joined(separator: "\n")
+            }
+        case "read_note":
+            switch Self.reqString(args, key: "id", tool: name) {
+            case .success(let id): return try await notes.read(id: id)
+            case .failure(let err): return err.message
+            }
+        case "list_directory":
+            switch Self.reqString(args, key: "path", tool: name) {
+            case .success(let p): return await files.listDirectory(path: p)
+            case .failure(let err): return err.message
+            }
+        case "read_file":
+            switch Self.reqString(args, key: "path", tool: name) {
+            case .success(let p): return await files.readFile(path: p)
+            case .failure(let err): return err.message
+            }
         default: return "Outil inconnu : \(name)"
         }
     }

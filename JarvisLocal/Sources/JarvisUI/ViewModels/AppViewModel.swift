@@ -133,7 +133,7 @@ public final class AppViewModel {
     /// NOTE : visibilité `internal` (pas `private`) volontaire — c'est la seule façon pour les tests
     /// de lire la VRAIE liste via @testable import au lieu d'en recopier une à la main qui finit
     /// forcément par diverger du code réel sans jamais faire échouer aucun test.
-    let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "create_note", "open_app", "get_clipboard", "edit_note", "run_shortcut", "remember_fact", "search_maps", "add_calendar_event", "add_reminder", "set_clipboard", "take_screenshot"]
+    let sensitiveTools: Set<String> = ["sleep_mac", "send_message", "create_note", "open_app", "get_clipboard", "edit_note", "run_shortcut", "remember_fact", "search_maps", "add_calendar_event", "add_reminder", "set_clipboard", "take_screenshot", "complete_reminder", "delete_reminder", "edit_calendar_event", "delete_calendar_event"]
 
     /// Résout la clé de confirmation d'un outil : le nom lui-même s'il est sensible,
     /// sinon l'équivalent natif quand un outil MCP distant le remplace (events_create →
@@ -958,6 +958,18 @@ public final class AppViewModel {
             // moment-là (messages, onglets, documents). On le dit explicitement pour que
             // l'utilisateur jette un œil à son écran avant de valider, comme pour set_clipboard.
             return "Jarvis veut prendre une capture de TOUT l'écran (le contenu actuellement affiché — messages, onglets, documents — sera enregistré dans un fichier PNG et ouvert dans Aperçu)."
+        case "add_reminder":
+            return "Jarvis veut créer le rappel « \(args["title"] as? String ?? "?") »."
+        case "complete_reminder":
+            return "Jarvis veut marquer le rappel [id: \(args["id"] as? String ?? "?")] comme terminé."
+        case "delete_reminder":
+            return "Jarvis veut SUPPRIMER le rappel [id: \(args["id"] as? String ?? "?")]."
+        case "add_calendar_event":
+            return "Jarvis veut créer l'événement « \(args["title"] as? String ?? "?") » le \(args["date"] as? String ?? "?")."
+        case "edit_calendar_event":
+            return "Jarvis veut MODIFIER l'événement [id: \(args["id"] as? String ?? "?")]."
+        case "delete_calendar_event":
+            return "Jarvis veut SUPPRIMER l'événement [id: \(args["id"] as? String ?? "?")]."
         case "remember_fact":
             // Ajouté par toi, mais sans passer par la confirmation : le modèle pouvait écrire
             // n'importe quelle clé/valeur en mémoire long-terme (réinjectée dans CHAQUE prompt système

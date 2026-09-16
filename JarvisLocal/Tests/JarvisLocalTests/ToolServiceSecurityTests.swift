@@ -45,7 +45,8 @@ final class JarvisLocalToolServiceSecurityTests: XCTestCase {
         let sideEffectTools: Set<String> = [
             "sleep_mac", "send_message", "create_note", "open_app", "get_clipboard",
             "edit_note", "run_shortcut", "remember_fact", "add_calendar_event", "add_reminder",
-            "set_clipboard", "search_maps", "take_screenshot"
+            "set_clipboard", "search_maps", "take_screenshot",
+            "complete_reminder", "delete_reminder", "edit_calendar_event", "delete_calendar_event"
         ]
         let viewModel = await MainActor.run { AppViewModel() }
         let sensitive = await MainActor.run { viewModel.sensitiveTools }

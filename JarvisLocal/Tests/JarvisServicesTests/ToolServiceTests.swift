@@ -163,19 +163,16 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testSleepMacActions() async throws {
+        // Volontairement limité à "lock" + action invalide : "sleep", "shutdown"
+        // et "restart" exécutent RÉELLEMENT la mise en veille / l'extinction /
+        // le redémarrage du Mac qui lance la suite (constaté : reboot en pleine
+        // session de dev). Ne jamais réajouter d'action à effet destructeur ici.
+        // NOTE : "lock" verrouille réellement l'écran — ne lancer ce test qu'en
+        // session déverrouillable immédiatement.
         let tools = ToolService.shared
-
-        let sleepResult = try await tools.execute(name: "sleep_mac", args: ["action": "sleep"])
-        XCTAssertTrue(sleepResult.contains("veille") || sleepResult.contains("Mise en veille"))
 
         let lockResult = try await tools.execute(name: "sleep_mac", args: ["action": "lock"])
         XCTAssertTrue(lockResult.contains("verrouill") || lockResult.contains("Mac verrouillé"))
-
-        let shutdownResult = try await tools.execute(name: "sleep_mac", args: ["action": "shutdown"])
-        XCTAssertTrue(shutdownResult.contains("Extinction") || shutdownResult.contains("eteindre"))
-
-        let restartResult = try await tools.execute(name: "sleep_mac", args: ["action": "restart"])
-        XCTAssertTrue(restartResult.contains("Redémarrage") || restartResult.contains("redemarrer"))
 
         let invalidResult = try await tools.execute(name: "sleep_mac", args: ["action": "invalid"])
         XCTAssertTrue(invalidResult.contains("inconnue"))

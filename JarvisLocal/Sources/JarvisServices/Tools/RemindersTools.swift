@@ -63,7 +63,57 @@ actor RemindersTools {
 
         return reminders.prefix(20).map { reminder in
             let due = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }.map { df.string(from: $0) } ?? ""
-            return "\(reminder.title ?? "")\(due.isEmpty ? "" : " (pour le \(due))")"
+            // Identifiant exposé au modèle : l'étape suivante (complete/delete)
+            // exige un id issu de CE listing, jamais un titre deviné.
+            return "- \(reminder.title ?? "")\(due.isEmpty ? "" : " (pour le \(due))") [id: \(reminder.calendarItemIdentifier)]"
         }.joined(separator: "\n")
+    }
+
+    /// Marque un rappel comme terminé à partir de son identifiant (obtenu via list).
+    /// Jamais d'id deviné : introuvable = message explicite, pas d'action approximative.
+    func complete(id: String) async throws -> String {
+        let status = try await ctx.eventStore.requestFullAccessToReminders()
+        guard status else { return "Accès aux rappels refusé." }
+
+        guard let reminder = try await findReminder(id: id) else {
+            return "Rappel introuvable (id: \(id)). Liste d'abord avec list_reminders pour obtenir un identifiant valide."
+        }
+        reminder.isCompleted = true
+        try ctx.eventStore.save(reminder, commit: true)
+        return "Rappel \"\(reminder.title ?? "")\" marqué comme terminé."
+    }
+
+    /// Supprime un rappel à partir de son identifiant (obtenu via list).
+    func delete(id: String) async throws -> String {
+        let status = try await ctx.eventStore.requestFullAccessToReminders()
+        guard status else { return "Accès aux rappels refusé." }
+
+        guard let reminder = try await findReminder(id: id) else {
+            return "Rappel introuvable (id: \(id)). Liste d'abord avec list_reminders pour obtenir un identifiant valide."
+        }
+        let title = reminder.title ?? ""
+        try ctx.eventStore.remove(reminder, commit: true)
+        return "Rappel \"\(title)\" supprimé."
+    }
+
+    /// Retrouve un rappel par identifier en balayant incomplets + terminés.
+    /// Pourquoi les deux prédicats : predicateForIncompleteReminders ne voit pas
+    /// les terminés (re-complete idempotent) ni l'inverse pour la suppression.
+    private func findReminder(id: String) async throws -> EKReminder? {
+        let calendars = ctx.eventStore.calendars(for: .reminder)
+        let incomplete = ctx.eventStore.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: calendars)
+        let done = ctx.eventStore.predicateForCompletedReminders(withCompletionDateStarting: nil, ending: nil, calendars: calendars)
+        let fetchedIncomplete = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[EKReminder], Error>) in
+            _ = ctx.eventStore.fetchReminders(matching: incomplete) { items in
+                cont.resume(returning: items ?? [])
+            }
+        }
+        if let match = fetchedIncomplete.first(where: { $0.calendarItemIdentifier == id }) { return match }
+        let fetchedDone = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[EKReminder], Error>) in
+            _ = ctx.eventStore.fetchReminders(matching: done) { items in
+                cont.resume(returning: items ?? [])
+            }
+        }
+        return fetchedDone.first(where: { $0.calendarItemIdentifier == id })
     }
 }
