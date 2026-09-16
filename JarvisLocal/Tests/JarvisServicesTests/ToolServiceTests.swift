@@ -70,12 +70,17 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testCreateNoteRequiresTitleAndBody() async throws {
+        // Les chaînes vides passent la validation (type OK) et lancent VRAIMENT
+        // l'app Notes via AppleScript — jamais en CI headless.
+        try skipIfCIHeadless("Apple Notes : lance la vraie app Notes")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "create_note", args: ["title": "", "body": ""])
         XCTAssertTrue(result.contains("Erreur") || result.isEmpty == false)
     }
 
     func testEditNoteRequiresSearchTitleAndBody() async throws {
+        // Comme create_note : lance VRAIMENT l'app Notes — jamais en CI headless.
+        try skipIfCIHeadless("Apple Notes : lance la vraie app Notes")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "edit_note", args: ["search_title": "", "body": ""])
         XCTAssertTrue(result.contains("Erreur") || result.contains("Note introuvable") || result.isEmpty == false)
@@ -116,6 +121,8 @@ final class JarvisLocalToolServiceTests: XCTestCase {
     }
 
     func testSearchMapsReturnsResultOrOpensMaps() async throws {
+        // Ouvre VRAIMENT l'app Plans (maps://) — jamais en CI headless.
+        try skipIfCIHeadless("Plans : ouvre la vraie app Maps")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "search_maps", args: ["query": "Paris"])
         XCTAssertTrue(result.contains("Plans") || result.contains("Adresse") || result.contains("introuvable"))
