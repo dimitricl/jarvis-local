@@ -46,18 +46,15 @@ struct MessageBubbleView: View {
         VStack(alignment: .trailing, spacing: 3) {
             Text(text)
                 .font(.body)
-                .foregroundStyle(JarvisTheme.textPrimary)
+                // Bulle façon Messages : fond bleu système, texte blanc.
+                .foregroundStyle(.white)
                 // Sans ça, les messages utilisateur n'étaient pas sélectionnables du tout
                 // (seule la bulle assistant avait .textSelection) : copier-coller impossible.
                 .textSelection(.enabled)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
-                .background(JarvisTheme.accent.opacity(0.14))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(JarvisTheme.accent.opacity(0.25), lineWidth: 1)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .background(JarvisTheme.accent)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
                 // La sélection SwiftUI reste fragmentée par Text : le menu contextuel
                 // garantit la copie du message ENTIER dans tous les cas.
                 .contextMenu {
@@ -79,49 +76,29 @@ struct MessageBubbleView: View {
     }
 
     private func assistantBubble(_ displayText: String) -> some View {
-        // Panneau type entrée de log/console (liseré d'accent à gauche + avatar J) plutôt qu'une bulle
-        // de chat classique : plus cohérent avec un assistant système qu'avec une messagerie.
+        // Bulle façon Messages : gris système adaptatif, texte primary.
+        // L'avatar et le liseré HUD ont disparu avec le thème sombre opaque.
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .top, spacing: 7) {
-                assistantAvatar
-                VStack(alignment: .leading, spacing: 4) {
-                    assistantPanel(displayText)
-                    if let ts = timestamp {
-                        HStack(spacing: 6) {
-                            Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
-                            Button(action: { copyText(displayText) }) {
-                                Image(systemName: "doc.on.doc").font(.caption2)
-                            }
-                            .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
-                            .help("Copier le message")
-                            .accessibilityLabel("Copier le message")
+            VStack(alignment: .leading, spacing: 4) {
+                assistantPanel(displayText)
+                if let ts = timestamp {
+                    HStack(spacing: 6) {
+                        Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
+                        Button(action: { copyText(displayText) }) {
+                            Image(systemName: "doc.on.doc").font(.caption2)
                         }
-                        .padding(.leading, 2)
+                        .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
+                        .help("Copier le message")
+                        .accessibilityLabel("Copier le message")
                     }
+                    .padding(.leading, 2)
                 }
             }
         }
     }
 
-    private var assistantAvatar: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 7)
-                .fill(JarvisTheme.panelElevated)
-                .frame(width: 24, height: 24)
-                .overlay(RoundedRectangle(cornerRadius: 7).stroke(JarvisTheme.accent.opacity(0.35), lineWidth: 1))
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(JarvisTheme.accent)
-        }
-    }
-
     private func assistantPanel(_ displayText: String) -> some View {
-            HStack(alignment: .top, spacing: 0) {
-            Rectangle()
-                .fill(isStreaming ? JarvisTheme.accent : JarvisTheme.textTertiary.opacity(0.45))
-                .frame(width: 2)
-            // Equatable : ne re-parse le markdown que si le texte a changé —
-            // les bulles figées ne coûtent plus rien pendant le streaming.
+        HStack(alignment: .top, spacing: 0) {
             AssistantRichText(text: displayText)
                 .textSelection(.enabled)
                 .contextMenu {
@@ -137,8 +114,10 @@ struct MessageBubbleView: View {
                     .padding(.trailing, 8)
             }
         }
-        .background(JarvisTheme.panel)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        // Gris système (controlColor via panelElevated) : même rôle que la bulle
+        // grise de Messages, adaptatif clair/sombre.
+        .background(JarvisTheme.panelElevated)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: 780, alignment: .leading)
     }
 
