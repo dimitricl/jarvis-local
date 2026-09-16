@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.7.0] - 2026-09-16
+
+### Interface Apple classique + verre dosé
+- Thème sémantique : textes `.primary/.secondary/.tertiary`, fonds base/élevé,
+  accent cyan → bleu système, suivi auto clair/sombre (vérifié par screenshots
+  des deux modes) ; plus aucune couleur hardcodée
+- Bulles façon Messages (bleu/blanc + gris système), saisie en material texte,
+  sheets en base/élevé, boutons `.glass`/`.glassProminent`, morphing envoi/stop
+  (ID partagé + matchedGeometry), sidebar `List` native, toolbar unifiée
+- Plancher macOS 26 (outils 6.2, mode langage Swift 5 conservé), CI `macos-26`
+
+### Filet DB post-incident
+- Backup horodaté avant migration (rétention 3) + `os_log` des suppressions
+- Fix migration v3 : `ADD COLUMN` sans défaut SQL (non-constant refusé en prod)
+
+### Architecture (déjà livrée en 0.6.0, incluse)
+- Couches Core/Services/UI, LLM découplé (factory), faits v3, budget anti-boucle
+
+## [0.6.0] - 2026-09-15
+
+### Architecture en couches (4 chantiers)
+- Frontières vérifiables par le compilateur : JarvisCore (models + protocols
+  purs), JarvisServices (actors + I/O, seul à toucher SQLite), JarvisUI
+  (Views + ViewModels, dépend de Core uniquement) ; tests par module
+  (CoreTests/ServicesTests/LocalTests) + garde-fous de frontière
+- LLM découplé : protocol LLMProvider + `LLMProviderKind` + factory (Ollama =
+  1re implémentation, pas de second provider) ; configuration injectée via
+  protocol, keep-alive sur l'instance retenue par l'app
+- Mémoire : faits enrichis (message source, confiance 0-1, created_at, statut
+  actif/remplacé) + migration DB v3 rejouable (backfill, données préservées) ;
+  FactExtractor intact
+- Budget anti-boucle : max d'invocations d'un même outil par tour (défaut 4,
+  clamp 1-10, Réglages > Boucle d'outils) ; boucle `search_web` prouvée coupée
+  par test
+
 ## [0.5.1] - 2026-09-14
 
 ### Correctifs mémoire (pics à 40+ Go)
@@ -23,6 +58,27 @@
   publie le zip en artefact
 
 ## [Non publié]
+
+### Outils : extraction stricte + CRUD + fichiers sandboxés
+- **Dispatcher durci** — fini les `args["x"] as? String ?? ""` silencieux : un
+  paramètre manquant ou mal typé renvoie « Paramètre 'x' manquant ou de type
+  invalide pour l'outil 'y' » au lieu d'exécuter une action non demandée ;
+  couvert par tests pour CHAQUE outil (manquant + mal typé)
+- **CRUD outils** — `complete_reminder`/`delete_reminder`,
+  `edit_calendar_event`/`delete_calendar_event`, `search_notes`/`read_note`
+  (même format ToolDef que `add_reminder`/`list_reminders`) ; `list_reminders`
+  et `get_upcoming_events` exposent désormais les `[id:]` — jamais d'action
+  sur identifiant deviné ou titre approximatif, les 4 actions destructives
+  exigent confirmation (`sensitiveTools` + résumés dédiés)
+- **Fichiers sandboxés** — nouveau `FileTools` (`list_directory`/`read_file`),
+  seuls les chemins résolus sous ~/Documents, ~/Desktop, ~/Downloads sont
+  acceptés (symlink, `..`, absolu ailleurs = refus explicite fail-closed comme
+  `URLSafety.isBlocked`) ; lecture plafonnée à 200 Ko (même pattern que
+  `WebTools.maxPageBytes`), binaires (UTF-8 raté) refusés
+- **Test `testSleepMacActions` désamorcé** — `sleep`/`shutdown`/`restart`
+  exécutaient réellement la veille/l'extinction/le reboot du Mac lanceur ;
+  seul `lock` reste (verrouille réellement l'écran : à lancer en connaissance
+  de cause)
 
 ### Corrections
 - **Troncature post-tool** — défaut `maxTokens` 8192 → 32768 ; cause précise non

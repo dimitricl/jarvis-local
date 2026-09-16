@@ -13,7 +13,7 @@ defaults:
 jobs:
   lint:
     name: SwiftLint
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +30,7 @@ jobs:
 
   build-and-test:
     name: Build & Test
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +44,7 @@ jobs:
     name: Release (hardened)
     needs: [lint, build-and-test]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: macos-15
+    runs-on: macos-26
     # `secrets` est INTERDIT dans les `if:` de steps (rejet du workflow à la
     # création, 0 job) : on l'évalue une fois ici en `env`, les steps testent env.
     env:

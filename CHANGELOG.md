@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.7.0 (2026-09-16)
+
+- Interface Apple classique : thème sémantique clair/sombre auto (fini le HUD
+  opaque hardcodé), bulles façon Messages (bleu + gris système), matériaux
+  système, Liquid Glass dosé au chrome (toolbar native, sidebar `List`,
+  boutons `.glass`, morphing envoi/stop) — plancher macOS 26+, CI modernisée
+- Filet DB : backup horodaté avant chaque migration (rétention 3) + journal
+  `os_log` des suppressions ; fix migration v3 portable (défaut SQL non
+  constant refusé par le SQLite embarqué)
+- Architecture : couches Core/Services/UI vérifiables, LLM découplé (factory),
+  faits enrichis + migration v3, budget anti-boucle par outil
+
+## 0.6.0 (2026-09-15)
+
+- Architecture en couches vérifiables par le compilateur : `JarvisCore`
+  (models + protocols purs), `JarvisServices` (seul à toucher SQLite),
+  `JarvisUI` (vues + modèles, dépend de Core uniquement) ; tests par module
+- LLM découplé : protocol `LLMProvider` + factory (Ollama = 1re implémentation),
+  configuration injectée au lieu du singleton, keep-alive sur l'instance retenue
+- Mémoire : faits enrichis (message source, confiance 0-1, `created_at`, statut
+  actif/remplacé) + migration DB v3 rejouable, données existantes préservées
+- Budget anti-boucle : max d'appels d'un même outil par tour (défaut 4, réglable
+  dans Réglages > Boucle d'outils), prouvé par test sur `search_web`
+
 ## 0.5.1 (2026-09-14)
 
 - Fix alertes mémoire macOS (pics à 40+ Go) : plafonds sur downloads web
@@ -23,6 +47,22 @@
 
 ## Non publié
 
+- Dispatcher durci : fini les `args["x"] as? String ?? ""` silencieux — un
+  paramètre manquant ou mal typé renvoie « Paramètre 'x' manquant ou de type
+  invalide pour l'outil 'y' » au lieu d'exécuter une action non demandée ;
+  couvert par tests pour CHAQUE outil (manquant + mal typé)
+- CRUD outils : `complete_reminder`/`delete_reminder`, `edit_calendar_event`/
+  `delete_calendar_event`, `search_notes`/`read_note` (même format ToolDef que
+  `add_reminder`/`list_reminders`) ; `list_reminders` et `get_upcoming_events`
+  exposent désormais les `[id:]` — jamais d'action sur identifiant deviné ou
+  titre approximatif, les 4 actions destructives exigent confirmation
+- Fichiers sandboxés : nouveau `FileTools` (`list_directory`/`read_file`),
+  seuls les chemins résolus sous ~/Documents, ~/Desktop, ~/Downloads sont
+  acceptés (symlink, `..`, absolu ailleurs = refus explicite fail-closed comme
+  `URLSafety.isBlocked`) ; lecture plafonnée à 200 Ko (même pattern que
+  `WebTools.maxPageBytes`), binaires (UTF-8 raté) refusés
+- Test `testSleepMacActions` désamorcé : `sleep`/`shutdown`/`restart` exécutaient
+  réellement la veille/l'extinction/le reboot du Mac lanceur — seul `lock` reste
 - Fix troncature post-tool : défaut `maxTokens` 8192 → 32768 (`num_predict`) ;
   instrumentation SSE temporaire ajoutée puis retirée dans le même commit.
   Cause précise non identifiée : deux sondes `stream:false` avec contexte équivalent

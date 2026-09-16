@@ -1,8 +1,8 @@
 # JarvisLocal
 
 [![CI](https://github.com/dimitricl/jarvis-local/actions/workflows/ci.yml/badge.svg)](https://github.com/dimitricl/jarvis-local/actions/workflows/ci.yml)
-![macOS](https://img.shields.io/badge/macOS-14+-blue)
-![Swift](https://img.shields.io/badge/Swift-5.9-orange)
+![macOS](https://img.shields.io/badge/macOS-26+-blue)
+![Swift](https://img.shields.io/badge/Swift-6.2-orange)
 
 Ce projet utilise Ollama en local pour le traitement du langage naturel.
 
@@ -10,8 +10,8 @@ Assistant IA personnel pour macOS — dans l'esprit de Jarvis d'Iron Man. Tourne
 
 ## Prérequis
 
-- **macOS 14+** (Sonoma)
-- **Xcode 15+** — pour compiler depuis les sources
+- **macOS 26+** (Liquid Glass requis pour l'interface)
+- **Xcode 26+** — pour compiler depuis les sources
 - **Ollama** installé et lancé (`ollama serve`) avec un modèle compatible :
 
 ```bash

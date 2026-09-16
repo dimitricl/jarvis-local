@@ -1,4 +1,5 @@
-@testable import JarvisLocal
+@testable import JarvisUI
+import JarvisCore
 import XCTest
 
 @MainActor

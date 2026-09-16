@@ -1,4 +1,6 @@
-@testable import JarvisLocal
+@testable import JarvisUI
+@testable import JarvisServices
+import JarvisCore
 import Network // IPv4Address pour construire les IP de test (P0 : plus d'inet_pton)
 import Foundation // URL
 import Testing
