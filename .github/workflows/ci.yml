@@ -3,8 +3,16 @@ name: CI
 on:
   push:
     branches: [main]
+    # Sans ça, un push de tag ne déclenche RIEN : le job `release`
+    # (conditionné à refs/tags/v) ne tournait jamais (constaté : v0.7.0
+    # tagué, aucune Release publiée).
+    tags: ['v*']
   pull_request:
     branches: [main]
+
+# Création de Release via gh CLI : écriture requise sur contents.
+permissions:
+  contents: write
 
 defaults:
   run:
@@ -108,6 +116,25 @@ jobs:
           name: JarvisLocal-${{ github.ref_name }}
           path: JarvisLocal/JarvisLocal.zip
         if: env.HAS_DEV_ID == 'true'
+
+      - name: Create GitHub Release
+        # Avant, le job ne faisait qu'uploader un artefact : aucune entrée
+        # n'apparaissait dans l'onglet Releases. Idempotent : un re-run
+        # upload vers la release existante au lieu d'échouer.
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          ASSETS=""
+          [ -f JarvisLocal/JarvisLocal.zip ] && ASSETS="JarvisLocal/JarvisLocal.zip"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # shellcheck disable=SC2086
+            [ -n "$ASSETS" ] && gh release upload "$TAG" $ASSETS --clobber || true
+          else
+            # shellcheck disable=SC2086
+            gh release create "$TAG" $ASSETS --title "$TAG" --generate-notes
+          fi
 
       - name: Smoke test (automation stack du runner)
         # Pas de lancement GUI en CI (un binaire SwiftUI pendrait sans session Aqua) :

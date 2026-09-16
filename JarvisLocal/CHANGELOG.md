@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.7.1] - 2026-09-16
+
+### Pipeline release
+- **Release réparée** — le workflow ne se déclenchait jamais sur les tags
+  (`branches: [main]` uniquement) et ne créait aucune GitHub Release (artefact
+  seul) ; trigger `tags: ['v*']` + étape `gh release create` idempotente
+  (le garde tag ↔ CHANGELOG exige cette entrée aux deux endroits)
+
+### Outils : extraction stricte + CRUD + fichiers sandboxés
+- **Dispatcher durci** — fini les `args["x"] as? String ?? ""` silencieux : un
+  paramètre manquant ou mal typé renvoie « Paramètre 'x' manquant ou de type
+  invalide pour l'outil 'y' » au lieu d'exécuter une action non demandée ;
+  couvert par tests pour CHAQUE outil (manquant + mal typé)
+- **CRUD outils** — `complete_reminder`/`delete_reminder`,
+  `edit_calendar_event`/`delete_calendar_event`, `search_notes`/`read_note`
+  (même format ToolDef que `add_reminder`/`list_reminders`) ; `list_reminders`
+  et `get_upcoming_events` exposent désormais les `[id:]` — jamais d'action
+  sur identifiant deviné ou titre approximatif, les 4 actions destructives
+  exigent confirmation (`sensitiveTools` + résumés dédiés)
+- **Fichiers sandboxés** — nouveau `FileTools` (`list_directory`/`read_file`),
+  seuls les chemins résolus sous ~/Documents, ~/Desktop, ~/Downloads sont
+  acceptés (symlink, `..`, absolu ailleurs = refus explicite fail-closed comme
+  `URLSafety.isBlocked`) ; lecture plafonnée à 200 Ko (même pattern que
+  `WebTools.maxPageBytes`), binaires (UTF-8 raté) refusés
+- **Test `testSleepMacActions` désamorcé** — `sleep`/`shutdown`/`restart`
+  exécutaient réellement la veille/l'extinction/le reboot du Mac lanceur ;
+  seul `lock` reste (verrouille réellement l'écran : à lancer en connaissance
+  de cause)
+
 ## [0.7.0] - 2026-09-16
 
 ### Interface Apple classique + verre dosé
@@ -58,27 +87,6 @@
   publie le zip en artefact
 
 ## [Non publié]
-
-### Outils : extraction stricte + CRUD + fichiers sandboxés
-- **Dispatcher durci** — fini les `args["x"] as? String ?? ""` silencieux : un
-  paramètre manquant ou mal typé renvoie « Paramètre 'x' manquant ou de type
-  invalide pour l'outil 'y' » au lieu d'exécuter une action non demandée ;
-  couvert par tests pour CHAQUE outil (manquant + mal typé)
-- **CRUD outils** — `complete_reminder`/`delete_reminder`,
-  `edit_calendar_event`/`delete_calendar_event`, `search_notes`/`read_note`
-  (même format ToolDef que `add_reminder`/`list_reminders`) ; `list_reminders`
-  et `get_upcoming_events` exposent désormais les `[id:]` — jamais d'action
-  sur identifiant deviné ou titre approximatif, les 4 actions destructives
-  exigent confirmation (`sensitiveTools` + résumés dédiés)
-- **Fichiers sandboxés** — nouveau `FileTools` (`list_directory`/`read_file`),
-  seuls les chemins résolus sous ~/Documents, ~/Desktop, ~/Downloads sont
-  acceptés (symlink, `..`, absolu ailleurs = refus explicite fail-closed comme
-  `URLSafety.isBlocked`) ; lecture plafonnée à 200 Ko (même pattern que
-  `WebTools.maxPageBytes`), binaires (UTF-8 raté) refusés
-- **Test `testSleepMacActions` désamorcé** — `sleep`/`shutdown`/`restart`
-  exécutaient réellement la veille/l'extinction/le reboot du Mac lanceur ;
-  seul `lock` reste (verrouille réellement l'écran : à lancer en connaissance
-  de cause)
 
 ### Corrections
 - **Troncature post-tool** — défaut `maxTokens` 8192 → 32768 ; cause précise non
