@@ -103,8 +103,10 @@ struct SecurityGuardsTests {
         #expect(AppViewModel.shouldRetryVacuousAnswer(
             finalText: "Que veux-tu que je fasse pour toi ?",
             hasWebSources: true, used: 0))
-        // Réponse qui cite : on laisse passer, même courte.
-        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+        // Réponse quasi réduite à un lien (4 car. utiles après retrait de
+        // l'URL < seuil 100) : relancée — l'implémentation ne laisse passer
+        // que les réponses avec un vrai contenu (voir ci-dessous).
+        #expect(AppViewModel.shouldRetryVacuousAnswer(
             finalText: "Voir https://example.com/a",
             hasWebSources: true, used: 0))
         // Réponse longue : on laisse passer même sans URL explicite.
@@ -121,8 +123,10 @@ struct SecurityGuardsTests {
         #expect(AppViewModel.shouldRetryVacuousAnswer(
             finalText: "Sources :\n- https://www.apple.com/fr/shop/buy-iphone",
             hasWebSources: true, used: 0))
-        // Réponse substantielle avec liens : on laisse passer.
-        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+        // Contenu réel mais < 100 car. utiles une fois le trailer « Sources : »
+        // retiré : relancée (seuil isSourcesOnlyAnswer). Seules les réponses
+        // ≥ 100 car. utiles passent (cas « réponse longue » ci-dessus).
+        #expect(AppViewModel.shouldRetryVacuousAnswer(
             finalText: "Voici les prix relevés : iPhone 17 dès 1 119 €. Sources :\n- https://www.apple.com/fr/shop/buy-iphone",
             hasWebSources: true, used: 0))
     }
@@ -141,7 +145,9 @@ struct SecurityGuardsTests {
 
     @Test @MainActor func sourcesOnlyDetection() {        #expect(AppViewModel.isSourcesOnlyAnswer("Sources :\n- https://a.example/x"))
         #expect(AppViewModel.isSourcesOnlyAnswer("Voir ce lien : https://a.example/x"))
-        #expect(!AppViewModel.isSourcesOnlyAnswer(
+        // ~70 car. utiles après retrait de l'URL < seuil 100 : classé
+        // « que des liens » et relancé par shouldRetryVacuousAnswer.
+        #expect(AppViewModel.isSourcesOnlyAnswer(
             "Voici le tableau demandé : iPhone 17 dès 1 119 €, voir https://a.example/x pour le détail."))
     }
 
