@@ -23,19 +23,23 @@ struct InputBarView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            HStack(spacing: 6) {
-                micButton
+            // Barre flottante (phase 2) : le container fusionne mic + champ + envoi
+            // en une surface de verre continue avec morphing ; plus de barre opaque.
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    micButton
 
-                if vm.isVoiceMode {
-                    voiceInputField
-                } else {
-                    textInputField
-                }
+                    if vm.isVoiceMode {
+                        voiceInputField
+                    } else {
+                        textInputField
+                    }
 
-                if vm.isStreaming {
-                    stopButton
-                } else {
-                    sendButton
+                    if vm.isStreaming {
+                        stopButton
+                    } else {
+                        sendButton
+                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -43,8 +47,7 @@ struct InputBarView: View {
 
             voiceStatusText
         }
-        .background(JarvisTheme.panel)
-        .overlay(Rectangle().fill(JarvisTheme.divider).frame(height: 1), alignment: .top)
+        .padding(.bottom, 2)
         .onAppear { isInputFocused = true }
         .onChange(of: externalPrompt) { _, new in
             guard !new.isEmpty else { return }
@@ -60,8 +63,10 @@ struct InputBarView: View {
             Image(systemName: vm.isVoiceMode ? "mic.fill" : "mic")
                 .foregroundStyle(vm.isListening ? JarvisTheme.accent : vm.isVoiceMode ? JarvisTheme.amber : JarvisTheme.textSecondary)
                 .symbolEffect(.pulse, isActive: vm.isListening)
+                .padding(7)
         }
         .buttonStyle(.borderless)
+        .glassEffect(vm.isListening ? .regular.tint(JarvisTheme.accent) : vm.isVoiceMode ? .regular.tint(JarvisTheme.amber) : .regular)
         .help("Mode vocal")
         .accessibilityLabel(vm.isVoiceMode ? "Quitter le mode vocal" : "Activer le mode vocal")
     }
@@ -87,10 +92,11 @@ struct InputBarView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(JarvisTheme.panelElevated)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        // Le champ vocal rejoint la surface de verre (phase 2) ; l'anneau d'écoute
+        // reste par-dessus pour garder le signal d'état.
+        .glassEffect(in: RoundedRectangle(cornerRadius: 10))
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: 10)
                 .stroke(vm.isListening ? JarvisTheme.accent.opacity(0.6) : Color.clear, lineWidth: 1)
         )
     }
@@ -101,8 +107,11 @@ struct InputBarView: View {
             .frame(height: editorHeight)
             .focused($isInputFocused)
             .accessibilityLabel("Message à envoyer à Jarvis")
-            .background(JarvisTheme.panelElevated)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            // NSTextView transparent (drawsBackground = false) : le verre passe
+            // derrière le texte AppKit sans pont vibrancy (phase 2 ; phase 4 : finition).
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
             // PAS de .disabled(vm.isStreaming) ici : bloquer la saisie pendant la réponse
             // empêchait de préparer son prochain message et donnait l'impression d'un champ
             // cassé pendant tout le stream. L'envoi reste bloqué via le bouton/submitText.
@@ -110,13 +119,13 @@ struct InputBarView: View {
                 if inputText.isEmpty {
                     Text(vm.isStreaming ? "Jarvis répond... (tu peux taper)" : "Message...")
                         .foregroundStyle(JarvisTheme.textTertiary)
-                        .padding(.top, 6)
-                        .padding(.leading, 6)
+                        .padding(.top, 12)
+                        .padding(.leading, 16)
                         .allowsHitTesting(false)
                 }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 12)
                     .stroke(isInputFocused ? JarvisTheme.accent.opacity(0.35) : Color.clear, lineWidth: 1)
             )
     }
@@ -126,20 +135,24 @@ struct InputBarView: View {
         Button(action: { vm.stopStreaming() }) {
             Image(systemName: "stop.fill")
                 .foregroundStyle(JarvisTheme.danger)
+                .padding(7)
         }
         .buttonStyle(.borderless)
+        .glassEffect(.regular.tint(JarvisTheme.danger))
         .accessibilityLabel("Arrêter la réponse en cours")
     }
 
     @ViewBuilder
     private var sendButton: some View {
+        let ready = !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         Button(action: submitText) {
             Image(systemName: "arrow.up.circle.fill")
                 .font(.title2)
-                .foregroundStyle(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? JarvisTheme.textTertiary : JarvisTheme.accent)
+                .foregroundStyle(ready ? JarvisTheme.accent : JarvisTheme.textTertiary)
         }
         .buttonStyle(.borderless)
-        .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        .glassEffect(ready ? .regular.tint(JarvisTheme.accent) : .regular)
+        .disabled(!ready)
         .accessibilityLabel("Envoyer le message")
     }
 

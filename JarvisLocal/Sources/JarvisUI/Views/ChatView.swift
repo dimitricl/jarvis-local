@@ -53,14 +53,13 @@ struct ChatView: View {
                 .foregroundStyle(JarvisTheme.textSecondary)
             // Badge modèle : sait toujours quel modèle répond sans ouvrir les réglages.
             // Lu via le ViewModel (protocol Settings) : la vue ne touche jamais
-            // JarvisServices directement.
+            // JarvisServices directement. Pastille de verre (phase 2).
             Text(vm.modelName)
                 .font(JarvisTheme.mono(9))
                 .foregroundStyle(JarvisTheme.textTertiary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
-                .background(JarvisTheme.panelElevated)
-                .clipShape(Capsule())
+                .glassEffect()
                 .tracking(0.5)
             if let conv = vm.currentConversation {
                 Text(conv.title)
@@ -107,11 +106,14 @@ struct ChatView: View {
                             .font(.caption)
                             .foregroundStyle(JarvisTheme.textTertiary)
                             .multilineTextAlignment(.center)
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                            suggestionChip("Quelle est la météo à Paris aujourd'hui ?")
-                            suggestionChip("Rappelle-moi d'appeler le dentiste demain à 10h")
-                            suggestionChip("Crée une note avec ma liste de courses")
-                            suggestionChip("Cherche la dernière actu tech en français")
+                        // Chips groupées en verre (phase 2) : surface continue + morphing.
+                        GlassEffectContainer(spacing: 8) {
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                                suggestionChip("Quelle est la météo à Paris aujourd'hui ?")
+                                suggestionChip("Rappelle-moi d'appeler le dentiste demain à 10h")
+                                suggestionChip("Crée une note avec ma liste de courses")
+                                suggestionChip("Cherche la dernière actu tech en français")
+                            }
                         }
                         .padding(.horizontal, 40)
                         .padding(.top, 6)
@@ -170,23 +172,31 @@ struct ChatView: View {
                 Image(systemName: "wrench.and.screwdriver")
                     .foregroundStyle(JarvisTheme.amber)
                     .font(.caption2)
-                ForEach(vm.toolTrace) { entry in
-                    HStack(spacing: 2) {
-                        Text(entry.name)
-                            .font(JarvisTheme.mono(10, weight: .medium))
-                            .foregroundStyle(JarvisTheme.textSecondary)
-                        Text(entry.status)
-                            .font(JarvisTheme.mono(10))
-                            .foregroundStyle(
-                                entry.status == "✓" ? JarvisTheme.accent
-                                : entry.status == "✗" ? JarvisTheme.danger
-                                : JarvisTheme.amber
+                // Pastilles groupées en verre (phase 2), teintées par statut.
+                GlassEffectContainer(spacing: 4) {
+                    HStack(spacing: 6) {
+                        ForEach(vm.toolTrace) { entry in
+                            HStack(spacing: 2) {
+                                Text(entry.name)
+                                    .font(JarvisTheme.mono(10, weight: .medium))
+                                    .foregroundStyle(JarvisTheme.textSecondary)
+                                Text(entry.status)
+                                    .font(JarvisTheme.mono(10))
+                                    .foregroundStyle(
+                                        entry.status == "✓" ? JarvisTheme.accent
+                                        : entry.status == "✗" ? JarvisTheme.danger
+                                        : JarvisTheme.amber
+                                    )
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .glassEffect(
+                                entry.status == "✓" ? .regular.tint(JarvisTheme.accent)
+                                : entry.status == "✗" ? .regular.tint(JarvisTheme.danger)
+                                : .regular.tint(JarvisTheme.amber)
                             )
+                        }
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(JarvisTheme.panelElevated)
-                    .clipShape(Capsule())
                 }
                 Spacer()
                 if vm.isToolRunning {
@@ -210,12 +220,10 @@ struct ChatView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
                 .frame(maxWidth: .infinity)
-                .background(JarvisTheme.panelElevated)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(JarvisTheme.divider, lineWidth: 1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
