@@ -7,8 +7,27 @@ import JarvisUI
 
 /// L'app ne vit plus en arrière-plan : fermer la dernière fenêtre quitte.
 /// (Avant, la MenuBarExtra maintenait le process en vie fenêtre fermée.)
+/// Le delegate seul laissait un délai perceptible entre la croix rouge et la
+/// sortie (mesuré : le teardown lui-même prend ~1 s) : on double donc avec une
+/// sortie explicite dès qu'il ne reste plus aucune fenêtre visible ou
+/// miniaturisée — une fenêtre miniaturisée compte comme "toujours là".
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(windowWillClose(_:)),
+            name: NSWindow.willCloseNotification, object: nil)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    @objc private func windowWillClose(_ note: Notification) {
+        // willClose est posté AVANT le retrait effectif : on laisse le runloop
+        // finir la fermeture, puis on quitte s'il ne reste rien à l'écran.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            let alive = NSApp.windows.contains { $0.isVisible || $0.isMiniaturized }
+            if !alive { NSApp.terminate(nil) }
+        }
+    }
 }
 
 /// Composition root : seul endroit de l'app qui connaît à la fois les concrets
