@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0 (2026-09-16)
+
+- Interface Apple classique : thème sémantique clair/sombre auto (fini le HUD
+  opaque hardcodé), bulles façon Messages (bleu + gris système), matériaux
+  système, Liquid Glass dosé au chrome (toolbar native, sidebar `List`,
+  boutons `.glass`, morphing envoi/stop) — plancher macOS 26+, CI modernisée
+- Filet DB : backup horodaté avant chaque migration (rétention 3) + journal
+  `os_log` des suppressions ; fix migration v3 portable (défaut SQL non
+  constant refusé par le SQLite embarqué)
+- Architecture : couches Core/Services/UI vérifiables, LLM découplé (factory),
+  faits enrichis + migration v3, budget anti-boucle par outil
+
 ## 0.6.0 (2026-09-15)
 
 - Architecture en couches vérifiables par le compilateur : `JarvisCore`

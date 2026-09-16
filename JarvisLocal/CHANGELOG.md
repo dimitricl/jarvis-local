@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0] - 2026-09-16
+
+### Interface Apple classique + verre dosé
+- Thème sémantique : textes `.primary/.secondary/.tertiary`, fonds base/élevé,
+  accent cyan → bleu système, suivi auto clair/sombre (vérifié par screenshots
+  des deux modes) ; plus aucune couleur hardcodée
+- Bulles façon Messages (bleu/blanc + gris système), saisie en material texte,
+  sheets en base/élevé, boutons `.glass`/`.glassProminent`, morphing envoi/stop
+  (ID partagé + matchedGeometry), sidebar `List` native, toolbar unifiée
+- Plancher macOS 26 (outils 6.2, mode langage Swift 5 conservé), CI `macos-26`
+
+### Filet DB post-incident
+- Backup horodaté avant migration (rétention 3) + `os_log` des suppressions
+- Fix migration v3 : `ADD COLUMN` sans défaut SQL (non-constant refusé en prod)
+
+### Architecture (déjà livrée en 0.6.0, incluse)
+- Couches Core/Services/UI, LLM découplé (factory), faits v3, budget anti-boucle
+
 ## [0.6.0] - 2026-09-15
 
 ### Architecture en couches (4 chantiers)

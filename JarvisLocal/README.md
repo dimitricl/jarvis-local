@@ -4,7 +4,7 @@ Assistant IA personnel pour macOS, 100% local — dans l'esprit du JARVIS d'Iron
 
 ## Prérequis
 
-- macOS 14.0+
+- macOS 26.0+
 - [Ollama](https://ollama.ai) avec un modèle compatible (gemma4, llama3, etc.)
 - Rien d'autre : synthèse vocale 100 % on-device (AVSpeechSynthesizer)
 
