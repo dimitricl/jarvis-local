@@ -5,6 +5,8 @@ struct ChatView: View {
     @Environment(AppViewModel.self) private var vm
     @State private var externalPrompt = ""
     @State private var scrollProxy: ScrollViewProxy?
+    /// Espace de morphing des chips de suggestion à leur apparition (phase 4).
+    @Namespace private var chipsNamespace
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,16 +96,19 @@ struct ChatView: View {
                             .font(.caption)
                             .foregroundStyle(JarvisTheme.textTertiary)
                             .multilineTextAlignment(.center)
-                        // Chips en styles verre système (phase 2 refonte) : pas de
-                        // container (aucun morphing), pas de fond custom.
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                            suggestionChip("Quelle est la météo à Paris aujourd'hui ?")
-                            suggestionChip("Rappelle-moi d'appeler le dentiste demain à 10h")
-                            suggestionChip("Crée une note avec ma liste de courses")
-                            suggestionChip("Cherche la dernière actu tech en français")
+                        // Chips en styles verre système ; le container fait morpher
+                        // leur apparition/disparition avec l'écran d'accueil (phase 4).
+                        GlassEffectContainer(spacing: 8) {
+                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                                suggestionChip("Quelle est la météo à Paris aujourd'hui ?", id: "suggestion-0")
+                                suggestionChip("Rappelle-moi d'appeler le dentiste demain à 10h", id: "suggestion-1")
+                                suggestionChip("Crée une note avec ma liste de courses", id: "suggestion-2")
+                                suggestionChip("Cherche la dernière actu tech en français", id: "suggestion-3")
+                            }
                         }
                         .padding(.horizontal, 40)
                         .padding(.top, 6)
+                        .animation(.default, value: vm.messages.isEmpty)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -198,7 +203,7 @@ struct ChatView: View {
         }
     }
 
-    private func suggestionChip(_ text: String) -> some View {
+    private func suggestionChip(_ text: String, id: String) -> some View {
         Button { externalPrompt = text } label: {
             Text(text)
                 .font(.caption)
@@ -210,6 +215,8 @@ struct ChatView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.glass)
+        .glassEffectID(id, in: chipsNamespace)
+        .glassEffectTransition(.matchedGeometry)
     }
 }
 

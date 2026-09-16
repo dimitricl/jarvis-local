@@ -16,6 +16,9 @@ struct InputBarView: View {
     @FocusState private var isInputFocused: Bool
     @State private var micPulse = false
     @State private var editorHeight: CGFloat = 34
+    /// Espace de morphing envoi ↔ stop : les deux boutons partagent cet ID, le
+    /// verre de l'un se transforme en l'autre au lieu de clignoter (phase 4).
+    @Namespace private var actionMorphNamespace
 
     init(externalPrompt: Binding<String> = .constant("")) {
         _externalPrompt = externalPrompt
@@ -24,23 +27,30 @@ struct InputBarView: View {
     var body: some View {
         VStack(spacing: 4) {
             // Ligne flottante : champ opaque (lisibilité du texte AppKit) +
-            // boutons en styles verre système. Pas de container : ces contrôles
-            // ne morphent pas entre eux (recette Apple).
-            HStack(spacing: 6) {
-                micButton
+            // boutons en styles verre système. Le container ne sert qu'au morphing
+            // envoi ↔ stop (même ID) — les autres contrôles y sont des tuiles
+            // indépendantes (aucun morphing entre éléments statiques).
+            GlassEffectContainer(spacing: 6) {
+                HStack(spacing: 6) {
+                    micButton
 
-                if vm.isVoiceMode {
-                    voiceInputField
-                } else {
-                    textInputField
-                }
+                    if vm.isVoiceMode {
+                        voiceInputField
+                    } else {
+                        textInputField
+                    }
 
-                if vm.isStreaming {
-                    stopButton
-                } else {
-                    sendButton
+                    if vm.isStreaming {
+                        stopButton
+                    } else {
+                        sendButton
+                    }
                 }
             }
+            // L'animation est pilotée par l'état (pas de withAnimation possible
+            // depuis le ViewModel qui mute isStreaming en async) : le morphing
+            // du verre suit les allers-retours streaming.
+            .animation(.default, value: vm.isStreaming)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
 
@@ -133,6 +143,8 @@ struct InputBarView: View {
         }
         .buttonStyle(.glass)
         .tint(JarvisTheme.danger)
+        .glassEffectID("sendStop", in: actionMorphNamespace)
+        .glassEffectTransition(.matchedGeometry)
         .accessibilityLabel("Arrêter la réponse en cours")
     }
 
@@ -146,6 +158,8 @@ struct InputBarView: View {
             }
             .buttonStyle(.glassProminent)
             .tint(JarvisTheme.accent)
+            .glassEffectID("sendStop", in: actionMorphNamespace)
+            .glassEffectTransition(.matchedGeometry)
             .accessibilityLabel("Envoyer le message")
         } else {
             Button(action: submitText) {
@@ -153,6 +167,8 @@ struct InputBarView: View {
                     .foregroundStyle(JarvisTheme.textTertiary)
             }
             .buttonStyle(.glass)
+            .glassEffectID("sendStop", in: actionMorphNamespace)
+            .glassEffectTransition(.matchedGeometry)
             .disabled(true)
             .accessibilityLabel("Envoyer le message")
         }
