@@ -17,4 +17,7 @@ public enum ServiceHosts {
     public static var tools: any ToolExecutor { ToolService.shared }
     public static var tts: any TTSEngine { AudioService.shared }
     public static var stt: any STTEngine { STTService.shared }
+    /// Socle jobs d'arrière-plan (itération agents) : exposé sous le protocol
+    /// Core, comme les autres singletons — l'UI ne nomme jamais JobRegistry.
+    public static var jobs: any BackgroundJobRegistry { JobRegistry.shared }
 }

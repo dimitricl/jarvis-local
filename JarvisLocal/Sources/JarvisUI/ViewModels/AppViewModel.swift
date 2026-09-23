@@ -94,6 +94,16 @@ public final class AppViewModel {
     let audio: any TTSEngine
     let stt: any STTEngine
     let settings: any AppSettingsProtocol
+    /// Socle jobs d'arrière-plan (itération agents) : typé par le protocol Core,
+    /// jamais par le concret de JarvisServices (frontière L2, voir ModuleBoundaryTests).
+    /// Optionnel + défaut nil : les call-sites historiques (6 args) continuent
+    /// de compiler, seule la composition root injecte le vrai registre.
+    let jobsRegistry: (any BackgroundJobRegistry)?
+
+    /// Miroir observable des jobs (actifs + récents), alimenté par le flux du
+    /// registre. L'UI lit ÇA, jamais l'actor directement.
+    var jobs: [JobRecord] = []
+    private var jobsObservationTask: Task<Void, Never>?
 
     public init(
         db: any PersistentStore,
@@ -101,7 +111,8 @@ public final class AppViewModel {
         tools: any ToolExecutor,
         audio: any TTSEngine,
         stt: any STTEngine,
-        settings: any AppSettingsProtocol
+        settings: any AppSettingsProtocol,
+        jobsRegistry: (any BackgroundJobRegistry)? = nil
     ) {
         self.db = db
         self.ollama = ollama
@@ -109,6 +120,87 @@ public final class AppViewModel {
         self.audio = audio
         self.stt = stt
         self.settings = settings
+        self.jobsRegistry = jobsRegistry
+        // Démarrage auto si un registre est injecté : la composition root n'a
+        // rien d'autre à appeler. Méthode idempotente (garde sur la Task).
+        startObservingJobs()
+    }
+
+    // MARK: - Background jobs (socle agents, itération suivante : brancher les tool calls)
+
+    /// Borne du miroir UI : on garde les actifs + un historique récent, pas
+    /// tout depuis le lancement (le registre, lui, borne à 100).
+    static let maxMirroredJobs = 50
+
+    /// Souscrit au flux du registre et maintient `jobs` à jour. Idempotente.
+    /// POURQUOI une Task stockée plutôt qu'un .task SwiftUI : l'abonnement vit
+    /// aussi longtemps que le ViewModel (pas que la vue), survit aux
+    /// recompositions, et se coupe proprement via stopObservingJobs().
+    /// La boucle fait `for await` (suspension, JAMAIS de blocage du main thread :
+    /// chaque réveil ne fait qu'un upsert synchrone) et ne duplique AUCUNE
+    /// logique de concurrence — l'actor reste seul ordonnanceur, ici on miroite.
+    func startObservingJobs() {
+        guard jobsObservationTask == nil, let registry = jobsRegistry else { return }
+        jobsObservationTask = Task { [weak self] in
+            // Photo initiale : l'UI affiche l'existant sans attendre la
+            // première transition (un job fini avant l'abonnement sinon invisible).
+            let initial = await registry.snapshot()
+            guard let strongSelf = self else { return }
+            strongSelf.jobs = Array(initial.suffix(Self.maxMirroredJobs))
+            for await record in await registry.updates() {
+                // Garde exigée EN PLUS du guard let self en tête de Task : cancel()
+                // fait sortir next() (nil) quand la boucle est suspendue sans élément
+                // en vol, MAIS un élément déjà en buffer au moment du cancel réveille
+                // quand même la boucle — sans ce garde, la transition serait appliquée
+                // malgré stopObservingJobs() (fuite d'observation). Ici on sort sans
+                // appliquer ; la sortie libère l'itérateur et le onTermination côté
+                // registre retire l'abonnement.
+                guard !Task.isCancelled else { break }
+                guard let strongSelf = self else { return }
+                strongSelf.applyJobUpdate(record)
+            }
+        }
+    }
+
+    /// NOTE : `internal` pour les tests.
+    func stopObservingJobs() {
+        jobsObservationTask?.cancel()
+        jobsObservationTask = nil
+    }
+
+    /// Upsert synchrone MainActor (le ViewModel est @MainActor) : remplace le
+    /// record du même id ou l'ajoute, trié par création, historique borné.
+    /// Fonction de pure miroiterie — aucune décision de concurrence ici.
+    /// NOTE : `internal` pour les tests.
+    func applyJobUpdate(_ record: JobRecord) {
+        if let idx = jobs.firstIndex(where: { $0.id == record.id }) {
+            jobs[idx] = record
+        } else {
+            jobs.append(record)
+        }
+        jobs.sort { $0.createdAt < $1.createdAt }
+        if jobs.count > Self.maxMirroredJobs {
+            jobs = Array(jobs.suffix(Self.maxMirroredJobs))
+        }
+    }
+
+    /// Passthrough fin : un futur appelant (itération "un tool call devient un
+    /// job") n'aura qu'à fournir le `work`. Retourne nil sans registre (tests
+    /// sans injection) au lieu de crasher.
+    func enqueueJob(
+        title: String,
+        timeout: TimeInterval? = nil,
+        work: @escaping @Sendable () async throws -> String
+    ) async -> JobID? {
+        guard let registry = jobsRegistry else { return nil }
+        return await registry.enqueue(title: title, timeout: timeout, work: work)
+    }
+
+    /// Annulation non-bloquante : on délègue à l'actor et on rend la main
+    /// aussitôt, le nouveau statut arrivera via le flux (pas d'attente ici).
+    func cancelJob(_ id: JobID) {
+        guard let registry = jobsRegistry else { return }
+        Task { await registry.cancel(id) }
     }
 
     /// Nom du modèle courant, exposé aux vues (badge ChatView) sans leur donner Settings.

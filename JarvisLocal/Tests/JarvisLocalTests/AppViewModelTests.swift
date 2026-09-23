@@ -1,4 +1,5 @@
 @testable import JarvisUI
+@testable import JarvisServices
 import JarvisCore
 import XCTest
 
@@ -175,6 +176,57 @@ final class JarvisLocalAppViewModelTests: XCTestCase {
 
         await viewModel.clearAllFacts()
         XCTAssertEqual(viewModel.facts.count, 0)
+    }
+
+    // MARK: - Background jobs observation
+
+    /// Arrêter l'observation doit geler le miroir : un job enqueué APRÈS
+    /// stopObservingJobs() ne doit jamais apparaître dans vm.jobs.
+    /// Contexte honnête : sur ce toolchain, cancel() fait déjà sortir next()
+    /// (nil), donc une boucle suspendue sans élément en vol ne fuit pas au
+    /// réveil — mais un élément déjà en buffer au moment du cancel réveillerait
+    /// quand même la boucle, d'où le garde isCancelled exigé dans
+    /// startObservingJobs. Le délai de grâce final laisse à une boucle fautive
+    /// le temps de fuir : le test ne passe que si elle ne fuit pas.
+    func testStopObservingJobsFreezesMirroredJobs() async {
+        let registry = JobRegistry()
+        let jobsVM = AppViewModel(
+            db: viewModel.db,
+            ollama: viewModel.ollama,
+            tools: viewModel.tools,
+            audio: viewModel.audio,
+            stt: viewModel.stt,
+            settings: viewModel.settings,
+            jobsRegistry: registry
+        )
+        // L'init démarre l'observation : preuve qu'elle est vivante avant le stop.
+        let firstId = await registry.enqueue(title: "avant-stop") { "un" }
+        var sawFirst = false
+        let liveDeadline = Date().addingTimeInterval(5)
+        while !sawFirst, Date() < liveDeadline {
+            sawFirst = jobsVM.jobs.contains { $0.id == firstId }
+            if !sawFirst { try? await Task.sleep(nanoseconds: 20_000_000) }
+        }
+        XCTAssertTrue(sawFirst, "l'observation aurait dû miroiter le premier job avant le stop")
+
+        jobsVM.stopObservingJobs()
+
+        // Job enqueué APRÈS l'arrêt : le registre le termine normalement…
+        let secondId = await registry.enqueue(title: "après-stop") { "deux" }
+        var secondTerminal = false
+        let endDeadline = Date().addingTimeInterval(5)
+        while !secondTerminal, Date() < endDeadline {
+            if let s = await registry.status(secondId), s.isTerminal {
+                secondTerminal = true
+            } else {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
+        XCTAssertTrue(secondTerminal, "le registre aurait dû terminer le second job")
+        // …mais le réveil qu'il provoque dans la boucle annulée ne doit RIEN appliquer.
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertTrue(jobsVM.jobs.contains { $0.id == firstId }, "le job d'avant-stop doit rester visible")
+        XCTAssertFalse(jobsVM.jobs.contains { $0.id == secondId }, "un job post-stop ne doit pas fuir dans le miroir")
     }
 }
 

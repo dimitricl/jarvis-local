@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.7.1 (2026-09-16)
+## 0.8.0 (2026-09-23)
+
+- Socle tâches de fond (agents) : l'app sait désormais lancer, suivre et
+  annuler des travaux en arrière-plan depuis le chat (liste des jobs en cours
+  avec bouton d'annulation) — pour l'instant, aucun outil n'utilise encore ce
+  socle, donc rien ne change visiblement à l'usage : c'est une fondation pour
+  les prochaines itérations, pas une fonctionnalité active
+- Timeouts et annulations propres : un travail trop long bascule en échec
+  explicite au lieu de rester bloqué, un arrêt demandé n'est jamais compté
+  comme un échec
+- 10 tests supplémentaires (373 au total : socle jobs + gel du miroir à l'arrêt
+  de l'observation), suite 100 % verte
+
 
 - Pipeline release réparé : le workflow ne se déclenchait jamais sur les tags
   (`branches: [main]` uniquement) et ne créait aucune GitHub Release (artefact

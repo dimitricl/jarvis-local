@@ -29,6 +29,9 @@ struct ChatView: View {
             }
             messageList
             toolIndicator
+            // Socle agents : jobs de fond en cours (statut + annulation).
+            // Vide la plupart du temps (JobsView ne rend rien sans job actif).
+            JobsView()
             InputBarView(externalPrompt: $externalPrompt)
         }
         .background(JarvisTheme.background)

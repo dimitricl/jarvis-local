@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.0] - 2026-09-23
+
+### Socle tâches de fond (agents) — fondation, pas encore visible
+- **Jobs en arrière-plan** — nouveau registre d'exécution : un travail peut
+  tourner pendant que l'utilisateur continue à utiliser l'app, avec suivi
+  (en attente / en cours / terminé / échoué / annulé) et bouton d'annulation
+  dans le chat
+- **Aucun changement visible pour l'instant** — aucun outil n'est encore branché
+  sur ce socle (le branchement « un tool call devient un job » est l'itération
+  suivante) : si aucun job ne tourne, l'interface est strictement identique
+- **Comportement garanti** — un travail trop long bascule en échec explicite
+  (timeout configurable) au lieu de rester bloqué ; un arrêt demandé affiche
+  « Annulé », jamais « Échoué » ; arrêter un job déjà fini est sans effet
+- **Tests** — 10 nouveaux (9 socle : exécution, annulation, timeout,
+  concurrence, flux + 1 gel du miroir à l'arrêt de l'observation), 373 au total,
+  suite 100 % verte
+
 ## [0.7.1] - 2026-09-16
 
 ### Pipeline release

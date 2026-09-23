@@ -79,7 +79,8 @@ struct JarvisLocalApp: App {
             tools: ServiceHosts.tools,
             audio: ServiceHosts.tts,
             stt: ServiceHosts.stt,
-            settings: Settings.shared
+            settings: Settings.shared,
+            jobsRegistry: ServiceHosts.jobs
         ))
     }
 
