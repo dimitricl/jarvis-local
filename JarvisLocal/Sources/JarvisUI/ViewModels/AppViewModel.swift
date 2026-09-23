@@ -4,40 +4,6 @@ import AppKit // NSApp.isActive (notification seulement si l'app est en arrière
 import UserNotifications
 import JarvisCore
 
-/// Demande de confirmation affichée à l'utilisateur avant l'exécution d'un tool sensible
-/// (extinction/redémarrage du Mac, envoi de message, script AppleScript, modification de note).
-struct ToolConfirmationRequest: Identifiable {
-    let id = UUID()
-    let toolName: String
-    let summary: String
-    /// Closure idempotente : un double appel (clic Confirmer + dismiss système quasi
-    /// simultanés) reprenait deux fois la même continuation — trap au runtime. Le garde
-    /// garantit une résolution unique, le second appel est ignoré.
-    private let box: ResolveBox
-
-    init(toolName: String, summary: String, resolve: @escaping (Bool) -> Void) {
-        self.toolName = toolName
-        self.summary = summary
-        self.box = ResolveBox(resolve)
-    }
-
-    func resolve(_ approved: Bool) { box.resolve(approved) }
-
-    private final class ResolveBox: @unchecked Sendable {
-        private var done = false
-        private let lock = NSLock()
-        private let inner: (Bool) -> Void
-        init(_ inner: @escaping (Bool) -> Void) { self.inner = inner }
-        func resolve(_ approved: Bool) {
-            lock.lock()
-            guard !done else { lock.unlock(); return }
-            done = true
-            lock.unlock()
-            inner(approved)
-        }
-    }
-}
-
 @MainActor
 @Observable
 public final class AppViewModel {
@@ -234,12 +200,7 @@ public final class AppViewModel {
     /// pas dans `sensitiveTools`). Retourne nil si aucune confirmation requise.
     /// Fonction pure — `internal` pour les tests.
     nonisolated static func confirmationKey(for tool: String, sensitive: Set<String>) -> String? {
-        if sensitive.contains(tool) { return tool }
-        if let native = MCPToolMapping.nativeToMCP.first(where: { $0.value == tool })?.key,
-           sensitive.contains(native) {
-            return native
-        }
-        return nil
+        ToolCallPartitioning.confirmationKey(for: tool, sensitive: sensitive)
     }
 
     private var streamTask: Task<Void, Never>?
@@ -729,7 +690,7 @@ public final class AppViewModel {
 
     /// NOTE : `internal`/`static` pour les tests — fonction pure.
     nonisolated static func shouldNotifyTurnFinished(startedAt: Date, isActive: Bool, now: Date = Date(), threshold: TimeInterval = 8) -> Bool {
-        !isActive && now.timeIntervalSince(startedAt) > threshold
+        AnswerGuards.shouldNotifyTurnFinished(startedAt: startedAt, isActive: isActive, now: now, threshold: threshold)
     }
     /// si le log échoue, on continue sans bruit.
     private func auditTool(conversationId: Int?, tool: String, args: String, status: String, result: String) async {
@@ -739,9 +700,7 @@ public final class AppViewModel {
     /// Résumé compact d'arguments pour le journal (clé=valeur, valeurs coupées).
     /// Fonction pure — `internal` pour les tests.
     nonisolated static func argsSummary(_ args: [String: Any]) -> String {
-        args.sorted { $0.key < $1.key }
-            .map { "\($0.key)=\("\($0.value)".prefix(60))" }
-            .joined(separator: ", ")
+        ToolCallPartitioning.argsSummary(args)
     }
 
     // MARK: - Audit des outils (/tools)
@@ -761,23 +720,13 @@ public final class AppViewModel {
     /// Extrait les lignes "Source : <url>" d'un résultat search_web/read_url.
     /// Fonction pure — `internal` pour les tests.
     nonisolated static func extractSourceURLs(from toolResult: String) -> [String] {
-        toolResult.components(separatedBy: "\n").compactMap { line in
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed.hasPrefix("Source : ") else { return nil }
-            let url = String(trimmed.dropFirst("Source : ".count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return url.hasPrefix("http") ? url : nil
-        }
+        SourceCitation.extractSourceURLs(from: toolResult)
     }
 
     /// Ajoute un bloc "Sources :" si le texte n'en cite aucune (ni URL ni mention).
     /// Déduplique en préservant l'ordre. Fonction pure — `internal` pour les tests.
     nonisolated static func appendMissingSources(to text: String, sources: [String]) -> String {
-        var seen: [String] = []
-        for s in sources where !seen.contains(s) { seen.append(s) }
-        guard !seen.isEmpty,
-              !text.contains("http"),
-              !text.localizedCaseInsensitiveContains("source") else { return text }
-        return text + "\n\nSources :\n" + seen.map { "- \($0)" }.joined(separator: "\n")
+        SourceCitation.appendMissingSources(to: text, sources: sources)
     }
 
     /// Filtre anti-boucle par appel (et non par batch) : sépare les appels inédits de ce tour
@@ -785,17 +734,7 @@ public final class AppViewModel {
     /// vus et retournés dans `fresh`, les doublons dans `duplicates` SANS toucher `seen`.
     /// Fonction pure — `internal` pour les tests.
     nonisolated static func partitionFreshToolCalls(_ calls: [ToolCall], seen: inout Set<String>) -> (fresh: [ToolCall], duplicates: [ToolCall]) {
-        var fresh: [ToolCall] = []
-        var duplicates: [ToolCall] = []
-        for tc in calls {
-            let sig = "\(tc.function.name):\(tc.function.arguments)"
-            if seen.insert(sig).inserted {
-                fresh.append(tc)
-            } else {
-                duplicates.append(tc)
-            }
-        }
-        return (fresh, duplicates)
+        ToolCallPartitioning.partitionFreshToolCalls(calls, seen: &seen)
     }
 
     /// Coupe-circuit par NOM de tool (étape 4) : borne le nombre d'invocations d'un
@@ -807,19 +746,7 @@ public final class AppViewModel {
     /// un message "tool" côté appelant (pas d'exécution, pas de tool_call_id orphelin).
     /// Fonction pure — `internal` pour les tests.
     nonisolated static func partitionBudgetedToolCalls(_ calls: [ToolCall], counts: inout [String: Int], budget: Int) -> (allowed: [ToolCall], refused: [ToolCall]) {
-        let limit = max(1, budget)
-        var allowed: [ToolCall] = []
-        var refused: [ToolCall] = []
-        for tc in calls {
-            let used = counts[tc.function.name, default: 0]
-            if used < limit {
-                counts[tc.function.name] = used + 1
-                allowed.append(tc)
-            } else {
-                refused.append(tc)
-            }
-        }
-        return (allowed, refused)
+        ToolCallPartitioning.partitionBudgetedToolCalls(calls, counts: &counts, budget: budget)
     }
 
     /// Parse les arguments d'un tool call. L'implémentation pure vit dans JarvisCore
@@ -839,19 +766,14 @@ public final class AppViewModel {
     /// texte est conservée, ainsi que les URL inline du corps).
     /// Fonction pure — `internal` pour les tests.
     nonisolated static func stripSavedSourcesTrailer(from text: String) -> String {
-        guard let r = text.range(of: "\n\nSources :\n", options: .backwards) else { return text }
-        let tail = text[r.upperBound...].components(separatedBy: "\n").filter { !$0.isEmpty }
-        guard !tail.isEmpty,
-              tail.allSatisfy({ $0.hasPrefix("- http") })
-        else { return text }
-        return String(text[..<r.lowerBound])
+        SourceCitation.stripSavedSourcesTrailer(from: text)
     }
 
     /// Borne anti-boucle de la reprise auto sur réponse tronquée : on ne reprend
     /// que si le serveur a signalé `finish_reason == "length"` ET que le budget
     /// de reprises du tour n'est pas épuisé. Fonction pure — `internal` pour les tests.
     nonisolated static func shouldContinueAfterTruncation(truncated: Bool, used: Int, max: Int = 2) -> Bool {
-        truncated && used < max
+        AnswerGuards.shouldContinueAfterTruncation(truncated: truncated, used: used, max: max)
     }
 
     /// Détecte une réponse finale « vide de substance » alors que des résultats web
@@ -861,16 +783,7 @@ public final class AppViewModel {
     /// ne sait pas utiliser les résultats échouera pareil à la 2e tentative, inutile
     /// d'insister. Fonction pure — `internal` pour les tests.
     nonisolated static func shouldRetryVacuousAnswer(finalText: String, hasWebSources: Bool, used: Int, max: Int = 1, minChars: Int = 300) -> Bool {
-        guard hasWebSources, used < max else { return false }
-        let t = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Classique : phrase générique courte sans URL.
-        if t.count < minChars && !t.contains("http") { return true }
-        // Variante observée en réel : la réponse NE CONTIENT QUE des liens/sources,
-        // sans le contenu demandé (pas de tableau, pas de résumé, pas d'appel
-        // d'outil de suite comme create_note). Le test "sans http" ci-dessus la
-        // laisse passer — celui-ci la rattrape.
-        if isSourcesOnlyAnswer(finalText) { return true }
-        return false
+        AnswerGuards.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: hasWebSources, used: used, max: max, minChars: minChars)
     }
 
     /// true si le texte est un refus déguisé ("je ne peux pas…", "dépasse mes
@@ -881,29 +794,14 @@ public final class AppViewModel {
     /// souvent ; sinon on sauvegarde tel quel (budget unique partagé avec
     /// shouldRetryVacuousAnswer). Fonction pure — `internal` pour les tests.
     nonisolated static func isRefusalAnswer(_ finalText: String) -> Bool {
-        let t = finalText.lowercased()
-        let markers = [
-            "je ne peux pas", "je ne suis pas en mesure", "je ne suis pas capable",
-            "je n'ai pas la capacité", "je n'ai pas les capacités",
-            "dépasse mes capacités", "dépassent mes capacités",
-            "m'est impossible", "il m'est impossible", "hors de ma portée"
-        ]
-        return markers.contains(where: t.contains)
+        AnswerGuards.isRefusalAnswer(finalText)
     }
 
     /// true si le texte, une fois retirés le bloc "Sources :" et les URL inline,
     /// ne contient presque rien (< minChars) : que des liens, pas de contenu.
     /// Fonction pure — `internal` pour les tests.
     nonisolated static func isSourcesOnlyAnswer(_ finalText: String, minChars: Int = 100) -> Bool {
-        let remainder = finalText.components(separatedBy: "\n").compactMap { line -> String? in
-            let t = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !t.isEmpty, t != "Sources :" else { return nil }
-            if t.hasPrefix("- http") { return nil }
-            let noURLs = t.replacingOccurrences(of: "https?://\\S+", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return noURLs.isEmpty ? nil : noURLs
-        }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-        return remainder.count < minChars
+        AnswerGuards.isSourcesOnlyAnswer(finalText, minChars: minChars)
     }
 
     /// Applique le plafond de contexte (dérivé de num_ctx, voir ContextTrimming) à un
