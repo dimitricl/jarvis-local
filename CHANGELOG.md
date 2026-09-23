@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.8.1 (2026-09-23)
+
+- Réseau borné : `read_url`, `search_web` et la météo ne chargent plus jamais
+  une réponse entière en mémoire — lecture plafonnée pendant le transfert
+  (2 Mo pages, 512 Ko JSON) avec annulation explicite de la requête au plafond,
+  fini les pics mémoire de plusieurs Go vers un gros fichier
+- Annulation propre : annuler pendant un téléchargement interrompt réellement
+  la requête et termine en annulation (plus de succès fantôme) ; la course
+  annulation/plafond est tranchée atomiquement (validé = succès conservé,
+  sinon `CancellationError`)
+- `Content-Length` remis à sa place : un en-tête menteur ne masque plus les
+  erreurs réseau et n'invente plus de troncation (incohérence signalée
+  explicitement) ; binaires refusés dans `read_url`, coupures UTF-8 réparées,
+  mention « contenu tronqué » quand le plafond est atteint
+- 16 tests réseau déterministes sans réseau réel (plafond, cancel, binaire,
+  statuts d'erreur, UTF-8, courses annulation/plafond), suite 100 % verte
+  (389 au total)
+
 ## 0.8.0 (2026-09-23)
 
 - Socle tâches de fond (agents) : l'app sait désormais lancer, suivre et

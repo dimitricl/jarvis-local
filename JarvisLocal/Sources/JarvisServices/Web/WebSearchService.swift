@@ -160,9 +160,10 @@ actor WebSearchService {
               let searchURL = URL(string: "https://lite.duckduckgo.com/lite/?q=\(encoded)")
         else { return "Erreur d'encodage de la requête." }
 
-        guard let html = await fetchPage(searchURL, timeout: 30) else {
+        guard let fetched = await fetchPage(searchURL, timeout: 30) else {
             return "Recherche web indisponible (pas de réponse de DuckDuckGo). Réponds avec tes connaissances générales en précisant que tu n'as pas pu vérifier en ligne."
         }
+        let html = fetched.html
 
         var links = parseDOM(html, base: searchURL)
         // Passe 3 : fallback regex si le DOM ne donne rien (markup changé).
@@ -208,9 +209,11 @@ actor WebSearchService {
         var req = URLRequest(url: url)
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = 10
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        // JSON borné : statut 2xx exigé (helper), tronqué = nil (JSON partiel
+        // inparsable → fallback DOM, jamais de réponse inventée).
+        guard let res = try? await BoundedHTTPReader.fetch(request: req, maxBytes: Self.maxJSONBytes),
+              !res.truncated,
+              let json = try? JSONSerialization.jsonObject(with: res.data) as? [String: Any]
         else { return nil }
         let abstract = (json["AbstractText"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let source = (json["AbstractURL"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -293,22 +296,32 @@ actor WebSearchService {
 
     // MARK: - Réseau mutualisé
 
-    /// Plafond de téléchargement : voir WebTools.maxPageBytes (même cause :
-    /// un corps géant chargé via data(for:) + décodé en String = pic mémoire
-    /// en Go sur une seule recherche).
-    static let maxPageBytes = 2_000_000
+    /// Plafond de téléchargement : source unique BoundedHTTPReader (même valeur
+    /// historique 2 Mo : un corps géant chargé via data(for:) + décodé en
+    /// String = pic mémoire en Go sur une seule recherche).
+    /// Top-3 en parallèle (TaskGroup conservé) → pic borné à 3 × 2 Mo = 6 Mo
+    /// max de corps bruts (+ décodage), au lieu de N Go sans plafond.
+    static let maxPageBytes = BoundedHTTPReader.maxPageBytes
+
+    /// Plafond JSON Instant Answer : voir BoundedHTTPReader.maxJSONBytes
+    /// (JSON < 100 Ko, 512 Ko = ~5x de marge ; tronqué → fallback DOM).
+    static let maxJSONBytes = BoundedHTTPReader.maxJSONBytes
 
     /// Fetch générique : UA navigateur + timeout court. Une requête qui traîne
     /// ne doit jamais bloquer tout le tour de conversation.
-    /// Corps plafonné avant décodage UTF-8 (cf. WebTools.fetchPage).
-    private func fetchPage(_ url: URL, timeout: TimeInterval) async -> String? {
+    /// Corps réellement borné via BoundedHTTPReader (comptage pendant le
+    /// transfert + `cancel()` explicite au plafond). Binaire avéré = nil
+    /// (page de résultats inattendue ou top-page PDF → ignorée, jamais crash).
+    private func fetchPage(_ url: URL, timeout: TimeInterval) async -> (html: String, truncated: Bool)? {
         var req = URLRequest(url: url)
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = timeout
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
+        guard let res = try? await BoundedHTTPReader.fetch(
+            request: req, maxBytes: Self.maxPageBytes, refuseBinaryMIME: true
+        ),
+              let html = BoundedHTTPReader.decodeText(data: res.data, truncated: res.truncated)
         else { return nil }
-        return String(data: Data(data.prefix(Self.maxPageBytes)), encoding: .utf8)
+        return (html, res.truncated)
     }
 
     private func fetchTopPages(_ links: [(title: String, href: String)], base: URL) async -> [String?] {
@@ -320,9 +333,13 @@ actor WebSearchService {
                           // Anti-SSRF : un résultat DDG pointant vers le LAN
                           // (routeur, intranet, rebinding DNS) n'est jamais fetché.
                           !URLSafety.isBlocked(u),
-                          let html = await self.fetchPage(u, timeout: 15)
+                          let fetched = await self.fetchPage(u, timeout: 15)
                     else { return (i, nil) }
-                    let t = html.htmlToText(maxLength: 3000)
+                    var t = fetched.html.htmlToText(maxLength: 3000)
+                    // Texte réseau tronqué au plafond : signalé explicitement.
+                    if fetched.truncated {
+                        t += BoundedHTTPReader.truncationNote(limit: Self.maxPageBytes)
+                    }
                     return (i, t.count > 100 ? t : nil)
                 }
             }

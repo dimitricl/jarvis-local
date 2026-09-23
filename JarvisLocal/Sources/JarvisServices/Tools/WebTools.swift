@@ -26,10 +26,23 @@ actor WebTools {
         if URLSafety.isBlocked(url) {
             return "Source : \(normalized)\nURL refusée : seules les pages web publiques (http/https) peuvent être lues."
         }
-        guard let html = await fetchPage(url, timeout: 20) else {
+        let fetched: (html: String, truncated: Bool)
+        do {
+            fetched = try await fetchPage(url, timeout: 20)
+        } catch let err as PageError {
+            switch err {
+            case .binary(let mime):
+                return "Source : \(normalized)\nContenu binaire (\(mime)) non lisible en texte : lecture refusée."
+            case .inaccessible:
+                return "Source : \(normalized)\nImpossible de récupérer le contenu de \(urlString) (page inaccessible ou timeout)."
+            }
+        } catch {
             return "Source : \(normalized)\nImpossible de récupérer le contenu de \(urlString) (page inaccessible ou timeout)."
         }
-        let text = html.htmlToText(maxLength: 4000)
+        var text = fetched.html.htmlToText(maxLength: 4000)
+        if fetched.truncated {
+            text += BoundedHTTPReader.truncationNote(limit: Self.maxPageBytes)
+        }
         // L'URL en tête pour que le modèle puisse la citer (même règle que search_web).
         return text.count > 100 ? "Source : \(normalized)\n\(text)" : "Source : \(normalized)\nContenu de la page insuffisant ou vide."
     }
@@ -38,24 +51,61 @@ actor WebTools {
     /// Sans plafond, un read_url vers un gros fichier (vidéo, ISO, export) charge
     /// des Go en RAM via URLSession.data (cause possible des alertes mémoire macOS
     /// à 40+ Go : Data + copie String + copies regex htmlToText).
-    static let maxPageBytes = 2_000_000
+    /// Source unique : BoundedHTTPReader.maxPageBytes (même valeur historique).
+    static let maxPageBytes = BoundedHTTPReader.maxPageBytes
+
+    /// Plafond JSON (géocodage + prévision Open-Meteo) : voir
+    /// BoundedHTTPReader.maxJSONBytes pour la justification (JSON < 100 Ko,
+    /// 512 Ko = ~5x de marge ; un JSON tronqué est inparsable → erreur).
+    static let maxJSONBytes = BoundedHTTPReader.maxJSONBytes
+
+    private enum PageError: Error {
+        case inaccessible
+        case binary(mime: String)
+    }
 
     /// Fetch générique : UA navigateur + timeout court, une requête qui traîne
     /// ne doit jamais bloquer tout le tour de conversation.
-    /// Lecture streamée et plafonnée : on coupe au-delà de maxPageBytes au lieu
-    /// de charger toute la réponse en mémoire.
-    private func fetchPage(_ url: URL, timeout: TimeInterval) async -> String? {
+    /// Lecture réellement bornée via BoundedHTTPReader : les octets sont comptés
+    /// pendant le transfert et la tâche est explicitement `cancel()` au plafond
+    /// (pas de `data(for:)` + `prefix` post-chargement).
+    /// Binaire avéré (MIME) = PageError.binary ; MIME absent/mensonger reste
+    /// plafonné par le streaming, puis refusé si le décodage UTF-8 strict échoue.
+    private func fetchPage(_ url: URL, timeout: TimeInterval) async throws -> (html: String, truncated: Bool) {
         var req = URLRequest(url: url)
         req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         req.timeoutInterval = timeout
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
-        else { return nil }
+        let res: BoundedHTTPReader.Response
+        do {
+            res = try await BoundedHTTPReader.fetch(
+                request: req, maxBytes: Self.maxPageBytes, refuseBinaryMIME: true
+            )
+        } catch let err as BoundedHTTPReader.ReaderError {
+            switch err {
+            case .binaryRefused(let mime): throw PageError.binary(mime: mime)
+            case .httpStatus, .invalidResponse, .network: throw PageError.inaccessible
+            }
+        }
         // Garde : on ne convertit jamais plus de maxPageBytes en String (la
         // conversion Data → String double transitoirement le pic mémoire).
-        // Un binaire géant (vidéo…) échoue ici le décodage UTF-8 → nil.
-        let capped = data.prefix(Self.maxPageBytes)
-        return String(data: Data(capped), encoding: .utf8)
+        // Non-tronqué + UTF-8 invalide = binaire (vidéo…) → refus explicite.
+        // Tronqué + coupure milieu de caractère = réparé dans decodeText.
+        guard let html = BoundedHTTPReader.decodeText(data: res.data, truncated: res.truncated) else {
+            throw PageError.binary(mime: res.httpResponse.mimeType ?? "inconnu")
+        }
+        return (html, res.truncated)
+    }
+
+    /// JSON borné (météo) : statut 2xx exigé, tronqué = nil (JSON partiel
+    /// inparsable → "service indisponible", jamais de texte inventé).
+    private func fetchJSON(_ url: URL, timeout: TimeInterval) async -> [String: Any]? {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = timeout
+        guard let res = try? await BoundedHTTPReader.fetch(request: req, maxBytes: Self.maxJSONBytes),
+              !res.truncated,
+              let json = try? JSONSerialization.jsonObject(with: res.data) as? [String: Any]
+        else { return nil }
+        return json
     }
 
     /// Open-Meteo plutôt que search_web : sans clé API, JSON stable, pas de
@@ -68,11 +118,7 @@ actor WebTools {
               let geoURL = URL(string: "https://geocoding-api.open-meteo.com/v1/search?name=\(encodedCity)&count=1&language=fr&format=json")
         else { return "Erreur d'encodage du nom de ville." }
 
-        guard let (geoDataRaw, _) = try? await URLSession.shared.data(for: {
-            var r = URLRequest(url: geoURL); r.timeoutInterval = 20; return r
-        }()),
-              geoDataRaw.count < Self.maxPageBytes,
-              let geoJSON = try? JSONSerialization.jsonObject(with: geoDataRaw) as? [String: Any],
+        guard let geoJSON = await fetchJSON(geoURL, timeout: 20),
               let results = geoJSON["results"] as? [[String: Any]],
               let first = results.first,
               let lat = first["latitude"] as? Double,
@@ -86,12 +132,7 @@ actor WebTools {
         guard let forecastURL = URL(string: "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,wind_speed_10m_max&timezone=auto") else {
             return "Erreur de construction de l'URL météo."
         }
-        guard let (data, response) = try? await URLSession.shared.data(for: {
-            var r = URLRequest(url: forecastURL); r.timeoutInterval = 20; return r
-        }()),
-              data.count < Self.maxPageBytes,
-              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        guard let json = await fetchJSON(forecastURL, timeout: 20),
               let current = json["current"] as? [String: Any]
         else {
             return "Service météo indisponible pour \(resolvedName) en ce moment."
