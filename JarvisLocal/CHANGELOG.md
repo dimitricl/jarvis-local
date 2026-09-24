@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.2] - 2026-09-24
+
+### Découpage AppViewModel — même comportement, responsabilités séparées
+- **Fini le god-object** — `AppViewModel` (1243 → ~850 lignes) délègue à trois
+  composants à responsabilité unique dans
+  `Sources/JarvisUI/ViewModels/Conversation/` : `FactsExtractionCoordinator`
+  (extraction + confirmation + CRUD faits), `ToolCallLoop` (filtres anti-boucle,
+  confirmation sensible, exécution isolée, wrap web) et `ConversationTurnRunner`
+  (orchestration d'un tour : prompt système, streaming, boucle de tools)
+- **Zéro changement observable** — prompt système vérifié identique au caractère
+  près (hors indentation source, retirée par Swift dans les deux cas), mêmes
+  libellés de tool-calling, mêmes signatures publiques ; les forwarders
+  historiques restent pour compatibilité, aucune nouvelle dépendance
+  JarvisUI → JarvisServices (frontière vérifiée par `ModuleBoundaryTests`)
+- **Tests** — 20 nouveaux (8 coordinator, 8 tool loop, 4 runner : tour complet
+  sur fakes sans DB ni LLM réel), 93 dans le bundle UI, suite 100 % verte
+
 ## [0.8.1] - 2026-09-23
 
 ### Réseau borné et annulation propre
