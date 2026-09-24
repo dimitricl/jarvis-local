@@ -132,8 +132,12 @@ final class JarvisLocalAppViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.toolTrace.count, 0)
 
         viewModel.toolTrace.append(AppViewModel.ToolTraceEntry(name: "test_tool", status: "…"))
+        viewModel.isToolRunning = true
+        viewModel.currentToolName = "test_tool"
         viewModel.markLastToolTrace("✓")
         XCTAssertEqual(viewModel.toolTrace.last?.status, "✓")
+        XCTAssertFalse(viewModel.isToolRunning)
+        XCTAssertTrue(viewModel.currentToolName.isEmpty)
     }
 
     // MARK: - Stop Streaming

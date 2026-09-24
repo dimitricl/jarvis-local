@@ -2,6 +2,21 @@
 
 ## [0.8.2] - 2026-09-24
 
+### Sécurité MCP, diagnostic et suivi du tour
+- **MCP verrouillé** — une politique locale centrale limite les capacités
+  déléguables aux outils iMCP explicitement approuvés ; une configuration peut
+  retirer une capacité, jamais en ajouter une. Les outils inconnus ou sensibles
+  restent refusés à la découverte comme à l'exécution.
+- **Diagnostic sans fuite de contenu** — journal OS structuré pour le début/la
+  fin des tours et des outils (durée + issue), sans prompt, réponse, argument
+  ni résultat ; visible dans Console.app sous `conversation-turn` et
+  `tool-execution`.
+- **État de conversation explicite** — le bandeau distingue confirmation
+  requise, outil en cours, réflexion et réponse en cours. Un outil terminé ne
+  reste plus affiché comme actif jusqu'à la fin du tour.
+- **Tests modernisés** — la suite MCP utilise désormais Swift Testing et reste
+  sérialisée autour du singleton d'outils.
+
 ### Découpage AppViewModel — même comportement, responsabilités séparées
 - **Fini le god-object** — `AppViewModel` (1243 → ~850 lignes) délègue à trois
   composants à responsabilité unique dans

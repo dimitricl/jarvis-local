@@ -405,6 +405,8 @@ public final class AppViewModel {
         if let idx = toolTrace.indices.last {
             toolTrace[idx].status = status
         }
+        isToolRunning = false
+        currentToolName = ""
     }
 
     /// Notifie la fin d'un tour SI l'app est en arrière-plan ET que le tour a duré

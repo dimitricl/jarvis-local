@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.2 (2026-09-24)
+
+- Sécurité MCP renforcée : seules les capacités iMCP explicitement approuvées
+  peuvent être déléguées ; un serveur configuré ne peut pas introduire une
+  nouvelle capacité et les outils inconnus ou sensibles sont refusés
+- Observabilité locale structurée des tours et outils (durée + issue), sans
+  journaliser prompts, réponses, arguments ni résultats
+- Interface de conversation plus explicite : confirmation requise, outil en
+  cours, réflexion et réponse en cours sont distingués ; l'état d'outil actif
+  est correctement réinitialisé à sa fin
+- Tests MCP modernisés avec Swift Testing, et tests de la politique de
+  délégation ajoutés
+
 ## 0.8.1 (2026-09-23)
 
 - Réseau borné : `read_url`, `search_web` et la météo ne chargent plus jamais

@@ -24,6 +24,21 @@ public actor MCPToolProvider {
         "open_app", "create_note", "edit_note", "run_routine", "get_weather"
     ]
 
+    /// Capacités MCP explicitement approuvées par l'application. La configuration
+    /// d'un serveur peut en retirer, jamais en ajouter : un binaire configuré par
+    /// l'utilisateur ne doit pas pouvoir exposer une capacité imprévue au modèle.
+    static let approvedRemoteTools: Set<String> = [
+        "calendars_list", "events_fetch", "events_create",
+        "reminders_lists", "reminders_fetch", "reminders_create",
+        "contacts_search"
+    ]
+
+    nonisolated static func mayDelegate(tool name: String, configuration: MCPServerConfig) -> Bool {
+        configuration.delegatedTools.contains(name)
+            && approvedRemoteTools.contains(name)
+            && !nativeOnly.contains(name)
+    }
+
     public init(configs: [MCPServerConfig]? = nil) {
         // Résolu à l'init (pas à la compilation) : un changement de Réglages
         // (imcp_path) est pris en compte à la prochaine création du provider.
@@ -59,8 +74,7 @@ public actor MCPToolProvider {
                     // Ne délègue que ce qui est explicitement autorisé, et jamais
                     // un outil de la liste nativeOnly (garde-fou anti-délégation
                     // accidentelle si un serveur expose "applescript" ou autre).
-                    guard cfg.delegatedTools.contains(tool.name),
-                          !Self.nativeOnly.contains(tool.name)
+                    guard Self.mayDelegate(tool: tool.name, configuration: cfg)
                     else { continue }
                     remoteTools[tool.name] = tool
                 }
@@ -102,6 +116,9 @@ public actor MCPToolProvider {
     }
 
     func call(tool name: String, args: [String: Any]) async throws -> String {
+        guard Self.approvedRemoteTools.contains(name) else {
+            throw MCPError.notAuthorized(name)
+        }
         guard let rt = remoteTools[name],
               let t = transports[rt.serverId]
         else { throw MCPError.offline(name) }

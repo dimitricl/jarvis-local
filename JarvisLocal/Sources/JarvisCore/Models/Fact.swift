@@ -9,7 +9,7 @@ public enum FactStatus: String, Sendable, Codable, Hashable {
     case superseded
 }
 
-public struct Fact: Codable, Identifiable, Hashable {
+public struct Fact: Codable, Identifiable, Hashable, Sendable {
     public let id: Int
     public let key: String
     public var value: String

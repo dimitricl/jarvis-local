@@ -115,8 +115,10 @@ public final class ConversationTurnRunner {
         ui.setStreamingText("")
         ui.resetTrace()
         let turnStartedAt = Date()
+        JarvisObservability.turnStarted()
 
         guard let cid = await ui.ensureConversationId() else {
+            JarvisObservability.turnFinished(outcome: "no_conversation", startedAt: turnStartedAt)
             ui.setStreaming(false)
             return
         }
@@ -233,6 +235,7 @@ public final class ConversationTurnRunner {
                     }
                     ui.setStreamingText("")
                     ui.setStreaming(false)
+                    JarvisObservability.turnFinished(outcome: "completed", startedAt: turnStartedAt)
                     cb.notifyFinished(turnStartedAt)
                     return
                 }
@@ -259,10 +262,13 @@ public final class ConversationTurnRunner {
             }
 
             ui.reportError("Jarvis a enchaîné trop d'appels d'outils sans conclure (limite de \(maxLoops) atteinte). Réessaie en reformulant ta demande.")
+            JarvisObservability.turnFinished(outcome: "tool_loop_limit", startedAt: turnStartedAt)
             cb.notifyFinished(turnStartedAt)
         } catch is CancellationError {
             // Annulation volontaire via stopStreaming() : on ne sauvegarde rien de partiel
+            JarvisObservability.turnFinished(outcome: "cancelled", startedAt: turnStartedAt)
         } catch {
+            JarvisObservability.turnFinished(outcome: "failed", startedAt: turnStartedAt)
             ui.reportError("Erreur : \(error.localizedDescription)")
         }
 

@@ -60,7 +60,7 @@ let package = Package(
             path: "Tests/JarvisLocalTests"
         ),
     ],
-    // Mode langage Swift 5 conservé : le passage en mode 6 (strict concurrency)
-    // est un chantier séparé, pas un effet de bord du bump d'outils.
+    // La migration Swift 6 exige d'abord un conteneur Sendable pour les arguments
+    // JSON des outils, aujourd'hui représentés par [String: Any].
     swiftLanguageModes: [.v5]
 )

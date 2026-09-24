@@ -154,6 +154,8 @@ public final class ToolCallLoop {
             }
 
             cb.appendTrace(tc.function.name)
+            let toolStartedAt = Date()
+            JarvisObservability.toolStarted(name: tc.function.name)
 
             let resultContent: String
             let runStatus: String
@@ -161,12 +163,15 @@ public final class ToolCallLoop {
                 resultContent = try await cb.execute(tc.function.name, args)
                 cb.markTrace("✓")
                 runStatus = "✓"
+                JarvisObservability.toolFinished(name: tc.function.name, outcome: "completed", startedAt: toolStartedAt)
             } catch is CancellationError {
+                JarvisObservability.toolFinished(name: tc.function.name, outcome: "cancelled", startedAt: toolStartedAt)
                 throw CancellationError()
             } catch {
                 resultContent = "Échec de l'outil \(tc.function.name) : \(error.localizedDescription). L'action n'a PAS été effectuée : dis-le clairement et ne prétends pas le contraire."
                 cb.markTrace("✗")
                 runStatus = "✗"
+                JarvisObservability.toolFinished(name: tc.function.name, outcome: "failed", startedAt: toolStartedAt)
             }
             await cb.audit(tc.function.name, Self.argsSummary(args), runStatus, resultContent)
 

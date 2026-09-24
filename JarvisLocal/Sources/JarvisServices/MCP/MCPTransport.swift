@@ -142,12 +142,14 @@ enum MCPError: Error, CustomStringConvertible {    case binaryNotFound(String)
     case timeout(String)
     case remote(String)
     case offline(String)
+    case notAuthorized(String)
     var description: String {
         switch self {
         case .binaryNotFound(let c): return "Serveur MCP introuvable : \(c) (installe iMCP ou renseigne son chemin dans Réglages > MCP)."
         case .timeout(let m): return "Serveur MCP sans réponse (méthode \(m), timeout)."
         case .remote(let e): return "Erreur serveur MCP : \(e)"
         case .offline(let s): return "Serveur MCP hors-ligne : \(s)."
+        case .notAuthorized(let tool): return "Outil MCP non autorisé par la politique locale : \(tool)."
         }
     }
 }

@@ -22,7 +22,7 @@ public struct MessageSearchResult: Sendable, Hashable {
     }
 }
 
-public protocol ConversationStore {
+public protocol ConversationStore: Sendable {
     func open(path: String?) async throws
     func getAllConversations() async throws -> [Conversation]
     func getConversation(id: Int) async throws -> Conversation?
@@ -43,7 +43,7 @@ public extension ConversationStore {
     }
 }
 
-public protocol FactsStore {
+public protocol FactsStore: Sendable {
     func getAllFacts() async throws -> [Fact]
     func upsertFact(key: String, value: String, sourceMessageId: Int?, confidence: Double) async throws
     func deleteFact(key: String) async throws
@@ -57,7 +57,7 @@ public extension FactsStore {
     }
 }
 
-public protocol ToolRunStore {
+public protocol ToolRunStore: Sendable {
     func logToolRun(conversationId: Int?, tool: String, args: String, status: String, result: String) async throws
     func getRecentToolRuns(limit: Int) async throws -> [ToolRun]
 }
@@ -68,7 +68,7 @@ public extension ToolRunStore {
     }
 }
 
-public protocol MessageSearchStore {
+public protocol MessageSearchStore: Sendable {
     func searchMessages(_ query: String) async throws -> [MessageSearchResult]
 }
 

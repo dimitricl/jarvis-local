@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Message: Codable, Identifiable, Hashable {
+public struct Message: Codable, Identifiable, Hashable, Sendable {
     public let id: Int
     public let role: String
     public let content: String
@@ -22,7 +22,7 @@ public struct Message: Codable, Identifiable, Hashable {
     }
 }
 
-public struct OllamaMessage: Codable {
+public struct OllamaMessage: Codable, Sendable {
     public var role: String
     public var content: String?
     public var toolCalls: [ToolCall]?
@@ -46,7 +46,7 @@ public struct OllamaMessage: Codable {
     }
 }
 
-public struct OllamaRequest: Codable {
+public struct OllamaRequest: Codable, Sendable {
     public let model: String
     public let messages: [OllamaMessage]
     public let stream: Bool
@@ -54,7 +54,7 @@ public struct OllamaRequest: Codable {
     public let tools: [ToolDef]?
 }
 
-public struct OllamaResponse: Codable {
+public struct OllamaResponse: Codable, Sendable {
     public let model: String
     public let createdAt: String?
     public let message: OllamaResponseMessage?
@@ -67,7 +67,7 @@ public struct OllamaResponse: Codable {
     }
 }
 
-public struct OllamaResponseMessage: Codable {
+public struct OllamaResponseMessage: Codable, Sendable {
     public let role: String?
     public let content: String?
     public let toolCalls: [ToolCall]?
@@ -78,7 +78,7 @@ public struct OllamaResponseMessage: Codable {
     }
 }
 
-public struct OllamaStreamChunk: Codable {
+public struct OllamaStreamChunk: Codable, Sendable {
     public let model: String?
     public let createdAt: String?
     public let message: OllamaStreamMessage?
@@ -91,7 +91,7 @@ public struct OllamaStreamChunk: Codable {
     }
 }
 
-public struct OllamaStreamMessage: Codable {
+public struct OllamaStreamMessage: Codable, Sendable {
     public let role: String?
     public let content: String?
 }

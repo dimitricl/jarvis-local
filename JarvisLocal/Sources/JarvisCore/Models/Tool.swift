@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ToolDef: Codable {
+public struct ToolDef: Codable, Sendable {
     public let type: String
     public let function: ToolFunction
 
@@ -10,7 +10,7 @@ public struct ToolDef: Codable {
     }
 }
 
-public struct ToolFunction: Codable {
+public struct ToolFunction: Codable, Sendable {
     public let name: String
     public let description: String
     public let parameters: ToolParameters
@@ -22,7 +22,7 @@ public struct ToolFunction: Codable {
     }
 }
 
-public struct ToolParameters: Codable {
+public struct ToolParameters: Codable, Sendable {
     public let type: String
     public let properties: [String: ToolProperty]
     public let required: [String]
@@ -34,7 +34,7 @@ public struct ToolParameters: Codable {
     }
 }
 
-public struct ToolProperty: Codable {
+public struct ToolProperty: Codable, Sendable {
     public let type: String
     public let description: String?
 
@@ -44,7 +44,7 @@ public struct ToolProperty: Codable {
     }
 }
 
-public struct ToolCall: Codable {
+public struct ToolCall: Codable, Sendable {
     public let id: String
     public let type: String?
     public let function: ToolCallFunction
@@ -56,7 +56,7 @@ public struct ToolCall: Codable {
     }
 }
 
-public struct ToolCallFunction: Codable {
+public struct ToolCallFunction: Codable, Sendable {
     public let name: String
     public let arguments: String
 
@@ -66,7 +66,7 @@ public struct ToolCallFunction: Codable {
     }
 }
 
-public struct ToolResult {
+public struct ToolResult: Sendable {
     public let toolCallId: String
     public let content: String
 
@@ -79,7 +79,7 @@ public struct ToolResult {
 /// Une exécution d'outil persistée : qui, quoi, avec quels arguments, quel statut,
 /// quel résultat (tronqué). Alimente la commande /tools — la réponse à "est-ce qu'il
 /// l'a VRAIMENT fait ?" ne doit plus dépendre de la mémoire du modèle.
-public struct ToolRun: Identifiable, Hashable {
+public struct ToolRun: Identifiable, Hashable, Sendable {
     public let id: Int
     public let tool: String
     public let args: String

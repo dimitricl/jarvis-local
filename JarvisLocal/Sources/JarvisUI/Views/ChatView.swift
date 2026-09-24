@@ -39,10 +39,10 @@ struct ChatView: View {
     private var header: some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(vm.isStreaming ? JarvisTheme.amber : JarvisTheme.accent)
+                .fill(activityColor)
                 .frame(width: 6, height: 6)
-                .shadow(color: (vm.isStreaming ? JarvisTheme.amber : JarvisTheme.accent).opacity(0.7), radius: 3)
-            Text(vm.isStreaming ? "STREAMING" : "CONNECTÉ")
+                .shadow(color: activityColor.opacity(0.7), radius: 3)
+            Text(activityLabel)
                 .font(JarvisTheme.mono(10, weight: .semibold))
                 .tracking(0.5)
                 .foregroundStyle(JarvisTheme.textSecondary)
@@ -77,6 +77,20 @@ struct ChatView: View {
         .padding(.vertical, 8)
         .background(JarvisTheme.panel)
         .overlay(Rectangle().fill(JarvisTheme.divider).frame(height: 1), alignment: .bottom)
+    }
+
+    private var activityLabel: String {
+        if vm.confirmationRequest != nil { return "CONFIRMATION REQUISE" }
+        if vm.isToolRunning { return "OUTIL : \(vm.currentToolName)" }
+        if vm.isStreaming && vm.streamingText.isEmpty { return "RÉFLEXION" }
+        if vm.isStreaming { return "RÉPONSE EN COURS" }
+        return "CONNECTÉ"
+    }
+
+    private var activityColor: Color {
+        if vm.confirmationRequest != nil { return JarvisTheme.danger }
+        if vm.isToolRunning || vm.isStreaming { return JarvisTheme.amber }
+        return JarvisTheme.accent
     }
 
     private var messageList: some View {
@@ -205,6 +219,7 @@ struct ChatView: View {
             .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
+            .accessibilityLabel("Outils du tour en cours")
         }
     }
 
