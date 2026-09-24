@@ -28,7 +28,6 @@ struct ChatView: View {
                 .background(JarvisTheme.danger.opacity(0.1))
             }
             messageList
-            toolIndicator
             // Socle agents : jobs de fond en cours (statut + annulation).
             // Vide la plupart du temps (JobsView ne rend rien sans job actif).
             JobsView()
@@ -120,6 +119,13 @@ struct ChatView: View {
                         MessageBubbleView(message: msg)
                             .id(msg.id)
                     }
+                    // Trace d'outils fusionnée dans le flux : même donnée
+                    // (vm.toolTrace : nom + statut …/✓/✗), mais rendue sous la
+                    // réponse concernée (tour en cours — toolTrace est reset à
+                    // chaque tour, aucun changement ViewModel) en style log/mono,
+                    // au lieu de la barre flottante disjointe. Ordre VoiceOver
+                    // préservé : messages → trace → stream.
+                    inlineToolTrace
                     if !vm.streamingText.isEmpty {
                         MessageBubbleView(text: vm.streamingText, role: "assistant", isStreaming: true)
                             .id("streaming")
@@ -161,17 +167,20 @@ struct ChatView: View {
     }
 
     @ViewBuilder
-    private var toolIndicator: some View {
+    private var inlineToolTrace: some View {
         if !vm.toolTrace.isEmpty {
-            HStack(spacing: 6) {
+            // Ligne log sous la réponse : même contenu que l'ancien indicateur
+            // (nom mono + statut …/✓/✗), sans fond ambré flottant — alignée sur
+            // l'indentation du log assistant (icône + liseré).
+            HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "wrench.and.screwdriver")
-                    .foregroundStyle(JarvisTheme.amber)
+                    .foregroundStyle(JarvisTheme.textTertiary)
                     .font(.caption2)
-                // Indicateurs de statut, pas des contrôles : pastilles teintées
-                // opaques (recette Apple — le verre est pour le chrome).
-                HStack(spacing: 6) {
+                    .padding(.top, 2)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
                     ForEach(vm.toolTrace) { entry in
-                        HStack(spacing: 2) {
+                        HStack(spacing: 4) {
                             Text(entry.name)
                                 .font(JarvisTheme.mono(10, weight: .medium))
                                 .foregroundStyle(JarvisTheme.textSecondary)
@@ -182,27 +191,20 @@ struct ChatView: View {
                                     : entry.status == "✗" ? JarvisTheme.danger
                                     : JarvisTheme.amber
                                 )
+                            if vm.isToolRunning && entry.id == vm.toolTrace.last?.id && entry.status == "…" {
+                                ProgressView()
+                                    .scaleEffect(0.5)
+                                    .tint(JarvisTheme.amber)
+                            }
                         }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            entry.status == "✓" ? JarvisTheme.accent.opacity(0.12)
-                            : entry.status == "✗" ? JarvisTheme.danger.opacity(0.12)
-                            : JarvisTheme.amber.opacity(0.12)
-                        )
-                        .clipShape(Capsule())
                     }
                 }
                 Spacer()
-                if vm.isToolRunning {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                        .tint(JarvisTheme.amber)
-                }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 5)
-            .background(JarvisTheme.amber.opacity(0.06))
+            .padding(.leading, 30)
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
         }
     }
 

@@ -12,7 +12,7 @@ import JarvisCore
 /// Identité visuelle : plus de valeurs codées en dur — chaque token est une
 /// couleur SÉMANTIQUE système qui s'adapte au mode clair/sombre/contraste
 /// (recette Apple : jamais de composantes RGB figées).
-/// L'identité restante, volontaire : bleu système (actions), orange (attention),
+/// L'identité restante, volontaire : teal système (actions), orange (attention),
 /// rouge (danger), mono pour le registre technique. Le HUD holographique
 /// opaque est abandonné au profit des backgrounds système base/élevé.
 enum JarvisTheme {
@@ -25,13 +25,13 @@ enum JarvisTheme {
     // couleur : controlColor (face des contrôles) comme neutre élevé L2.
     static let panelElevated = Color(nsColor: .controlColor)
 
-    // Bleu système (ex-cyan signature) : actions, envoi, liens, statuts OK.
-    // Fixes mais valides dans les deux modes (même rôle que le bleu Messages).
-    static let accent: Color = .blue
+    // Teal système (ex-bleu Messages) : actions, envoi, liens, statuts OK.
+    // Système donc adaptatif clair/sombre/contraste augmenté, jamais de RGB figé.
+    static let accent: Color = .teal
     static let accentDim = accent.opacity(0.35)
 
     // Orange = attention (outil en cours, confirmation, rappels) ; rouge = erreur.
-    // Système, jamais confondus avec le bleu, jamais confondus entre eux.
+    // Système, jamais confondus avec le teal, jamais confondus entre eux.
     static let amber: Color = .orange
     static let danger: Color = .red
 

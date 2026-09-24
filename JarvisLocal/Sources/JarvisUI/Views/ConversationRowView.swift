@@ -11,6 +11,20 @@ struct ConversationRowView: View {
     @State private var editTitle = ""
 
     var body: some View {
+        // Barre d'accent de sélection (2.5pt) : List reste le conteneur natif
+        // (clavier / VoiceOver / highlight système conservés) — la barre est
+        // le marqueur distinctif, pas un remplacement du comportement natif.
+        // Contenu (titre) inchangé, barre décorative ignorée par VoiceOver.
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 1.25)
+                .fill(isSelected ? JarvisTheme.accent : Color.clear)
+                .frame(width: 2.5)
+                .accessibilityHidden(true)
+            rowContent
+        }
+    }
+
+    private var rowContent: some View {
         HStack {
             if isEditing {
                 TextField("Titre", text: $editTitle)
@@ -37,6 +51,10 @@ struct ConversationRowView: View {
                 Task { await vm.deleteConversation(conversation) }
             }
         }
+    }
+
+    private var isSelected: Bool {
+        vm.currentConversation?.id == conversation.id
     }
 
     private func commitRename() {

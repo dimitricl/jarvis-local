@@ -99,6 +99,14 @@
 
 ## Non publié
 
+- Refonte visuelle native : accent teal adaptatif clair/sombre, réponses assistant
+  en layout log (icône CPU, liseré vertical, timestamp mono toujours visible) et
+  trace d'outils intégrée sous la réponse — pour densifier le registre technique
+  sans revenir au HUD holographique, tout en gardant la bulle utilisateur lisible
+- Sidebar : barre d'accent de 2,5 pt sur la conversation sélectionnée — pour
+  rendre la sélection distincte sans remplacer la `List` native ni son
+  comportement clavier/VoiceOver ; aucune donnée, logique ou dépendance UI modifiée
+
 - Fix troncature post-tool : défaut `maxTokens` 8192 → 32768 (`num_predict`) ;
   instrumentation SSE temporaire ajoutée puis retirée dans le même commit.
   Cause précise non identifiée : deux sondes `stream:false` avec contexte équivalent

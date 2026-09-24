@@ -123,6 +123,22 @@
 
 ## [Non publié]
 
+### Refonte visuelle native — identité plus distinctive dans le cadre System
+- **Accent teal adaptatif** — le bleu système des actions devient un teal système,
+  adaptatif en modes clair/sombre et contraste augmenté ; amber et danger restent
+  inchangés pour préserver strictement la sémantique de couleur
+- **Réponses assistant en layout log** — fond de bulle retiré au profit d'une icône
+  CPU compacte, d'un liseré vertical teal de 2 pt et d'un timestamp mono toujours
+  visible sous le texte ; la bulle utilisateur pleine reste immédiatement lisible
+- **Trace d'outils contextualisée** — les entrées `ToolTraceEntry` inchangées (nom
+  + statut …/✓/✗) sont rendues en style mono sous le tour concerné, plus lisiblement
+  intégrées au flux qu'une barre flottante séparée, sans modifier l'ordre VoiceOver
+- **Sélection sidebar teal** — barre verticale de 2,5 pt sur la ligne active, avec
+  `List` sidebar native conservée pour le clavier, l'accessibilité et le comportement
+  système ; aucun fond custom opaque, glow, néon ou changement de comportement
+- Suite complète et frontière `ModuleBoundaryTests` vertes, sans nouvelle dépendance
+  JarvisUI → JarvisServices
+
 ### Corrections
 - **Troncature post-tool** — défaut `maxTokens` 8192 → 32768 ; cause précise non
   identifiée (pas de raisonnement caché mesuré), piste `/api/chat` + `think:false`

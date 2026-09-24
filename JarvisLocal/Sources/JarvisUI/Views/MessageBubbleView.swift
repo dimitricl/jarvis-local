@@ -76,48 +76,54 @@ struct MessageBubbleView: View {
     }
 
     private func assistantBubble(_ displayText: String) -> some View {
-        // Bulle façon Messages : gris système adaptatif, texte primary.
-        // L'avatar et le liseré HUD ont disparu avec le thème sombre opaque.
+        // Layout "log" : pas de fond de bulle — liseré vertical accent 2pt
+        // à gauche du texte, icône compacte, timestamp mono toujours visible.
+        // L'utilisateur garde la bulle pleine (moi qui parle), l'assistant
+        // s'en démarque sans verre ni glow (recette Apple conservée).
         VStack(alignment: .leading, spacing: 5) {
-            VStack(alignment: .leading, spacing: 4) {
-                assistantPanel(displayText)
-                if let ts = timestamp {
-                    HStack(spacing: 6) {
-                        Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
-                        Button(action: { copyText(displayText) }) {
-                            Image(systemName: "doc.on.doc").font(.caption2)
-                        }
-                        .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
-                        .help("Copier le message")
-                        .accessibilityLabel("Copier le message")
+            assistantPanel(displayText)
+            if let ts = timestamp {
+                HStack(spacing: 6) {
+                    Text(ts).font(JarvisTheme.mono(10)).foregroundStyle(JarvisTheme.textTertiary)
+                    Button(action: { copyText(displayText) }) {
+                        Image(systemName: "doc.on.doc").font(.caption2)
                     }
-                    .padding(.leading, 2)
+                    .buttonStyle(.plain).foregroundStyle(JarvisTheme.textTertiary)
+                    .help("Copier le message")
+                    .accessibilityLabel("Copier le message")
                 }
+                // Aligné sous le texte du log (icône + liseré + spacing).
+                .padding(.leading, 30)
             }
         }
     }
 
     private func assistantPanel(_ displayText: String) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            AssistantRichText(text: displayText)
-                .textSelection(.enabled)
-                .contextMenu {
-                    Button("Copier le message") { copyText(displayText) }
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "cpu")
+                .font(.caption)
+                .foregroundStyle(JarvisTheme.accent)
+                .padding(.top, 3)
+                .accessibilityHidden(true)
+            RoundedRectangle(cornerRadius: 1)
+                .fill(JarvisTheme.accent)
+                .frame(width: 2)
+            HStack(alignment: .top, spacing: 0) {
+                AssistantRichText(text: displayText)
+                    .textSelection(.enabled)
+                    .contextMenu {
+                        Button("Copier le message") { copyText(displayText) }
+                    }
+                    .foregroundStyle(JarvisTheme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if isStreaming {
+                    BlinkingCursor()
+                        .padding(.top, 1)
+                        .padding(.leading, 4)
                 }
-                .foregroundStyle(JarvisTheme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-            if isStreaming {
-                BlinkingCursor()
-                    .padding(.top, 10)
-                    .padding(.trailing, 8)
             }
+            .padding(.top, 1)
         }
-        // Gris système (controlColor via panelElevated) : même rôle que la bulle
-        // grise de Messages, adaptatif clair/sombre.
-        .background(JarvisTheme.panelElevated)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: 780, alignment: .leading)
     }
 
