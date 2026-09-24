@@ -10,5 +10,28 @@
 			<integer>0</integer>
 		</dict>
 	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>JarvisCoreTests</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>JarvisLocal</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>JarvisLocalTests</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>JarvisServicesTests</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+	</dict>
 </dict>
 </plist>
