@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.3] - 2026-09-26
+
+### Fiabilité stream Ollama
+- **Délai explicite** — `streamTimeout` (défaut 300 s, injectable) posé sur la
+  requête `streamChat` au lieu des défauts implicites ; `URLError.timedOut`
+  mappé vers `OllamaError.timeout` avec un message actionnable (modèle à
+  charger, réessayer). L'annulation reste une annulation, jamais déguisée.
+
 ## [0.8.2] - 2026-09-24
 
 ### Sécurité MCP, diagnostic et suivi du tour

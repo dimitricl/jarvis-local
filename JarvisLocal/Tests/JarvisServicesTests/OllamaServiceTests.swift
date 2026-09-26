@@ -251,7 +251,7 @@ final class JarvisLocalOllamaStreamParsingTests: XCTestCase {
 
 final class JarvisLocalOllamaError_OllamaTests: XCTestCase {
     func testAllErrorDescriptionsNonEmpty() {
-        let all: [OllamaError] = [.badStatus, .invalidResponse, .interrupted, .invalidURL, .modelError("test")]
+        let all: [OllamaError] = [.badStatus, .invalidResponse, .interrupted, .invalidURL, .timeout, .modelError("test")]
         for e in all {
             XCTAssertFalse(e.description.isEmpty, "\(e) should have a description")
         }
