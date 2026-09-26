@@ -28,6 +28,13 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
     /// confinées au MainActor, comme avant via le singleton.
     private let settings: any AppSettingsProtocol
 
+    /// Deadline explicite du stream (requête + lecture SSE).
+    /// Avant : aucun `timeoutInterval` posé sur la requête — on dépendait du
+    /// défaut URLRequest (60s) / session (300s/600s) implicite, et un
+    /// `URLError.timedOut` remontait brut jusqu'à l'UI. Ici la valeur est
+    /// explicite, injectable en tests, et mappée vers `OllamaError.timeout`.
+    private let streamTimeout: TimeInterval
+
     private let session: URLSession = {
         let c = URLSessionConfiguration.default
         c.timeoutIntervalForRequest = 300
@@ -35,8 +42,9 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
         return URLSession(configuration: c)
     }()
 
-    public init(settings: any AppSettingsProtocol) {
+    public init(settings: any AppSettingsProtocol, streamTimeout: TimeInterval = 300) {
         self.settings = settings
+        self.streamTimeout = streamTimeout
     }
 
     /// NOTE : `internal` pour les tests
@@ -135,6 +143,18 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
         keepAliveTask = nil
     }
 
+    /// Mappe une erreur de stream vers une erreur explicite côté UI.
+    /// `URLError.timedOut` (délai `streamTimeout` dépassé) devient
+    /// `OllamaError.timeout` avec un message actionnable ; annulation et
+    /// erreurs métier passent intactes. Fonction pure — `internal` pour les tests.
+    nonisolated static func mapStreamError(_ error: Error) -> Error {
+        if error is CancellationError { return error }
+        if let urlErr = error as? URLError, urlErr.code == .timedOut {
+            return OllamaError.timeout
+        }
+        return error
+    }
+
     /// Appel unique streamé qui gère à la fois le texte (delta par delta) ET les tool calls.
     /// Remplace l'ancien couple chat()/stream() : un seul aller-retour réseau vers Ollama,
     /// plus de risque de double appel LLM (bug identifié côté version TS de Jarvis).
@@ -144,6 +164,7 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
         }
         let m = settings.model
         let s = session
+        let timeout = streamTimeout
         let body = makeRequestBody(model: m, messages: messages, stream: true, tools: tools)
 
         return AsyncThrowingStream { continuation in
@@ -152,6 +173,7 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
                     var req = URLRequest(url: url)
                     req.httpMethod = "POST"
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    req.timeoutInterval = timeout
                     req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
                     let (bytes, resp) = try await s.bytes(for: req)
@@ -238,7 +260,7 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
                     continuation.yield(.finished(truncated: truncated))
                     continuation.finish()
                 } catch {
-                    continuation.finish(throwing: error)
+                    continuation.finish(throwing: Self.mapStreamError(error))
                 }
             }
             continuation.onTermination = { _ in task.cancel() }
@@ -326,6 +348,7 @@ enum OllamaError: Error, CustomStringConvertible {
     case invalidResponse
     case interrupted
     case invalidURL
+    case timeout
     case modelError(String)
 
     var description: String {
@@ -334,6 +357,7 @@ enum OllamaError: Error, CustomStringConvertible {
         case .invalidResponse: "Réponse invalide du serveur Ollama."
         case .interrupted:  "Requête annulée."
         case .invalidURL:   "L'URL Ollama dans les réglages est invalide. Vérifie le champ « URL : » dans les paramètres."
+        case .timeout:      "Ollama n'a pas répondu dans le délai imparti. Vérifie que le modèle est chargé (le premier appel peut être long) puis réessaie."
         case .modelError(let msg): "Erreur Ollama : \(msg)"
         }
     }

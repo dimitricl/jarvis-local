@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 (2026-09-26)
+
+- Fiabilité stream Ollama : délai explicite (`streamTimeout`, défaut 300 s)
+  posé sur la requête, `URLError.timedOut` mappé vers `OllamaError.timeout`
+  avec un message actionnable au lieu d'une erreur brute
+
 ## 0.8.2 (2026-09-24)
 
 - Sécurité MCP renforcée : seules les capacités iMCP explicitement approuvées
