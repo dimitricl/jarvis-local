@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.7 (2026-09-26)
+
+- Socle Health Check (sans UI) : types `HealthIssue` + classifier pur
+  `HealthCheck.issues()` (sonde / hôte distant / MCP hors-ligne) ; sonde
+  exposée au protocol `LLMProvider` avec défaut indéterminé (non-breaking,
+  fakes existants intacts) ; `ToolExecutor.mcpOnline()` avec défaut nil et
+  implémentation `ToolService` via `MCPToolProvider.isOnline()`
+
 ## 0.8.6 (2026-09-26)
 
 - MCP résilient : `connectAll()` retente 3 fois avec backoff (1s/2s/4s) sur

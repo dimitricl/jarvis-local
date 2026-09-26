@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.8.7] - 2026-09-26
+
+### Socle Health Check (données + contrats, sans UI)
+- **Types Core** — `HealthIssue` (kind + message, id stable) et classifier pur
+  `HealthCheck.issues()` : sonde unsupported → `modelNoTools`, sonde unknown
+  réseau → `ollamaUnreachable`, hôte non local → `ollamaRemote`, MCP activé
+  mais hors-ligne → `mcpOffline`. Indéterminé non-réseau = silence (jamais
+  d'accusation). 9 tests sans réseau.
+- **Contrats non-breaking** — `LLMProvider.probeToolCalling()` avec défaut
+  `.unknown` (OllamaService surcharge déjà avec la vraie sonde ; les fakes de
+  tests compilent inchangés) ; `ToolExecutor.mcpOnline()` avec défaut nil et
+  implémentation `ToolService` via nouveau `MCPToolProvider.isOnline()`.
+- **Reste à faire** — câblage UI (bandeau + bouton réessayer) dans une étape
+  dédiée : `AppViewModel.runHealthCheck()` + affichage.
+
 ## [0.8.6] - 2026-09-26
 
 ### MCP résilient (reconnexion au lieu du hors-ligne définitif)

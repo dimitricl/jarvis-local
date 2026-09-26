@@ -135,6 +135,11 @@ public actor MCPToolProvider {
         transports = [:]; remoteTools = [:]; online = []
     }
 
+    /// Au moins un serveur a terminé son handshake + tools/list.
+    /// `internal` : exposé à ToolService (même module) pour le Health Check,
+    /// jamais au modèle ni à l'UI directement.
+    func isOnline() -> Bool { !online.isEmpty }
+
     func handles(tool name: String) -> Bool { remoteTools[name] != nil }
 
     /// Correspondance outil natif → outil MCP qui le remplace quand le serveur

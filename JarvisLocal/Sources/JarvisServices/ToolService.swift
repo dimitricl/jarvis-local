@@ -74,6 +74,13 @@ public actor ToolService: ToolExecutor {
         return out
     }
 
+    /// État MCP pour le Health Check : nil = MCP non configuré (désactivé ou
+    /// jamais branché — rien à signaler), sinon présence en ligne.
+    public func mcpOnline() async -> Bool? {
+        guard let mcp else { return nil }
+        return await mcp.isOnline()
+    }
+
     let toolDefs: [ToolDef] = [
         ToolDef(function: ToolFunction(
             name: "search_web",
