@@ -482,72 +482,6 @@ public final class AppViewModel {
     }
 
     /// Coupe-circuit par NOM de tool (étape 4) : borne le nombre d'invocations d'un
-    /// même outil par tour de conversation. Couvre le trou du filtre exact
-    /// ci-dessus : un modèle qui rappelle search_web avec des args TOUJOURS
-    /// différents (boucle de reformulation) passait au travers, maxLoops seul
-    /// pouvant laisser passer maxLoops × batchSize invocations.
-    /// Seuls les autorisés incrémentent `counts` ; les refusés reçoivent quand même
-    /// un message "tool" côté appelant (pas d'exécution, pas de tool_call_id orphelin).
-    /// Fonction pure — `internal` pour les tests.
-    nonisolated static func partitionBudgetedToolCalls(_ calls: [ToolCall], counts: inout [String: Int], budget: Int) -> (allowed: [ToolCall], refused: [ToolCall]) {
-        ToolCallLoop.partitionBudgetedToolCalls(calls, counts: &counts, budget: budget)
-    }
-
-    /// Parse les arguments d'un tool call. L'implémentation pure vit dans JarvisCore
-    /// (ToolArgumentParser) — forwarder conservé pour les call-sites existants
-    /// (boucle de tools, tests).
-    /// NOTE : `internal` (pas `private`) pour que les tests puissent valider la logique de parsing
-    /// sans avoir à dupliquer le code.
-    nonisolated static func parseToolArguments(_ raw: String) -> [String: Any]? {
-        ToolCallLoop.parseToolArguments(raw)
-    }
-
-    /// Retire le trailer "Sources :" auto-ajouté (appendMissingSources) d'une réponse
-    /// passée avant de l'envoyer au modèle : ces URL appartiennent à un ancien tour,
-    /// le modèle ne doit plus pouvoir les citer comme fraîches. Précis : ne coupe
-    /// qu'au DERNIER marqueur "\n\nSources :\n" et seulement si tout ce qui suit
-    /// est une liste de lignes "- http…" (une mention "source" dans le corps du
-    /// texte est conservée, ainsi que les URL inline du corps).
-    /// Fonction pure — `internal` pour les tests.
-    nonisolated static func stripSavedSourcesTrailer(from text: String) -> String {
-        ToolCallLoop.stripSavedSourcesTrailer(from: text)
-    }
-
-    /// Borne anti-boucle de la reprise auto sur réponse tronquée : on ne reprend
-    /// que si le serveur a signalé `finish_reason == "length"` ET que le budget
-    /// de reprises du tour n'est pas épuisé. Fonction pure — `internal` pour les tests.
-    nonisolated static func shouldContinueAfterTruncation(truncated: Bool, used: Int, max: Int = 2) -> Bool {
-        AnswerGuards.shouldContinueAfterTruncation(truncated: truncated, used: used, max: max)
-    }
-
-    /// Détecte une réponse finale « vide de substance » alors que des résultats web
-    /// existent : courte, sans URL, alors que search_web/read_url ont rapporté des
-    /// sources. Le petit modèle a ignoré les tools (phrase générique + Sources
-    /// auto-ajoutées). Une seule relance avec consigne explicite — un modèle qui
-    /// ne sait pas utiliser les résultats échouera pareil à la 2e tentative, inutile
-    /// d'insister. Fonction pure — `internal` pour les tests.
-    nonisolated static func shouldRetryVacuousAnswer(finalText: String, hasWebSources: Bool, used: Int, max: Int = 1, minChars: Int = 300) -> Bool {
-        AnswerGuards.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: hasWebSources, used: used, max: max, minChars: minChars)
-    }
-
-    /// true si le texte est un refus déguisé ("je ne peux pas…", "dépasse mes
-    /// capacités…") alors que des outils couvrent la demande. Les petits modèles
-    /// confabulent leurs propres limites (cas réel : read_url décrit comme "lit et
-    /// résume" → le modèle a décrété qu'extraire des prix était impossible sans
-    /// jamais appeler l'outil). Une relance avec injonction d'appeler suffit
-    /// souvent ; sinon on sauvegarde tel quel (budget unique partagé avec
-    /// shouldRetryVacuousAnswer). Fonction pure — `internal` pour les tests.
-    nonisolated static func isRefusalAnswer(_ finalText: String) -> Bool {
-        AnswerGuards.isRefusalAnswer(finalText)
-    }
-
-    /// true si le texte, une fois retirés le bloc "Sources :" et les URL inline,
-    /// ne contient presque rien (< minChars) : que des liens, pas de contenu.
-    /// Fonction pure — `internal` pour les tests.
-    nonisolated static func isSourcesOnlyAnswer(_ finalText: String, minChars: Int = 100) -> Bool {
-        AnswerGuards.isSourcesOnlyAnswer(finalText, minChars: minChars)
-    }
-
     /// Affiche une demande de confirmation dans l'UI et suspend jusqu'à la réponse de l'utilisateur.
     /// En mode voix, l'utilisateur n'a pas forcément les yeux sur l'écran : on annonce vocalement
     /// qu'une confirmation est nécessaire, sinon la conversation semble juste s'arrêter sans raison.
@@ -646,23 +580,6 @@ public final class AppViewModel {
     }
 
     // MARK: - Facts
-
-    /// Logique d'extraction extraite dans `FactExtractor` (chantier 2) : struct pure,
-    /// testable sans instancier le ViewModel ni sa DB. Les méthodes ci-dessous
-    /// délèguent à l'identique pour garder les tests existants verts.
-    nonisolated static func normalizeNameToken(_ token: some StringProtocol) -> String {
-        FactsExtractionCoordinator.normalizeNameToken(token)
-    }
-
-    /// NOTE : `internal` pour les tests.
-    nonisolated static func isExcludedNameValue(_ value: String) -> Bool {
-        FactsExtractionCoordinator.isExcludedNameValue(value)
-    }
-
-    /// Retire les mots de liaison finaux ("Dimitri et" → "Dimitri"). NOTE : `internal` pour les tests.
-    nonisolated static func trimNameTrailingStoppers(_ value: String) -> String {
-        FactsExtractionCoordinator.trimNameTrailingStoppers(value)
-    }
 
     /// NOTE : `internal` pour les tests — permet de valider l'extraction heuristique sans passer par le flux complet
     func extractCandidateFacts(from text: String) -> [(key: String, value: String)] {
