@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.8] - 2026-09-26
+
+### UI Health Check (bandeau + bouton Réessayer)
+- **Bandeau réactif** — `ContentView` affiche les problèmes (`healthIssues`)
+  avec bouton « Réessayer » ; `AppViewModel.runHealthCheck()` et
+  `reconnectAll()` exposés
+- **Réglages** — bouton « Réessayer la connexion MCP » dans la section
+  MCP ; `@Environment(AppViewModel)` ajouté dans `SettingsView`
+- **Protocole** — `ToolExecutor.reconnectAll()` avec défaut `{}` (non-breaking)
+
 ## [0.8.7] - 2026-09-26
 
 ### Socle Health Check (données + contrats, sans UI)

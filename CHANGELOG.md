@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.8 (2026-09-26)
+
+- Bandeau santé UI : `ContentView` affiche les problèmes (`healthIssues`)
+  avec bouton « Réessayer » ; `AppViewModel.runHealthCheck()` +
+  `reconnectAll()` ; bouton « Réessayer la connexion MCP » dans Réglages
+
 ## 0.8.7 (2026-09-26)
 
 - Socle Health Check (sans UI) : types `HealthIssue` + classifier pur
