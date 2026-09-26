@@ -88,5 +88,35 @@ public struct ContentView<S: AppSettingsProtocol>: View {
                 vm.confirmationRequest = nil
             }
         }
+        // Bandeau santé : sonde, hôte distant, MCP hors-ligne.
+        // Affichage inconditionné (jamais de blocage) ; un bandeau
+        // vide = pas de problème = aucun espace gagné.
+        if !vm.healthIssues.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(JarvisTheme.amber)
+                ForEach(vm.healthIssues) { issue in
+                    Text(issue.message)
+                        .font(.caption)
+                        .foregroundStyle(JarvisTheme.textSecondary)
+                }
+                Spacer()
+                if vm.isCheckingHealth {
+                    ProgressView()
+                        .frame(width: 14, height: 14)
+                } else {
+                    Button("Réessayer") {
+                        Task { await vm.runHealthCheck() }
+                    }
+                    .buttonStyle(.glass)
+                    .font(.caption2)
+                    .accessibilityLabel("Réessayer la vérification santé")
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(JarvisTheme.panel.opacity(0.85))
+            .transition(.opacity)
+        }
     }
 }

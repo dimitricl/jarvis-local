@@ -10,8 +10,11 @@ public protocol ToolExecutor: Sendable {
     /// un serveur en ligne, false = activé mais hors-ligne (bandeau Health
     /// Check). Défaut nil pour ne pas casser les fakes de tests existants.
     func mcpOnline() async -> Bool?
+    /// Tentative de reconnexion des serveurs MCP (iMCP démarré hors-app).
+    func reconnectAll() async
 }
 
 public extension ToolExecutor {
     func mcpOnline() async -> Bool? { nil }
+    func reconnectAll() async {}
 }

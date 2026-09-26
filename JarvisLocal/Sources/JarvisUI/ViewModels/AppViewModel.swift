@@ -131,6 +131,11 @@ public final class AppViewModel {
     /// (souffle, écho d'un seul mot) — un vrai barge-in humain produit plusieurs partials de suite.
     private var bargeInStreak = 0
     var confirmationRequest: ToolConfirmationRequest?
+    /// Problèmes de santé au démarrage (sonde, hôte distant, MCP). L'UI affiche un bandeau
+    /// (jamais un blocage). Vidée après résolution manuelle ou reconnexion.
+    var healthIssues: [HealthIssue] = []
+    /// Indique si une sonde est en cours (empêche les double-clics sur Réessayer).
+    var isCheckingHealth = false
 
     // Dépendances injectées, typées par les protocols JarvisCore — jamais par les
     // types concrets de JarvisServices. En production, le câblage vers les singletons
@@ -848,4 +853,35 @@ public final class AppViewModel {
             }
         }
     }
+
+    /// Vérifie la santé du service (sonde tool-calling, hôte Ollama, MCP).
+    /// Expose `healthIssues` réactif pour le bandeau. Idempotente :
+    /// une sonde en cours est ignorée (`isCheckingHealth`).
+    func runHealthCheck() async {
+        guard !isCheckingHealth else { return }
+        isCheckingHealth = true
+        defer { isCheckingHealth = false }
+        do {
+            let support = await ollama.probeToolCalling()
+            let mcpOnline = await tools.mcpOnline()
+            let issues = HealthCheck.issues(
+                toolSupport: support,
+                mcpEnabled: settings.mcpEnabled,
+                mcpOnline: mcpOnline,
+                ollamaHostIsLocal: settings.ollamaHostIsLocal
+            )
+            healthIssues = issues
+        } catch {
+            healthIssues = [HealthIssue(
+                kind: .ollamaUnreachable,
+                message: "Ollama injoignable : \(error.localizedDescription)"
+            )]
+        }
+    }
+
+    func reconnectAll() async {
+        await tools.reconnectAll()
+        Task { await runHealthCheck() }
+    }
+
 }

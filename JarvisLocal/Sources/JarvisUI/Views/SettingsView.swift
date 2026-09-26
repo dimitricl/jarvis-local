@@ -6,6 +6,7 @@ import JarvisCore
 /// La composition root injecte Settings (Services) ; previews/tests un fake.
 struct SettingsView<S: AppSettingsProtocol>: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppViewModel.self) private var vm
     @Bindable var settings: S
 
     var body: some View {
@@ -114,6 +115,11 @@ struct SettingsView<S: AppSettingsProtocol>: View {
                 Text("Vide = auto (JARVIS_IMCP_PATH > iMCP.app > `which imcp-server`). Défaut : /Applications/iMCP.app/Contents/MacOS/imcp-server. Après install : activer les services dans iMCP + approuver JarvisLocal.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                 Button("Réessayer la connexion MCP") {
+                     Task { await vm.reconnectAll() }
+                 }
+                 .buttonStyle(.glass)
+                 .font(.caption)
             }
 
             Section("Boucle d'outils") {
