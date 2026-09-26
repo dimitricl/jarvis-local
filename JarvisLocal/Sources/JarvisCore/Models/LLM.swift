@@ -12,3 +12,13 @@ public enum OllamaStreamEvent: Sendable {
     /// un texte tronqué en silence.
     case finished(truncated: Bool)
 }
+
+/// Résultat de la sonde tool-calling (`OllamaService.probeToolCalling`).
+/// `unknown` (réseau, timeout, réponse illisible) n'accuse jamais le modèle :
+/// seul un refus explicite ou une absence de tool_call sur consigne explicite
+/// vaut `unsupported`. L'UI affiche un avertissement, jamais un blocage.
+public enum ToolCallingSupport: Sendable, Equatable {
+    case supported
+    case unsupported(String)
+    case unknown(String)
+}

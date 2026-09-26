@@ -341,6 +341,71 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
         if let t = tools { body["tools"] = t.map { $0.dictionary } }
         return body
     }
+
+    // MARK: - Sonde tool-calling
+
+    /// Sonde non-stream qui vérifie que le modèle configuré accepte et utilise
+    /// les outils : prompt exigeant un appel à un outil factice `probe_ping`.
+    /// Constaté en réel : un modèle faible (ex. qwen3.5:9b) n'émet jamais de
+    /// tool_calls sans erreur — les outils semblent "cassés" alors que c'est
+    /// le modèle. Cette sonde distingue : supporté / non supporté / indéterminé
+    /// (réseau, timeout, erreur non liée aux outils — on n'accuse pas le modèle).
+    /// Appelée au démarrage par l'UI (Health Check), jamais dans le chemin chaud.
+    public func probeToolCalling() async -> ToolCallingSupport {
+        guard let url = makeURL() else { return .unknown("URL Ollama invalide.") }
+        let ping = ToolDef(function: ToolFunction(
+            name: "probe_ping",
+            description: "Outil de sonde : à appeler avec value=pong.",
+            parameters: ToolParameters(
+                properties: ["value": ToolProperty(type: "string", description: "Toujours pong")],
+                required: ["value"]
+            )
+        ))
+        let messages = [OllamaMessage(role: "user", content: "Appelle uniquement l'outil probe_ping avec {\"value\": \"pong\"}. N'écris aucun texte.")]
+        let body = makeRequestBody(model: settings.model, messages: messages, stream: false, tools: [ping])
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 20
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        do {
+            let (data, resp) = try await session.data(for: req)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+            let json = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? nil
+            return Self.classifyProbeResult(status: status, json: json)
+        } catch is CancellationError {
+            return .unknown("Sonde annulée.")
+        } catch let urlErr as URLError where urlErr.code == .timedOut {
+            return .unknown("Ollama n'a pas répondu dans le délai de la sonde (20 s).")
+        } catch {
+            return .unknown("Ollama injoignable : \(error.localizedDescription)")
+        }
+    }
+
+    /// Classification pure d'une réponse de sonde — `internal` pour les tests
+    /// (aucun réseau : la sonde elle-même n'est pas testée unitairement).
+    nonisolated static func classifyProbeResult(status: Int, json: [String: Any]?) -> ToolCallingSupport {
+        guard (200..<300).contains(status) else {
+            let errText = ((json?["error"] as? String) ?? (json?["message"] as? String) ?? "").lowercased()
+            if errText.contains("tool") {
+                return .unsupported("Le serveur a refusé le paramètre tools (\(errText.prefix(160))). Ce modèle ne supporte pas les appels d'outils.")
+            }
+            return .unknown("Le serveur a répondu avec le code \(status).")
+        }
+        if let err = json?["error"] as? String, !err.isEmpty {
+            if err.lowercased().contains("tool") {
+                return .unsupported("Erreur modèle liée aux outils : \(err.prefix(160))")
+            }
+            return .unknown("Erreur modèle : \(err.prefix(160))")
+        }
+        guard let choices = json?["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any]
+        else { return .unknown("Réponse de sonde illisible.") }
+        if let calls = message["tool_calls"] as? [[String: Any]], !calls.isEmpty {
+            return .supported
+        }
+        return .unsupported("Le modèle n'a émis aucun tool_call sur une consigne explicite. Les outils sembleront inactifs : utilisez un modèle avec tool-calling (ex. gemma4).")
+    }
 }
 
 enum OllamaError: Error, CustomStringConvertible {

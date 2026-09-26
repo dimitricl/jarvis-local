@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.4] - 2026-09-26
+
+### Sonde tool-calling du modèle
+- **Diagnostic au lieu du mystère** — `probeToolCalling()` envoie une consigne
+  explicite d'appel à un outil factice `probe_ping` : un modèle qui répond en
+  texte seul (cas réel qwen3.5:9b) vaut `unsupported` avec conseil de modèle
+  (ex. gemma4) ; timeout/réseau/réponse illisible valent `unknown`, jamais une
+  accusation. Classification pure couverte par tests, sans réseau.
+
 ## [0.8.3] - 2026-09-26
 
 ### Fiabilité stream Ollama
