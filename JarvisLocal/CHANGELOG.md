@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.6] - 2026-09-26
+
+### MCP résilient (reconnexion au lieu du hors-ligne définitif)
+- **Retry avec backoff** — `connectAll()` retente 3 fois (1s/2s/4s plafonné,
+  fonction pure testée) sur erreur transitoire : le relais Bonjour iMCP
+  app↔CLI parfois pas prêt au premier `tools/list` ne laisse plus le serveur
+  hors-ligne jusqu'au relancement de l'app. `binaryNotFound` ne retente pas
+  (le binaire n'apparaîtra pas en 2s — le test binaire-absent reste instantané).
+- **Réessai manuel** — nouveau `reconnectAll()` public (disconnect + connect)
+  pour la bascule Réglages et le futur Health Check.
+- **Pas d'orphelin** — un transport en échec est `stop()` (process fils tué,
+  pipes fermés, requêtes en vol soldées) au lieu d'être abandonné.
+- **Décision documentée** — pas de fallback natif automatique sur échec d'un
+  appel MCP : les schémas d'arguments MCP≠natif, une retraduction silencieuse
+  risquerait une action fausse ; l'échec explicite remonte au modèle qui réagit.
+
 ## [0.8.5] - 2026-09-26
 
 ### Recovery base corrompue

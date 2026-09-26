@@ -52,6 +52,8 @@ struct MCPToolProviderTests {
 
     @Test func `Missing binaries leave their MCP server offline`() async {
         // Binaire inexistant : pas de throw, pas de crash — hors-ligne, natif en relais.
+        // Pas de retry sur binaryNotFound (le binaire n'apparaîtra pas en 2s) :
+        // ce test reste rapide malgré la politique de retry.
         let cfg = MCPServerConfig(id: "faux", command: "/chemin/inexistant/imcp-xyz", args: [], enabled: true, delegatedTools: ["x"])
         let p = MCPToolProvider(configs: [cfg])
         await p.connectAll()
@@ -59,6 +61,27 @@ struct MCPToolProviderTests {
         #expect(!h)
         let defs = await p.toolDefs()
         #expect(defs.isEmpty)
+    }
+
+    @Test func `Retry backoff is exponential and capped`() {
+        #expect(MCPToolProvider.retryDelay(for: 1) == 1.0)
+        #expect(MCPToolProvider.retryDelay(for: 2) == 2.0)
+        #expect(MCPToolProvider.retryDelay(for: 3) == 4.0)
+        #expect(MCPToolProvider.retryDelay(for: 10) == 4.0)
+    }
+
+    @Test func `Reconnect on missing binary stays offline without crashing`() async {
+        let cfg = MCPServerConfig(id: "faux", command: "/chemin/inexistant/imcp-xyz", args: [], enabled: true, delegatedTools: ["x"])
+        let p = MCPToolProvider(configs: [cfg])
+        await p.reconnectAll()
+        #expect(!(await p.handles(tool: "x")))
+        #expect((await p.toolDefs()).isEmpty)
+    }
+
+    @Test func `Reconnect with no configs is a no-op`() async {
+        let p = MCPToolProvider(configs: [])
+        await p.reconnectAll()
+        #expect((await p.supersededNativeTools()).isEmpty)
     }
 
     @Test func `iMCP binary resolution is never empty`() {
