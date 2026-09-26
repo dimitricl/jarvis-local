@@ -1,4 +1,3 @@
-@testable import JarvisUI
 import JarvisCore
 import XCTest
 
@@ -21,18 +20,18 @@ final class ToolBudgetTests: XCTestCase {
     func testBudgetAllowsUpToLimitThenRefuses() {
         var counts: [String: Int] = [:]
         for _ in 0..<3 {
-            let (allowed, refused) = AppViewModel.partitionBudgetedToolCalls([searchCall(query: "x")], counts: &counts, budget: 3)
+            let (allowed, refused) = ToolCallPartitioning.partitionBudgetedToolCalls([searchCall(query: "x")], counts: &counts, budget: 3)
             XCTAssertEqual(allowed.count, 1)
             XCTAssertTrue(refused.isEmpty)
         }
-        let (allowed, refused) = AppViewModel.partitionBudgetedToolCalls([searchCall(query: "x")], counts: &counts, budget: 3)
+        let (allowed, refused) = ToolCallPartitioning.partitionBudgetedToolCalls([searchCall(query: "x")], counts: &counts, budget: 3)
         XCTAssertTrue(allowed.isEmpty)
         XCTAssertEqual(refused.count, 1)
     }
 
     func testBudgetIsPerToolName() {
         var counts: [String: Int] = ["search_web": 3]
-        let (allowed, refused) = AppViewModel.partitionBudgetedToolCalls([weatherCall(city: "Paris")], counts: &counts, budget: 3)
+        let (allowed, refused) = ToolCallPartitioning.partitionBudgetedToolCalls([weatherCall(city: "Paris")], counts: &counts, budget: 3)
         XCTAssertEqual(allowed.count, 1, "un tool épuisé ne doit pas affamer les autres")
         XCTAssertTrue(refused.isEmpty)
         XCTAssertEqual(counts["get_weather"], 1)
@@ -41,7 +40,7 @@ final class ToolBudgetTests: XCTestCase {
 
     func testBudgetFloorAtOne() {
         var counts: [String: Int] = [:]
-        let (allowed, refused) = AppViewModel.partitionBudgetedToolCalls(
+        let (allowed, refused) = ToolCallPartitioning.partitionBudgetedToolCalls(
             [searchCall(query: "a"), searchCall(query: "b")], counts: &counts, budget: 0)
         XCTAssertEqual(allowed.count, 1, "budget <= 0 = plancher à 1, jamais 0 (sinon aucun outil ne tourne)")
         XCTAssertEqual(refused.count, 1)
@@ -57,9 +56,9 @@ final class ToolBudgetTests: XCTestCase {
         var executed = 0
         for i in 0..<10 {
             let batch = [searchCall(query: "boucle \(i)")]
-            let (fresh, _) = AppViewModel.partitionFreshToolCalls(batch, seen: &seen)
+            let (fresh, _) = ToolCallPartitioning.partitionFreshToolCalls(batch, seen: &seen)
             XCTAssertEqual(fresh.count, 1, "le filtre exact laisse passer : args différents à chaque tour")
-            let (allowed, refused) = AppViewModel.partitionBudgetedToolCalls(fresh, counts: &counts, budget: budget)
+            let (allowed, refused) = ToolCallPartitioning.partitionBudgetedToolCalls(fresh, counts: &counts, budget: budget)
             executed += allowed.count
             if i >= budget {
                 XCTAssertTrue(allowed.isEmpty, "itération \(i) : aurait dû être coupée")
@@ -75,14 +74,14 @@ final class ToolBudgetTests: XCTestCase {
         var seen = Set<String>()
         var counts: [String: Int] = [:]
         let same = searchCall(query: "météo")
-        let (fresh1, dups1) = AppViewModel.partitionFreshToolCalls([same], seen: &seen)
-        let (allowed1, _) = AppViewModel.partitionBudgetedToolCalls(fresh1, counts: &counts, budget: 1)
+        let (fresh1, dups1) = ToolCallPartitioning.partitionFreshToolCalls([same], seen: &seen)
+        let (allowed1, _) = ToolCallPartitioning.partitionBudgetedToolCalls(fresh1, counts: &counts, budget: 1)
         XCTAssertEqual(allowed1.count, 1)
         XCTAssertTrue(dups1.isEmpty)
 
         let retry = ToolCall(id: UUID().uuidString, type: "function",
                              function: ToolCallFunction(name: "search_web", arguments: "{\"query\":\"météo\"}"))
-        let (fresh2, dups2) = AppViewModel.partitionFreshToolCalls([retry], seen: &seen)
+        let (fresh2, dups2) = ToolCallPartitioning.partitionFreshToolCalls([retry], seen: &seen)
         XCTAssertTrue(fresh2.isEmpty, "doublon exact filtré avant le budget")
         XCTAssertEqual(dups2.count, 1)
         XCTAssertEqual(counts["search_web"], 1, "le doublon n'a pas consommé de budget")

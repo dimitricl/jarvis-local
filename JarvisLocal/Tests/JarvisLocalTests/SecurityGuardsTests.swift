@@ -93,80 +93,81 @@ struct SecurityGuardsTests {
     // MARK: - Reprise auto sur réponse tronquée
 
     @Test @MainActor func truncationContinuesOnlyWhenCutAndBudgetLeft() {
-        #expect(AppViewModel.shouldContinueAfterTruncation(truncated: true, used: 0, max: 2))
-        #expect(AppViewModel.shouldContinueAfterTruncation(truncated: true, used: 1, max: 2))
-        #expect(!AppViewModel.shouldContinueAfterTruncation(truncated: true, used: 2, max: 2))
-        #expect(!AppViewModel.shouldContinueAfterTruncation(truncated: false, used: 0, max: 2))
+        #expect(AnswerGuards.shouldContinueAfterTruncation(truncated: true, used: 0, max: 2))
+        #expect(AnswerGuards.shouldContinueAfterTruncation(truncated: true, used: 1, max: 2))
+        #expect(!AnswerGuards.shouldContinueAfterTruncation(truncated: true, used: 2, max: 2))
+        #expect(!AnswerGuards.shouldContinueAfterTruncation(truncated: false, used: 0, max: 2))
     }
 
     @Test @MainActor func vacuousAnswerRetriedOnceWhenSourcesIgnored() {        // Cas réel : phrase générique courte sans URL alors que des sources existent.
-        #expect(AppViewModel.shouldRetryVacuousAnswer(
+        #expect(AnswerGuards.shouldRetryVacuousAnswer(
             finalText: "Que veux-tu que je fasse pour toi ?",
             hasWebSources: true, used: 0))
         // Réponse quasi réduite à un lien (4 car. utiles après retrait de
         // l'URL < seuil 100) : relancée — l'implémentation ne laisse passer
         // que les réponses avec un vrai contenu (voir ci-dessous).
-        #expect(AppViewModel.shouldRetryVacuousAnswer(
+        #expect(AnswerGuards.shouldRetryVacuousAnswer(
             finalText: "Voir https://example.com/a",
             hasWebSources: true, used: 0))
         // Réponse longue : on laisse passer même sans URL explicite.
-        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+        #expect(!AnswerGuards.shouldRetryVacuousAnswer(
             finalText: String(repeating: "résultat détaillé. ", count: 30),
             hasWebSources: true, used: 0))
         // Pas de résultats web : réponse courte légitime (ex. "C'est fait.").
-        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+        #expect(!AnswerGuards.shouldRetryVacuousAnswer(
             finalText: "C'est fait.", hasWebSources: false, used: 0))
         // Une seule relance : pas de boucle si le modèle ne sait pas faire.
-        #expect(!AppViewModel.shouldRetryVacuousAnswer(
+        #expect(!AnswerGuards.shouldRetryVacuousAnswer(
             finalText: "Que veux-tu ?", hasWebSources: true, used: 1))
         // Variante observée : réponse réduite aux liens, sans contenu ni action.
-        #expect(AppViewModel.shouldRetryVacuousAnswer(
+        #expect(AnswerGuards.shouldRetryVacuousAnswer(
             finalText: "Sources :\n- https://www.apple.com/fr/shop/buy-iphone",
             hasWebSources: true, used: 0))
         // Contenu réel mais < 100 car. utiles une fois le trailer « Sources : »
         // retiré : relancée (seuil isSourcesOnlyAnswer). Seules les réponses
         // ≥ 100 car. utiles passent (cas « réponse longue » ci-dessus).
-        #expect(AppViewModel.shouldRetryVacuousAnswer(
+        #expect(AnswerGuards.shouldRetryVacuousAnswer(
             finalText: "Voici les prix relevés : iPhone 17 dès 1 119 €. Sources :\n- https://www.apple.com/fr/shop/buy-iphone",
             hasWebSources: true, used: 0))
     }
 
     @Test @MainActor func refusalDetected() {
         // Cas réel : le modèle décrète que read_url ne peut pas extraire des prix.
-        #expect(AppViewModel.isRefusalAnswer(
+        #expect(AnswerGuards.isRefusalAnswer(
             "Je ne peux pas accéder au contenu d'une page web pour en extraire des données."))
-        #expect(AppViewModel.isRefusalAnswer(
+        #expect(AnswerGuards.isRefusalAnswer(
             "Cela dépasse mes capacités actuelles de scraping."))
-        #expect(!AppViewModel.isRefusalAnswer(
+        #expect(!AnswerGuards.isRefusalAnswer(
             "Voici les prix relevés : iPhone 17 dès 1 119 €."))
-        #expect(!AppViewModel.isRefusalAnswer(
+        #expect(!AnswerGuards.isRefusalAnswer(
             "Je ne trouve pas cette information dans les résultats."))
     }
 
-    @Test @MainActor func sourcesOnlyDetection() {        #expect(AppViewModel.isSourcesOnlyAnswer("Sources :\n- https://a.example/x"))
-        #expect(AppViewModel.isSourcesOnlyAnswer("Voir ce lien : https://a.example/x"))
+    @Test @MainActor func sourcesOnlyDetection() {
+        #expect(AnswerGuards.isSourcesOnlyAnswer("Sources :\n- https://a.example/x"))
+        #expect(AnswerGuards.isSourcesOnlyAnswer("Voir ce lien : https://a.example/x"))
         // ~70 car. utiles après retrait de l'URL < seuil 100 : classé
         // « que des liens » et relancé par shouldRetryVacuousAnswer.
-        #expect(AppViewModel.isSourcesOnlyAnswer(
+        #expect(AnswerGuards.isSourcesOnlyAnswer(
             "Voici le tableau demandé : iPhone 17 dès 1 119 €, voir https://a.example/x pour le détail."))
     }
 
     // MARK: - Trailers "Sources :" retirés de l'historique modèle
     @Test @MainActor func savedSourcesTrailerStripped() {
         let withTrailer = "Voici les news.\n\nSources :\n- https://a.example/x\n- https://b.example/y"
-        #expect(AppViewModel.stripSavedSourcesTrailer(from: withTrailer) == "Voici les news.")
+        #expect(SourceCitation.stripSavedSourcesTrailer(from: withTrailer) == "Voici les news.")
     }
 
     @Test @MainActor func bodyURLsAndSourceMentionsKept() {
         // URL inline dans le corps : conservée (utile aux questions de suivi).
         let inline = "Voir https://a.example/x pour le détail.\n\nSources :\n- https://b.example/y"
-        #expect(AppViewModel.stripSavedSourcesTrailer(from: inline) == "Voir https://a.example/x pour le détail.")
+        #expect(SourceCitation.stripSavedSourcesTrailer(from: inline) == "Voir https://a.example/x pour le détail.")
         // Simple mention du mot "source" : conservée.
         let mention = "Je n'ai pas trouvé la source demandée."
-        #expect(AppViewModel.stripSavedSourcesTrailer(from: mention) == mention)
+        #expect(SourceCitation.stripSavedSourcesTrailer(from: mention) == mention)
         // Faux trailer (pas une liste d'URL) : conservé tel quel.
         let fake = "Blabla\n\nSources :\n- je ne sais pas"
-        #expect(AppViewModel.stripSavedSourcesTrailer(from: fake) == fake)
+        #expect(SourceCitation.stripSavedSourcesTrailer(from: fake) == fake)
     }
 
     // MARK: - Énergie (keep-alive) et notifications
