@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.4 (2026-09-26)
+
+- Sonde tool-calling au démarrage : `probeToolCalling()` vérifie que le
+  modèle configuré accepte et utilise les outils (outil factice `probe_ping`) ;
+  verdict `supported` / `unsupported` / `unknown` (le réseau n'accuse jamais
+  le modèle) pour expliquer les outils « inactifs » au lieu de les subir
+
 ## 0.8.3 (2026-09-26)
 
 - Fiabilité stream Ollama : délai explicite (`streamTimeout`, défaut 300 s)
