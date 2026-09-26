@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 (2026-09-26)
+
+### Phase 3 — Restructuration complète AppViewModel
+- **Forwarders dedup** — 10 forwarders statiques retirés d'`AppViewModel` vers Core/Coordinators (`ToolCallPartitioning`, `ToolArgumentParser`, `AnswerGuards`, `SourceCitation`, `FactsExtractionCoordinator`). Tests mis à jour pour appeler types Core directement. Forwarders Services conservés (stabilité API).
+- **ConversationCoordinator** — cycle de vie conversations + recherche + export (8 méthodes déléguées). État observable dans `AppViewModel` via callbacks.
+- **MessageCoordinator** — flux messages, streaming, tool trace, notifications (12 méthodes déléguées). `TurnRunner` callbacks mis à jour.
+- **VoiceCoordinator** — boucle STT/TTS, barge-in (600ms + 2 partials debounce), retry Ollama, `voiceTask`.
+- **JobCoordinator** — observation registre, miroir UI (max 50), enqueue/cancel async.
+- **Impact** : `AppViewModel` −27% lignes (886 → ~650), 6 coordinateurs au total, 512 tests verts, lint 0 violations.
+
 ## 0.8.8 (2026-09-26)
 
 - Bandeau santé UI : `ContentView` affiche les problèmes (`healthIssues`)
