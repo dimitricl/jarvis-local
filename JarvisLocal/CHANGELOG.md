@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.5] - 2026-09-26
+
+### Recovery base corrompue
+- **L'app redémarre au lieu de rester cassée** — `open()` met une base
+  fichier illisible à l'écart (`memory.corrupt.<UTC>.db*`, wal/shm inclus,
+  jamais supprimés ni purgés par la rétention des backups) puis rouvre une
+  base neuve en v3. `:memory:` propage l'erreur (rien à mettre à l'écart).
+- **Fuite de handle fermée** — le handle est fermé avant chaque `sqlite3_open`
+  (les réouvertures successives fuyaient l'ancien handle) et avant quarantaine
+  (déplacer un fichier ouvert).
+
 ## [0.8.4] - 2026-09-26
 
 ### Sonde tool-calling du modèle

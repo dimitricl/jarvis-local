@@ -38,6 +38,57 @@ actor DatabaseService {
 
     func open(path: String? = nil) throws {
         let resolvedPath = path ?? dbPath().path
+        do {
+            try openInner(at: resolvedPath)
+        } catch {
+            // Socle recovery : une base fichier illisible/corrompue ne doit
+            // plus rendre l'app inutilisable. On met les fichiers à l'écart
+            // (jamais supprimés : quarantaine horodatée, récupérables à la
+            // main) puis on rouvre une base neuve. `:memory:` n'a rien à
+            // mettre à l'écart : on propage l'erreur telle quelle.
+            guard resolvedPath != ":memory:",
+                  FileManager.default.fileExists(atPath: resolvedPath)
+            else { throw error }
+            log.warning("Ouverture DB impossible (\(error.localizedDescription)) — mise à l'écart et réouverture neuve.")
+            closeHandle()
+            if let q = try? Self.quarantineCorruptDB(at: resolvedPath) {
+                log.warning("Base corrompue mise à l'écart : \(q, privacy: .public).")
+            }
+            try openInner(at: resolvedPath)
+        }
+    }
+
+    /// Met à l'écart une base supposée corrompue (db + -wal + -shm) vers
+    /// `memory.corrupt.<timestamp-UTC>.db*` dans le même dossier, et retourne
+    /// le chemin du fichier principal — nil si rien à déplacer. Préfixe
+    /// `memory.corrupt.` volontairement distinct de `memory.backup.` (la
+    /// rétention des backups ne purge jamais une quarantaine).
+    /// `static` (pas d'état d'instance) pour être appelable avant ouverture.
+    /// `internal` pour les tests (dossier temporaire).
+    static func quarantineCorruptDB(at path: String) throws -> String? {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: path) else { return nil }
+        let dirURL = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent, isDirectory: true)
+        let dest = dirURL.appendingPathComponent("memory.corrupt.\(backupTimestamp()).db").path
+        var moved = false
+        for suffix in ["", "-wal", "-shm"] {
+            let src = path + suffix
+            guard fm.fileExists(atPath: src) else { continue }
+            try fm.moveItem(atPath: src, toPath: dest + suffix)
+            moved = true
+        }
+        return moved ? dest : nil
+    }
+
+    /// Ferme le handle courant s'il existe. Appelé avant chaque `sqlite3_open`
+    /// (une réouverture — tests, recovery — ne doit pas fuir le handle
+    /// précédent) et avant mise en quarantaine (déplacer un fichier ouvert).
+    private func closeHandle() {
+        if let h = db { sqlite3_close(h); db = nil }
+    }
+
+    private func openInner(at resolvedPath: String) throws {
+        closeHandle()
         // Filet : copie horodatée AVANT toute migration (pas après un échec).
         // Best-effort : un backup impossible (permissions…) ne doit jamais
         // empêcher le lancement — il est juste journalisé.
