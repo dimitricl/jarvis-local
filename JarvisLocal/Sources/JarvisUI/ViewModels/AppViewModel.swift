@@ -108,6 +108,38 @@ public final class AppViewModel {
         return c
     }
 
+    /// Coordinateur de gestion du mode vocal (étape 5 du découpage).
+    /// Gère la boucle STT/TTS, le barge-in, la gestion voiceTask.
+    /// L'état observable (isVoiceMode, isListening, isSpeaking, speechStartedAt, bargeInStreak, voiceTask)
+    /// reste dans AppViewModel ; le coordinateur opère via callbacks.
+    private var _voiceCoordinator: VoiceCoordinator?
+    private var voiceCoordinator: VoiceCoordinator {
+        if let c = _voiceCoordinator { return c }
+        let c = VoiceCoordinator(
+            audio: audio,
+            stt: stt,
+            settings: settings,
+            messageCoordinator: messageCoordinator,
+            conversationCoordinator: conversationCoordinator,
+            factsCoordinator: factsCoordinator,
+            onError: { [weak self] msg in self?.errorMessage = msg },
+            getInputText: { [weak self] in self?.inputText ?? "" },
+            setInputText: { [weak self] text in self?.inputText = text },
+            getErrorMessage: { [weak self] in self?.errorMessage },
+            onSetVoiceMode: { [weak self] active in self?.isVoiceMode = active },
+            onSetListening: { [weak self] active in self?.isListening = active },
+            onSetSpeaking: { [weak self] active in self?.isSpeaking = active },
+            onSetSpeechStartedAt: { [weak self] instant in self?.speechStartedAt = instant },
+            onIncrementBargeInStreak: { [weak self] in self?.bargeInStreak += 1 },
+            onResetBargeInStreak: { [weak self] in self?.bargeInStreak = 0 },
+            getBargeInStreak: { [weak self] in self?.bargeInStreak ?? 0 },
+            getSpeechStartedAt: { [weak self] in self?.speechStartedAt },
+            getIsVoiceMode: { [weak self] in self?.isVoiceMode ?? false }
+        )
+        _voiceCoordinator = c
+        return c
+    }
+
     /// Orchestrateur de tour (étape 3 du découpage). Même pattern que ci-dessus.
     /// `internal` pour les tests (vérifient le câblage via des tours sur fakes).
     var _turnRunner: ConversationTurnRunner?
@@ -670,95 +702,7 @@ public final class AppViewModel {
 
     /// Appelée par l'exécutable (barre de menu).
     public func toggleVoiceMode() async {
-        if isVoiceMode {
-            isVoiceMode = false
-            isListening = false
-            stt.cancel()
-            voiceTask?.cancel()
-            voiceTask = nil
-            stopStreaming()
-        } else {
-            isVoiceMode = true
-            voiceTask = Task {
-                defer {
-                    voiceTask = nil
-                    stt.onPartialResult = nil
-                }
-
-                while isVoiceMode && !Task.isCancelled {
-                    do {
-                        stt.onPartialResult = { [weak self] text in
-                            guard let self = self else { return }
-                            guard !text.isEmpty else { return }
-                            self.inputText = text
-
-                            // Barge-in durci après le premier essai (bargeInEnabled désactivé par
-                            // défaut par la version précédente, probablement parce que sans annulation
-                            // d'écho fiable, Jarvis se coupait la parole tout seul en boucle). Deux
-                            // garde-fous ajoutés au lieu d'un seuil brut sur la longueur du texte :
-                            // 1) fenêtre de grâce de 600ms après le début du TTS, où l'écho de
-                            //    l'attaque du haut-parleur est le plus probable ;
-                            // 2) exiger 2 partials consécutifs non-vides (debounce), pas un seul —
-                            //    un artefact ponctuel ne suffit plus, une vraie interruption humaine
-                            //    produit un flux continu de partials.
-                            guard settings.bargeInEnabled, self.audio.isSpeaking else {
-                                self.bargeInStreak = 0
-                                return
-                            }
-                            if let started = self.speechStartedAt,
-                               ContinuousClock.now - started < .milliseconds(600) {
-                                return
-                            }
-                            self.bargeInStreak += 1
-                            if self.bargeInStreak >= 2 {
-                                self.audio.stopSpeaking()
-                                self.bargeInStreak = 0
-                            }
-                        }
-
-                        isListening = true
-                        inputText = ""
-                        bargeInStreak = 0
-                        let text = try await stt.transcribe()
-                        isListening = false
-                        stt.onPartialResult = nil
-
-                        guard !text.isEmpty else { continue }
-
-                        // Filtre anti-bruit : ignore les transcriptions de 2 caractères ou moins
-                        // ("euh", "ah", souffle mal transcrit) tout en laissant passer les commandes
-                        // courtes mais réelles ("stop", "oui").
-                        guard text.count > 2 else { continue }
-
-                        // Délai réduit : 200ms d'attente artificielle avant chaque tour
-                        // donnait une impression de latence en mode vocal.
-                        try? await Task.sleep(nanoseconds: 100_000_000)
-
-                        await runConversationTurn(userText: text)
-
-                        // Retry une fois si Ollama n'a pas répondu
-                        if errorMessage?.contains("Pas de réponse") == true {
-                            errorMessage = nil
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            await runConversationTurn(userText: text)
-                        }
-
-                        // Attend la fin du TTS avant de rouvrir le micro — évite que le micro capte
-                        // la propre voix de Jarvis et relance une transcription en boucle.
-                        while isSpeaking && isVoiceMode && !Task.isCancelled {
-                            try? await Task.sleep(nanoseconds: 60_000_000)
-                        }
-                    } catch {
-                        isListening = false
-                        if let sttErr = error as? STTError, sttErr == .cancelled { break }
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                    }
-                }
-                isVoiceMode = false
-                isListening = false
-                inputText = ""
-            }
-        }
+        await voiceCoordinator.toggleVoiceMode()
     }
 
     /// Vérifie la santé du service (sonde tool-calling, hôte Ollama, MCP).
