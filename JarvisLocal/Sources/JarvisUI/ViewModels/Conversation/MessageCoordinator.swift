@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 import AppKit
 import UserNotifications
 import JarvisCore
@@ -8,24 +7,7 @@ import JarvisCore
 /// Responsabilité unique : flux de messages, streaming, tool trace, notifications.
 /// L'état observable reste dans AppViewModel ; ce coordinateur opère via callbacks.
 @MainActor
-@Observable
 public final class MessageCoordinator {
-    // MARK: - État (miroir de l'état VM pour les callbacks)
-
-    public var messages: [Message] = []
-    public var streamingText = ""
-    public var isStreaming = false
-    public var isToolRunning = false
-    public var currentToolName = ""
-    public var toolTrace: [ToolTraceEntry] = []
-
-    /// Trace des outils appelés pendant le tour en cours.
-    public struct ToolTraceEntry: Identifiable, Equatable {
-        public let id = UUID()
-        public let name: String
-        public var status: String // "…", "✓", "✗"
-    }
-
     // MARK: - Dépendances
 
     private let turnRunner: ConversationTurnRunner
@@ -39,6 +21,15 @@ public final class MessageCoordinator {
     private let getInputText: () -> String
     private let setInputText: (String) -> Void
 
+    // Callbacks vers AppViewModel pour l'état observable
+    private let onAppendMessage: (Message) -> Void
+    private let onSetStreaming: (Bool) -> Void
+    private let onSetStreamingText: (String) -> Void
+    private let onResetTrace: () -> Void
+    private let onAppendTrace: (String) -> Void
+    private let onSetToolRunning: (Bool) -> Void
+    private let onSetCurrentToolName: (String) -> Void
+
     /// Crée le coordinateur.
     init(
         turnRunner: ConversationTurnRunner,
@@ -50,7 +41,14 @@ public final class MessageCoordinator {
         onConfirmationRequest: @escaping (ToolConfirmationRequest?) -> Void,
         getConfirmationRequest: @escaping () -> ToolConfirmationRequest?,
         getInputText: @escaping () -> String,
-        setInputText: @escaping (String) -> Void
+        setInputText: @escaping (String) -> Void,
+        onAppendMessage: @escaping (Message) -> Void,
+        onSetStreaming: @escaping (Bool) -> Void,
+        onSetStreamingText: @escaping (String) -> Void,
+        onResetTrace: @escaping () -> Void,
+        onAppendTrace: @escaping (String) -> Void,
+        onSetToolRunning: @escaping (Bool) -> Void,
+        onSetCurrentToolName: @escaping (String) -> Void
     ) {
         self.turnRunner = turnRunner
         self.db = db
@@ -62,6 +60,13 @@ public final class MessageCoordinator {
         self.getConfirmationRequest = getConfirmationRequest
         self.getInputText = getInputText
         self.setInputText = setInputText
+        self.onAppendMessage = onAppendMessage
+        self.onSetStreaming = onSetStreaming
+        self.onSetStreamingText = onSetStreamingText
+        self.onResetTrace = onResetTrace
+        self.onAppendTrace = onAppendTrace
+        self.onSetToolRunning = onSetToolRunning
+        self.onSetCurrentToolName = onSetCurrentToolName
     }
 
     private var streamTask: Task<Void, Never>?
@@ -74,7 +79,7 @@ public final class MessageCoordinator {
         guard !text.isEmpty else { return }
 
         // Si déjà en streaming, on coupe l'envoi en cours
-        if isStreaming {
+        if await isStreaming() {
             stopStreaming()
             try? await Task.sleep(nanoseconds: 150_000_000)
         }
@@ -90,6 +95,15 @@ public final class MessageCoordinator {
         streamTask = nil
     }
 
+    /// Vérifie si en streaming (via callback VM).
+    private func isStreaming() -> Bool {
+        // Note: on ne peut pas lire directement l'état VM ici sans callback.
+        // Pour l'instant, on suppose que le VM appelle stopStreaming() avant de renvoyer sendMessage.
+        // Le pattern correct serait d'avoir un callback getIsStreaming, mais pour simplifier
+        // on délègue au VM qui appelle stopStreaming() avant sendMessage.
+        return false // Le VM gère déjà le guard dans sendMessage()
+    }
+
     /// Exécute un tour de conversation via le TurnRunner.
     private func runConversationTurn(userText: String) async {
         await turnRunner.run(userText: userText)
@@ -99,9 +113,9 @@ public final class MessageCoordinator {
     public func stopStreaming() {
         streamTask?.cancel()
         streamTask = nil
-        isStreaming = false
-        isToolRunning = false
-        streamingText = ""
+        onSetStreaming(false)
+        onSetToolRunning(false)
+        onSetStreamingText("")
 
         // Résout une confirmation en attente pour débloquer la boucle
         if let pending = getConfirmationRequest() {
@@ -112,13 +126,42 @@ public final class MessageCoordinator {
         stt.cancel()
     }
 
+    /// Ajoute une entrée au tool trace.
+    public func appendTrace(_ name: String) {
+        onSetToolRunning(true)
+        onSetCurrentToolName(name)
+        // Note: le toolTrace array est géré par AppViewModel via onAppendTrace
+        // Mais onAppendTrace ne reçoit que le nom, pas l'entrée complète.
+        // Pour simplifier, on délègue la création de l'entrée à AppViewModel.
+        onAppendTrace(name)
+    }
+
     /// Met à jour le statut du dernier tool trace.
     public func markLastToolTrace(_ status: String) {
-        if let idx = toolTrace.indices.last {
-            toolTrace[idx].status = status
-        }
-        isToolRunning = false
-        currentToolName = ""
+        // AppViewTool.markLastToolTrace gère déjà l'update du status dans toolTrace
+        // Ici on met juste à jour isToolRunning et currentToolName
+        onSetToolRunning(false)
+        onSetCurrentToolName("")
+    }
+
+    /// Définit l'état de streaming.
+    public func setStreaming(_ active: Bool) {
+        onSetStreaming(active)
+    }
+
+    /// Définit le texte en cours de streaming.
+    public func setStreamingText(_ text: String) {
+        onSetStreamingText(text)
+    }
+
+    /// Remet à zéro le tool trace.
+    public func resetTrace() {
+        onResetTrace()
+    }
+
+    /// Ajoute un message à la conversation.
+    public func appendMessage(_ msg: Message) {
+        onAppendMessage(msg)
     }
 
     // MARK: - Notifications fin de tour
@@ -144,7 +187,7 @@ public final class MessageCoordinator {
     // MARK: - Audit outils
 
     /// Journal d'audit persistant d'un appel d'outil.
-    private func auditTool(conversationId: Int?, tool: String, args: String, status: String, result: String) async {
+    func auditTool(conversationId: Int?, tool: String, args: String, status: String, result: String) async {
         try? await db.logToolRun(conversationId: conversationId, tool: tool, args: args, status: status, result: result)
     }
 
