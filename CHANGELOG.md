@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5 (2026-09-26)
+
+- Recovery base corrompue : `open()` met les fichiers illisibles à l'écart
+  (quarantaine horodatée `memory.corrupt.*`, jamais supprimés) puis rouvre
+  une base neuve au lieu de rendre l'app inutilisable ; fermeture du handle
+  avant chaque réouverture (fini la fuite de handle sur `sqlite3_open` répété)
+
 ## 0.8.4 (2026-09-26)
 
 - Sonde tool-calling au démarrage : `probeToolCalling()` vérifie que le
