@@ -108,6 +108,53 @@ public final class AppViewModel {
         return c
     }
 
+    /// Coordinateur de gestion du mode vocal (étape 5 du découpage).
+    /// Gère la boucle STT/TTS, le barge-in, la gestion voiceTask.
+    /// L'état observable (isVoiceMode, isListening, isSpeaking, speechStartedAt, bargeInStreak, voiceTask)
+    /// reste dans AppViewModel ; le coordinateur opère via callbacks.
+    private var _voiceCoordinator: VoiceCoordinator?
+    private var voiceCoordinator: VoiceCoordinator {
+        if let c = _voiceCoordinator { return c }
+        let c = VoiceCoordinator(
+            audio: audio,
+            stt: stt,
+            settings: settings,
+            messageCoordinator: messageCoordinator,
+            conversationCoordinator: conversationCoordinator,
+            factsCoordinator: factsCoordinator,
+            onError: { [weak self] msg in self?.errorMessage = msg },
+            getInputText: { [weak self] in self?.inputText ?? "" },
+            setInputText: { [weak self] text in self?.inputText = text },
+            getErrorMessage: { [weak self] in self?.errorMessage },
+            onSetVoiceMode: { [weak self] active in self?.isVoiceMode = active },
+            onSetListening: { [weak self] active in self?.isListening = active },
+            onSetSpeaking: { [weak self] active in self?.isSpeaking = active },
+            onSetSpeechStartedAt: { [weak self] instant in self?.speechStartedAt = instant },
+            onIncrementBargeInStreak: { [weak self] in self?.bargeInStreak += 1 },
+            onResetBargeInStreak: { [weak self] in self?.bargeInStreak = 0 },
+            getBargeInStreak: { [weak self] in self?.bargeInStreak ?? 0 },
+            getSpeechStartedAt: { [weak self] in self?.speechStartedAt },
+            getIsVoiceMode: { [weak self] in self?.isVoiceMode ?? false }
+        )
+        _voiceCoordinator = c
+        return c
+    }
+
+    /// Coordinateur de gestion des jobs d'arrière-plan (étape 6 du découpage).
+    /// Gère l'observation du registre, le miroir UI, enqueue/cancel.
+    /// L'état observable (jobs, jobsObservationTask) reste dans AppViewModel via callback.
+    private var _jobCoordinator: JobCoordinator?
+    private var jobCoordinator: JobCoordinator {
+        if let c = _jobCoordinator { return c }
+        let c = JobCoordinator(
+            jobsRegistry: jobsRegistry,
+            getJobs: { [weak self] in self?.jobs ?? [] },
+            onJobsChange: { [weak self] jobs in self?.jobs = jobs }
+        )
+        _jobCoordinator = c
+        return c
+    }
+
     /// Orchestrateur de tour (étape 3 du découpage). Même pattern que ci-dessus.
     /// `internal` pour les tests (vérifient le câblage via des tours sur fakes).
     var _turnRunner: ConversationTurnRunner?
@@ -241,77 +288,36 @@ public final class AppViewModel {
 
     /// Borne du miroir UI : on garde les actifs + un historique récent, pas
     /// tout depuis le lancement (le registre, lui, borne à 100).
+// MARK: - Background jobs (socle agents, itération suivante : brancher les tool calls)
+
+    /// Borne du miroir UI : on garde les actifs + un historique récent, pas
+    /// tout depuis le lancement (le registre, lui, borne à 100).
     static let maxMirroredJobs = 50
 
     /// Souscrit au flux du registre et maintient `jobs` à jour. Idempotente.
-    /// POURQUOI une Task stockée plutôt qu'un .task SwiftUI : l'abonnement vit
-    /// aussi longtemps que le ViewModel (pas que la vue), survit aux
-    /// recompositions, et se coupe proprement via stopObservingJobs().
-    /// La boucle fait `for await` (suspension, JAMAIS de blocage du main thread :
-    /// chaque réveil ne fait qu'un upsert synchrone) et ne duplique AUCUNE
-    /// logique de concurrence — l'actor reste seul ordonnanceur, ici on miroite.
+    /// Délègue au JobCoordinator.
     func startObservingJobs() {
-        guard jobsObservationTask == nil, let registry = jobsRegistry else { return }
-        jobsObservationTask = Task { [weak self] in
-            // Photo initiale : l'UI affiche l'existant sans attendre la
-            // première transition (un job fini avant l'abonnement sinon invisible).
-            let initial = await registry.snapshot()
-            guard let strongSelf = self else { return }
-            strongSelf.jobs = Array(initial.suffix(Self.maxMirroredJobs))
-            for await record in await registry.updates() {
-                // Garde exigée EN PLUS du guard let self en tête de Task : cancel()
-                // fait sortir next() (nil) quand la boucle est suspendue sans élément
-                // en vol, MAIS un élément déjà en buffer au moment du cancel réveille
-                // quand même la boucle — sans ce garde, la transition serait appliquée
-                // malgré stopObservingJobs() (fuite d'observation). Ici on sort sans
-                // appliquer ; la sortie libère l'itérateur et le onTermination côté
-                // registre retire l'abonnement.
-                guard !Task.isCancelled else { break }
-                guard let strongSelf = self else { return }
-                strongSelf.applyJobUpdate(record)
-            }
-        }
+        jobCoordinator.startObservingJobs()
     }
 
+    /// Arrête l'observation. Idempotente.
     /// NOTE : `internal` pour les tests.
     func stopObservingJobs() {
-        jobsObservationTask?.cancel()
-        jobsObservationTask = nil
+        jobCoordinator.stopObservingJobs()
     }
 
-    /// Upsert synchrone MainActor (le ViewModel est @MainActor) : remplace le
-    /// record du même id ou l'ajoute, trié par création, historique borné.
-    /// Fonction de pure miroiterie — aucune décision de concurrence ici.
-    /// NOTE : `internal` pour les tests.
-    func applyJobUpdate(_ record: JobRecord) {
-        if let idx = jobs.firstIndex(where: { $0.id == record.id }) {
-            jobs[idx] = record
-        } else {
-            jobs.append(record)
-        }
-        jobs.sort { $0.createdAt < $1.createdAt }
-        if jobs.count > Self.maxMirroredJobs {
-            jobs = Array(jobs.suffix(Self.maxMirroredJobs))
-        }
-    }
-
-    /// Passthrough fin : un futur appelant (itération "un tool call devient un
-    /// job") n'aura qu'à fournir le `work`. Retourne nil sans registre (tests
-    /// sans injection) au lieu de crasher.
+    /// Enqueue un job dans le registre. Retourne l'ID ou nil si pas de registre.
     func enqueueJob(
         title: String,
         timeout: TimeInterval? = nil,
         work: @escaping @Sendable () async throws -> String
     ) async -> JobID? {
-        guard let registry = jobsRegistry else { return nil }
-        return await registry.enqueue(title: title, timeout: timeout, work: work)
+        await jobCoordinator.enqueueJob(title: title, work: work)
     }
 
-    /// Annulation non-bloquante : on délègue à l'actor et on rend la main
-    /// aussitôt, le nouveau statut arrivera via le flux (pas d'attente ici).
-    func cancelJob(_ id: JobID) {
-        guard let registry = jobsRegistry else { return }
-        Task { await registry.cancel(id) }
+    /// Demande l'annulation d'un job.
+    func cancelJob(_ id: JobID) async {
+        await jobCoordinator.cancelJob(id)
     }
 
     /// Nom du modèle courant, exposé aux vues (badge ChatView) sans leur donner Settings.
@@ -670,95 +676,7 @@ public final class AppViewModel {
 
     /// Appelée par l'exécutable (barre de menu).
     public func toggleVoiceMode() async {
-        if isVoiceMode {
-            isVoiceMode = false
-            isListening = false
-            stt.cancel()
-            voiceTask?.cancel()
-            voiceTask = nil
-            stopStreaming()
-        } else {
-            isVoiceMode = true
-            voiceTask = Task {
-                defer {
-                    voiceTask = nil
-                    stt.onPartialResult = nil
-                }
-
-                while isVoiceMode && !Task.isCancelled {
-                    do {
-                        stt.onPartialResult = { [weak self] text in
-                            guard let self = self else { return }
-                            guard !text.isEmpty else { return }
-                            self.inputText = text
-
-                            // Barge-in durci après le premier essai (bargeInEnabled désactivé par
-                            // défaut par la version précédente, probablement parce que sans annulation
-                            // d'écho fiable, Jarvis se coupait la parole tout seul en boucle). Deux
-                            // garde-fous ajoutés au lieu d'un seuil brut sur la longueur du texte :
-                            // 1) fenêtre de grâce de 600ms après le début du TTS, où l'écho de
-                            //    l'attaque du haut-parleur est le plus probable ;
-                            // 2) exiger 2 partials consécutifs non-vides (debounce), pas un seul —
-                            //    un artefact ponctuel ne suffit plus, une vraie interruption humaine
-                            //    produit un flux continu de partials.
-                            guard settings.bargeInEnabled, self.audio.isSpeaking else {
-                                self.bargeInStreak = 0
-                                return
-                            }
-                            if let started = self.speechStartedAt,
-                               ContinuousClock.now - started < .milliseconds(600) {
-                                return
-                            }
-                            self.bargeInStreak += 1
-                            if self.bargeInStreak >= 2 {
-                                self.audio.stopSpeaking()
-                                self.bargeInStreak = 0
-                            }
-                        }
-
-                        isListening = true
-                        inputText = ""
-                        bargeInStreak = 0
-                        let text = try await stt.transcribe()
-                        isListening = false
-                        stt.onPartialResult = nil
-
-                        guard !text.isEmpty else { continue }
-
-                        // Filtre anti-bruit : ignore les transcriptions de 2 caractères ou moins
-                        // ("euh", "ah", souffle mal transcrit) tout en laissant passer les commandes
-                        // courtes mais réelles ("stop", "oui").
-                        guard text.count > 2 else { continue }
-
-                        // Délai réduit : 200ms d'attente artificielle avant chaque tour
-                        // donnait une impression de latence en mode vocal.
-                        try? await Task.sleep(nanoseconds: 100_000_000)
-
-                        await runConversationTurn(userText: text)
-
-                        // Retry une fois si Ollama n'a pas répondu
-                        if errorMessage?.contains("Pas de réponse") == true {
-                            errorMessage = nil
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            await runConversationTurn(userText: text)
-                        }
-
-                        // Attend la fin du TTS avant de rouvrir le micro — évite que le micro capte
-                        // la propre voix de Jarvis et relance une transcription en boucle.
-                        while isSpeaking && isVoiceMode && !Task.isCancelled {
-                            try? await Task.sleep(nanoseconds: 60_000_000)
-                        }
-                    } catch {
-                        isListening = false
-                        if let sttErr = error as? STTError, sttErr == .cancelled { break }
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                    }
-                }
-                isVoiceMode = false
-                isListening = false
-                inputText = ""
-            }
-        }
+        await voiceCoordinator.toggleVoiceMode()
     }
 
     /// Vérifie la santé du service (sonde tool-calling, hôte Ollama, MCP).
