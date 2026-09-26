@@ -72,6 +72,42 @@ public final class AppViewModel {
         _conversationCoordinator = c
         return c
     }
+
+    /// Coordinateur de gestion des messages/streaming (étape 4 du découpage).
+    /// Gère le flux de messages, le streaming, le tool trace, les notifications.
+    /// L'état observable (messages, streamingText, isStreaming, isToolRunning, currentToolName, toolTrace, streamTask)
+    /// reste dans AppViewModel ; le coordinateur opère via callbacks.
+    private var _messageCoordinator: MessageCoordinator?
+    private var messageCoordinator: MessageCoordinator {
+        if let c = _messageCoordinator { return c }
+        let c = MessageCoordinator(
+            turnRunner: turnRunner,
+            db: db,
+            audio: audio,
+            stt: stt,
+            settings: settings,
+            onError: { [weak self] msg in self?.errorMessage = msg },
+            onConfirmationRequest: { [weak self] req in self?.confirmationRequest = req },
+            getConfirmationRequest: { [weak self] in self?.confirmationRequest },
+            getInputText: { [weak self] in self?.inputText ?? "" },
+            setInputText: { [weak self] text in self?.inputText = text },
+            onAppendMessage: { [weak self] msg in self?.messages.append(msg) },
+            onSetStreaming: { [weak self] active in self?.isStreaming = active },
+            onSetStreamingText: { [weak self] text in self?.streamingText = text },
+            onResetTrace: { [weak self] in self?.toolTrace = [] },
+            onAppendTrace: { [weak self] name in
+                guard let self else { return }
+                self.isToolRunning = true
+                self.currentToolName = name
+                self.toolTrace.append(ToolTraceEntry(name: name, status: "…"))
+            },
+            onSetToolRunning: { [weak self] active in self?.isToolRunning = active },
+            onSetCurrentToolName: { [weak self] name in self?.currentToolName = name }
+        )
+        _messageCoordinator = c
+        return c
+    }
+
     /// Orchestrateur de tour (étape 3 du découpage). Même pattern que ci-dessus.
     /// `internal` pour les tests (vérifient le câblage via des tours sur fakes).
     var _turnRunner: ConversationTurnRunner?
@@ -87,11 +123,9 @@ public final class AppViewModel {
             cb: TurnCallbacks(
                 appendTrace: { [weak self] name in
                     guard let self else { return }
-                    self.isToolRunning = true
-                    self.currentToolName = name
-                    self.toolTrace.append(ToolTraceEntry(name: name, status: "…"))
+                    self.messageCoordinator.appendTrace(name)
                 },
-                markTrace: { [weak self] status in self?.markLastToolTrace(status) },
+                markTrace: { [weak self] status in self?.messageCoordinator.markLastToolTrace(status) },
                 requestConfirmation: { [weak self] tool, args in
                     guard let self else { return false }
                     return await self.requestConfirmation(tool: tool, args: args)
@@ -101,11 +135,11 @@ public final class AppViewModel {
                     await self.audio.speak(text)
                 },
                 notifyFinished: { [weak self] startedAt in
-                    self?.notifyTurnFinishedIfBackground(startedAt: startedAt)
+                    self?.messageCoordinator.notifyTurnFinishedIfBackground(startedAt: startedAt)
                 },
                 auditTool: { [weak self] cid, tool, args, status, result in
                     guard let self else { return }
-                    await self.auditTool(conversationId: cid, tool: tool, args: args, status: status, result: result)
+                    await self.messageCoordinator.auditTool(conversationId: cid, tool: tool, args: args, status: status, result: result)
                 }
             ),
             ui: TurnUI(
@@ -117,10 +151,10 @@ public final class AppViewModel {
                     }
                     return self.currentConversation?.id
                 },
-                appendMessage: { [weak self] msg in self?.messages.append(msg) },
-                setStreaming: { [weak self] active in self?.isStreaming = active },
-                setStreamingText: { [weak self] text in self?.streamingText = text },
-                resetTrace: { [weak self] in self?.toolTrace = [] },
+                appendMessage: { [weak self] msg in self?.messageCoordinator.appendMessage(msg) },
+                setStreaming: { [weak self] active in self?.messageCoordinator.setStreaming(active) },
+                setStreamingText: { [weak self] text in self?.messageCoordinator.setStreamingText(text) },
+                resetTrace: { [weak self] in self?.messageCoordinator.resetTrace() },
                 reportError: { [weak self] msg in self?.errorMessage = msg },
                 setSpeaking: { [weak self] active in self?.isSpeaking = active },
                 noteSpeechStarted: { [weak self] in self?.speechStartedAt = ContinuousClock.now },
