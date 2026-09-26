@@ -34,7 +34,7 @@ public struct JobsView: View {
                             .font(JarvisTheme.mono(10))
                             .foregroundStyle(JarvisTheme.amber)
                         Spacer()
-                        Button(action: { vm.cancelJob(job.id) }) {
+                        Button(action: { Task { await vm.cancelJob(job.id) } }) {
                             Image(systemName: "xmark.circle")
                         }
                         .buttonStyle(.plain)
