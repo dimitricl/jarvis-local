@@ -6,4 +6,12 @@ import Foundation
 public protocol ToolExecutor: Sendable {
     func execute(name: String, args: [String: Any]) async throws -> String
     func effectiveToolDefs() async -> [ToolDef]
+    /// État MCP : nil = MCP non configuré (rien à signaler), true = au moins
+    /// un serveur en ligne, false = activé mais hors-ligne (bandeau Health
+    /// Check). Défaut nil pour ne pas casser les fakes de tests existants.
+    func mcpOnline() async -> Bool?
+}
+
+public extension ToolExecutor {
+    func mcpOnline() async -> Bool? { nil }
 }
