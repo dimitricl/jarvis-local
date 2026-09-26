@@ -50,6 +50,28 @@ public final class AppViewModel {
         _factsCoordinator = c
         return c
     }
+
+    /// Coordinateur de gestion des conversations (étape 2 du découpage).
+    /// Gère le cycle de vie conversations, recherche et export.
+    /// L'état observable (conversations, currentConversation, searchResults, isSearching)
+    /// reste dans AppViewModel ; le coordinateur opère via callbacks.
+    private var _conversationCoordinator: ConversationCoordinator?
+    private var conversationCoordinator: ConversationCoordinator {
+        if let c = _conversationCoordinator { return c }
+        let c = ConversationCoordinator(
+            db: db,
+            onError: { [weak self] msg in self?.errorMessage = msg },
+            onConversationChange: { [weak self] conv in self?.currentConversation = conv },
+            onConversationsChange: { [weak self] convs in self?.conversations = convs },
+            onSearchResultsChange: { [weak self] results in self?.searchResults = results },
+            onSearchingChange: { [weak self] searching in self?.isSearching = searching },
+            getMessages: { [weak self] in self?.messages ?? [] },
+            getCurrentConversation: { [weak self] in self?.currentConversation },
+            getConversations: { [weak self] in self?.conversations ?? [] }
+        )
+        _conversationCoordinator = c
+        return c
+    }
     /// Orchestrateur de tour (étape 3 du découpage). Même pattern que ci-dessus.
     /// `internal` pour les tests (vérifient le câblage via des tours sur fakes).
     var _turnRunner: ConversationTurnRunner?
@@ -306,62 +328,30 @@ public final class AppViewModel {
 
     /// Appelée par l'exécutable au démarrage.
     public func loadConversations() async {
-        await ensureDBOpen()
-        do {
-            conversations = try await db.getAllConversations()
-            if currentConversation == nil, let first = conversations.first {
-                await selectConversation(first)
-            }
-        } catch {
-            errorMessage = "Erreur chargement conversations : \(error.localizedDescription)"
-        }
+        await conversationCoordinator.loadConversations()
     }
 
     func selectConversation(_ conv: Conversation) async {
-        currentConversation = conv
+        await conversationCoordinator.selectConversation(conv)
         await loadMessages()
     }
 
     func newConversation() async {
-        do {
-            let conv = try await db.createConversation()
-            conversations.insert(conv, at: 0)
-            await selectConversation(conv)
-        } catch {
-            errorMessage = "Erreur création conversation : \(error.localizedDescription)"
-        }
+        await conversationCoordinator.newConversation()
     }
 
     func deleteConversation(_ conv: Conversation) async {
-        do {
-            try await db.deleteConversation(id: conv.id)
-            conversations.removeAll { $0.id == conv.id }
-            if currentConversation?.id == conv.id {
-                currentConversation = conversations.first
-                await loadMessages()
-            }
-        } catch {
-            errorMessage = "Erreur suppression : \(error.localizedDescription)"
-        }
+        await conversationCoordinator.deleteConversation(conv)
     }
 
     func renameConversation(id: Int, title: String) async {
-        do {
-            try await db.updateConversationTitle(id: id, title: title)
-            if let idx = conversations.firstIndex(where: { $0.id == id }) {
-                conversations[idx].title = title
-            }
-            if currentConversation?.id == id {
-                currentConversation?.title = title
-            }
-        } catch {
-            errorMessage = "Erreur renommage : \(error.localizedDescription)"
-        }
+        await conversationCoordinator.renameConversation(id: id, title: title)
     }
 
     // MARK: - Messages
 
     func loadMessages() async {
+        await conversationCoordinator.loadMessages()
         guard let cid = currentConversation?.id else {
             messages = []
             return
@@ -629,51 +619,17 @@ public final class AppViewModel {
     var isSearching = false
 
     func search(_ query: String) async {
-        await ensureDBOpen()
-        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            searchResults = []
-            return
-        }
-        do {
-            let results = try await db.searchMessages(query)
-            searchResults = results.map { r in
-                SearchResultEntry(id: r.message.id, role: r.message.role,
-                                  content: r.message.content,
-                                  conversationTitle: r.conversationTitle,
-                                  conversationId: r.message.conversationId)
-            }
-        } catch {
-            errorMessage = "Erreur recherche : \(error.localizedDescription)"
-        }
+        await conversationCoordinator.search(query)
     }
 
     /// Exporte la conversation courante en Markdown. Retourne le contenu ou nil si vide/erreur.
     func exportConversationAsMarkdown() -> String? {
-        guard let conv = currentConversation, !messages.isEmpty else { return nil }
-        let df = DateFormatter()
-        df.dateFormat = "dd/MM/yyyy HH:mm"
-        var out = "# \(conv.title)\n\n"
-        for msg in messages {
-            let who = msg.role == "user" ? "Vous" : "Jarvis"
-            out += "**\(who)** — \(df.string(from: msg.createdAt))\n\n\(msg.content)\n\n---\n\n"
-        }
-        return out
+        conversationCoordinator.exportConversationAsMarkdown()
     }
 
     /// Exporte la conversation courante en JSON (format structuré, réimportable).
     func exportConversationAsJSON() -> String? {
-        guard let conv = currentConversation, !messages.isEmpty else { return nil }
-        let df = ISO8601DateFormatter()
-        let payload: [String: Any] = [
-            "title": conv.title,
-            "exported_at": df.string(from: Date()),
-            "messages": messages.map { m in
-                ["role": m.role, "content": m.content, "created_at": df.string(from: m.createdAt)]
-            }
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]),
-              let str = String(data: data, encoding: .utf8) else { return nil }
-        return str
+        conversationCoordinator.exportConversationAsJSON()
     }
 
     // MARK: - Voice
