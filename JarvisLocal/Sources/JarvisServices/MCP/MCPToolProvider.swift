@@ -50,38 +50,83 @@ public actor MCPToolProvider {
     /// Un serveur qui échoue est simplement marqué hors-ligne.
     public func connectAll() async {
         for cfg in configs where cfg.enabled {
-            let t = MCPStdioTransport()
+            await connectWithRetry(cfg)
+        }
+    }
+
+    /// Reconnexion manuelle (Réglages, futur Health Check) : repart de zéro
+    /// puis retente avec la même politique que `connectAll`. Sans ça, un
+    /// serveur démarré après Jarvis (iMCP lancé à la main) restait hors-ligne
+    /// jusqu'au relancement de l'app.
+    public func reconnectAll() async {
+        await disconnectAll()
+        await connectAll()
+    }
+
+    /// Backoff entre tentatives (1s, 2s, 4s plafonné). Fonction pure —
+    /// `nonisolated` pour les tests.
+    nonisolated static func retryDelay(for attempt: Int) -> TimeInterval {
+        min(1.0 * pow(2.0, Double(max(1, attempt) - 1)), 4.0)
+    }
+
+    /// Une tentative + retries sur erreur transitoire. `binaryNotFound` ne
+    /// retente PAS (le binaire n'apparaîtra pas en 2s) ; le reste (handshake,
+    /// tools/list timeout — relais Bonjour iMCP pas encore prêt) retente.
+    /// Échec final = hors-ligne silencieux, natif en relais (jamais de throw).
+    private func connectWithRetry(_ cfg: MCPServerConfig, attempts: Int = 3) async {
+        for attempt in 1...max(1, attempts) {
             do {
-                try await t.start(command: cfg.command, args: cfg.args)
-                // Handshake MCP minimal : initialize PUIS notifications/initialized
-                // (sans cette notification, iMCP retient tools/list en file et le
-                // premier appel timeout une fois sur deux — constaté en test réel).
-                _ = try await t.request(method: "initialize", params: [
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": [:] as [String: Any],
-                    "clientInfo": ["name": "JarvisLocal", "version": "0.4.0"]
-                ])
-                try await t.notify(method: "notifications/initialized")
-                // Settle : iMCP relaie vers l'app via Bonjour de façon asynchrone ;
-                // envoyer tools/list dans la même milliseconde que le handshake la fait
-                // tomber dans un vide (relais pas encore établi → réponse après 20s+
-                // voire jamais). 1s d'attente rend la connexion déterministe.
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                let res = try await t.request(method: "tools/list")
-                transports[cfg.id] = t
-                online.insert(cfg.id)
-                for tool in Self.parseToolsList(res, serverId: cfg.id) {
-                    // Ne délègue que ce qui est explicitement autorisé, et jamais
-                    // un outil de la liste nativeOnly (garde-fou anti-délégation
-                    // accidentelle si un serveur expose "applescript" ou autre).
-                    guard Self.mayDelegate(tool: tool.name, configuration: cfg)
-                    else { continue }
-                    remoteTools[tool.name] = tool
-                }
+                try await connectOnce(cfg)
+                return
+            } catch let err as MCPError {
+                if case .binaryNotFound = err { return }
+                if attempt == attempts { return }
+                try? await Task.sleep(nanoseconds: UInt64(Self.retryDelay(for: attempt) * 1_000_000_000))
             } catch {
-                // Hors-ligne : on ne stocke pas le transport, le natif reste.
-                continue
+                if attempt == attempts { return }
+                try? await Task.sleep(nanoseconds: UInt64(Self.retryDelay(for: attempt) * 1_000_000_000))
             }
+        }
+    }
+
+    /// Une connexion : spawn + handshake + tools/list + enregistrement.
+    /// Throw sur tout échec (le retry ci-dessus tranche). Le transport non
+    /// stocké est abandonné sur échec : `stop()` le tue au lieu de le laisser
+    /// orphelin (process fils + pipes fermés, requêtes en vol soldées).
+    private func connectOnce(_ cfg: MCPServerConfig) async throws {
+        let t = MCPStdioTransport()
+        do {
+            try await t.start(command: cfg.command, args: cfg.args)
+            // Handshake MCP minimal : initialize PUIS notifications/initialized
+            // (sans cette notification, iMCP retient tools/list en file et le
+            // premier appel timeout une fois sur deux — constaté en test réel).
+            _ = try await t.request(method: "initialize", params: [
+                "protocolVersion": "2024-11-05",
+                "capabilities": [:] as [String: Any],
+                "clientInfo": ["name": "JarvisLocal", "version": "0.4.0"]
+            ])
+            try await t.notify(method: "notifications/initialized")
+            // Settle : iMCP relaie vers l'app via Bonjour de façon asynchrone ;
+            // envoyer tools/list dans la même milliseconde que le handshake la fait
+            // tomber dans un vide (relais pas encore établi → réponse après 20s+
+            // voire jamais). 1s d'attente rend la connexion déterministe.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            let res = try await t.request(method: "tools/list")
+            transports[cfg.id] = t
+            online.insert(cfg.id)
+            for tool in Self.parseToolsList(res, serverId: cfg.id) {
+                // Ne délègue que ce qui est explicitement autorisé, et jamais
+                // un outil de la liste nativeOnly (garde-fou anti-délégation
+                // accidentelle si un serveur expose "applescript" ou autre).
+                guard Self.mayDelegate(tool: tool.name, configuration: cfg)
+                else { continue }
+                remoteTools[tool.name] = tool
+            }
+        } catch {
+            // Hors-ligne : on ne stocke pas le transport, le natif reste —
+            // mais on tue le process fils éventuellement spawné.
+            await t.stop()
+            throw error
         }
     }
 

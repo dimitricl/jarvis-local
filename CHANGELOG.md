@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.6 (2026-09-26)
+
+- MCP résilient : `connectAll()` retente 3 fois avec backoff (1s/2s/4s) sur
+  erreur transitoire (relais iMCP pas prêt) au lieu de rester hors-ligne
+  jusqu'au relancement ; `binaryNotFound` ne retente pas ; nouveau
+  `reconnectAll()` public pour réessai manuel (Réglages, Health Check) ;
+  transport abandonné tué proprement (`stop()`) au lieu d'être laissé orphelin
+
 ## 0.8.5 (2026-09-26)
 
 - Recovery base corrompue : `open()` met les fichiers illisibles à l'écart
