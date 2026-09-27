@@ -368,6 +368,7 @@ public final class AppViewModel {
 
     /// Appelée par l'exécutable au démarrage.
     public func loadConversations() async {
+        await ensureDBOpen()
         await conversationCoordinator.loadConversations()
     }
 

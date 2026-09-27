@@ -27,6 +27,15 @@ final class JarvisLocalOllamaErrorTests: XCTestCase {
         XCTAssertTrue(err.description.contains("délai"), "le message doit mentionner le délai : \(err.description)")
     }
 
+    func testLocalizedDescriptionShowsFrenchText() {
+        // Régression constatée : l'UI affiche `error.localizedDescription`, qui
+        // rendait « L'opération n'a pas pu s'achever. (… erreur 4.) » au lieu
+        // du texte français — l'utilisateur ne pouvait pas diagnostiquer.
+        let err = OllamaError.timeout
+        XCTAssertTrue(err.localizedDescription.contains("délai"), "localisé : \(err.localizedDescription)")
+        XCTAssertFalse(err.localizedDescription.contains("n'a pas pu s'achever"))
+    }
+
     func testMapStreamErrorMapsURLTimeout() {
         let mapped = OllamaService.mapStreamError(URLError(.timedOut))
         guard case OllamaError.timeout = mapped as? OllamaError ?? OllamaError.badStatus else {

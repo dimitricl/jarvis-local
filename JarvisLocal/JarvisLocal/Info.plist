@@ -45,9 +45,28 @@
              par domaine "localhost" seule ne couvrait pas 127.0.0.1, d'où l'erreur
              ATS au lancement). Tout le reste (DDG, Open-Meteo, GitHub) reste en
              HTTPS forcé. Une URL Ollama distante non-locale affiche un
-             avertissement dans les Réglages. -->
+             avertissement dans les Réglages.
+             Exception Tailscale : HTTP en clair autorisé vers le Mac mini distant
+             (100.101.108.111 + domaine tailnet) pour Ollama distant. -->
         <key>NSAllowsLocalNetworking</key>
         <true/>
+        <key>NSExceptionDomains</key>
+        <dict>
+            <key>100.101.108.111</key>
+            <dict>
+                <key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+                <key>NSIncludesSubdomains</key>
+                <false/>
+            </dict>
+            <key>tail1cd9dd.ts.net</key>
+            <dict>
+                <key>NSIncludesSubdomains</key>
+                <true/>
+                <key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
+                <true/>
+            </dict>
+        </dict>
     </dict>
 </dict>
 </plist>

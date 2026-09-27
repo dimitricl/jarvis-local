@@ -131,6 +131,26 @@ struct SecurityGuardsTests {
             hasWebSources: true, used: 0))
     }
 
+    @Test @MainActor func toolListEchoDetected() {
+        // Cas réel : le modèle recopie la doc de l'outil au lieu d'appeler.
+        #expect(AnswerGuards.isToolListEcho(
+            "search_web → Recherche sur le web. À utiliser pour : actualités, prix, météo. (requis: query)"))
+        #expect(AnswerGuards.isToolListEcho(
+            "• search_web → cherche\n• read_url → lit une page (requis: url)"))
+        // Réponse normale : pas d'écho même avec une flèche ou des parenthèses.
+        #expect(!AnswerGuards.isToolListEcho(
+            "Voici les prix relevés : iPhone 17 dès 1 119 €."))
+        #expect(!AnswerGuards.isToolListEcho(
+            "Va de Paris → Lyon en 2h."))
+        // Pseudo-appel texte : même traitement (relance / non-persistance).
+        #expect(AnswerGuards.isToolListEcho(
+            "search_web(query=\"actualités tech France 2025 dernières\")"))
+        // Forme nue avec nom connu : écho ; sans noms connus : prose normale.
+        #expect(AnswerGuards.isToolListEcho(
+            "get_weather city: Paris", knownTools: ["get_weather"]))
+        #expect(!AnswerGuards.isToolListEcho("get_weather city: Paris"))
+    }
+
     @Test @MainActor func refusalDetected() {
         // Cas réel : le modèle décrète que read_url ne peut pas extraire des prix.
         #expect(AnswerGuards.isRefusalAnswer(

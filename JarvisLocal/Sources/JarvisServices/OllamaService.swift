@@ -49,8 +49,10 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
 
     /// NOTE : `internal` pour les tests
     func makeURL() -> URL? {
-        let s = settings.ollamaURL
-        if s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+        // Trim : un espace final (copier-coller depuis Réglages) rendait
+        // URL(string:) nil → invalidURL alors que l'URL est valide.
+        let s = settings.ollamaURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.isEmpty { return nil }
         if s.hasSuffix("/chat/completions") { return URL(string: s) }
         return URL(string: "\(s)/v1/chat/completions")
     }
@@ -87,7 +89,12 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
                 "model": model,
                 "prompt": "",
                 "keep_alive": keepAlive,
-                "options": ["num_predict": 1]
+                // Même num_ctx que le chat : sans ça le serveur charge le modèle
+                // en contexte par défaut (4096 constaté sur gemma4:e4b), puis doit
+                // le RECHARGER à chaque premier message qui demande 14k+ — plein
+                // rechargement de 9 Go + premier token très lent, perçu comme un
+                // plantage/timeout côté distant.
+                "options": ["num_predict": 1, "num_ctx": settings.numCtx]
             ] as [String: Any])
             do {
                 let (_, resp) = try await session.data(for: req)
@@ -408,7 +415,7 @@ public final class OllamaService: @unchecked Sendable, LLMProvider {
     }
 }
 
-enum OllamaError: Error, CustomStringConvertible {
+enum OllamaError: Error, CustomStringConvertible, LocalizedError {
     case badStatus
     case invalidResponse
     case interrupted
@@ -426,4 +433,9 @@ enum OllamaError: Error, CustomStringConvertible {
         case .modelError(let msg): "Erreur Ollama : \(msg)"
         }
     }
+
+    // Sans ça, `error.localizedDescription` (utilisé par l'UI pour afficher
+    // l'erreur) rend le message générique « L'opération n'a pas pu
+    // s'achever. (… erreur N.) » au lieu du texte français ci-dessus.
+    var errorDescription: String? { description }
 }

@@ -39,6 +39,37 @@ public enum AnswerGuards {
         return remainder.count < minChars
     }
 
+    /// Détecte quand le modèle recopie la liste des outils du prompt système
+    /// (« • search_web → … (requis: query) ») ou décrit un appel en texte
+    /// (`search_web(query="…")`, `get_weather city: Paris`) au lieu d'émettre
+    /// un tool_call. `knownTools` affine la forme nue (ligne commençant par un
+    /// vrai nom d'outil). Fonction pure.
+    public static func isToolListEcho(_ finalText: String, knownTools: Set<String> = []) -> Bool {
+        let lines = finalText.components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !lines.isEmpty else { return false }
+        let echoLines = lines.filter { $0.contains("→") && $0.contains("(requis:") }
+        // Pseudo-appel texte (`search_web(query="…")`) : la récupération
+        // l'exécute d'abord ; ici, filet pour l'inconnu ou l'inparsable.
+        let callLines = lines.filter {
+            $0.range(of: "^[a-z][a-z0-9_]*\\([^)]*=.*\\)$", options: .regularExpression) != nil
+        }
+        // Forme nue (`get_weather city: Paris`) : ligne commençant par un nom
+        // d'outil connu suivi d'arguments `k: v` / `k = v`.
+        let bareLines = lines.filter { line in
+            guard let space = line.firstIndex(of: " ") else { return false }
+            let name = String(line[..<space])
+            guard knownTools.contains(name) else { return false }
+            let rest = String(line[line.index(after: space)...])
+            return rest.contains(":") || rest.contains("=")
+        }
+        let echoCount = echoLines.count + callLines.count + bareLines.count
+        if echoCount >= 2 { return true }
+        if echoCount == 1 && finalText.count < 600 { return true }
+        return false
+    }
+
     public static func shouldNotifyTurnFinished(startedAt: Date, isActive: Bool, now: Date = Date(), threshold: TimeInterval = 8) -> Bool {
         !isActive && now.timeIntervalSince(startedAt) > threshold
     }

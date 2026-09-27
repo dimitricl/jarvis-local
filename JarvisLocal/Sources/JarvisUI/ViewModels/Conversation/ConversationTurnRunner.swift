@@ -139,12 +139,15 @@ public final class ConversationTurnRunner {
                 return f.string(from: Date())
             }()
 
-            let toolList = await tools.effectiveToolDefs().map { t in
-                let req = t.function.parameters.required.isEmpty ? "" : " (requis: \(t.function.parameters.required.joined(separator: ", ")))"
-                return "• \(t.function.name) → \(t.function.description)\(req)"
-            }.joined(separator: "\n")
+            // Noms d'outils valides : guide le modèle via les règles + exemples
+            // ci-dessous, et sert la récupération des pseudo-appels texte.
+            // NOTE : on ne dump PLUS la doc complète des outils en texte
+            // (« • nom → description (requis: …) ») — le modèle la recopiait
+            // dans ses réponses au lieu d'appeler (échos auto-entretenus).
+            // Les schémas restent exposés via le paramètre `tools` de l'API.
+            let knownToolNames = Set(await tools.effectiveToolDefs().map { $0.function.name })
 
-            let systemPrompt = Self.buildSystemPrompt(dateStr: dateStr, toolList: toolList, factsContext: factsContext)
+            let systemPrompt = Self.buildSystemPrompt(dateStr: dateStr, factsContext: factsContext)
 
             var ollamaMessages: [OllamaMessage] = [OllamaMessage(role: "system", content: systemPrompt)]
             for msg in history {
@@ -188,11 +191,19 @@ public final class ConversationTurnRunner {
                 let (content, toolCalls, spokenCharCount, truncated) = try await streamOneTurn(messages: ollamaMessages)
                 totalSpoken += spokenCharCount
 
-                if !content.isEmpty {
+                // Pseudo-appels texte (`search_web(query="…")`) : le modèle a
+                // décrit l'appel au lieu de l'émettre → exécutés comme de vrais
+                // appels, SANS persister l'écho dans l'historique.
+                let recovered = (toolCalls == nil || toolCalls!.isEmpty)
+                    ? ToolArgumentParser.extractPseudoCalls(from: stripThinking(content), knownTools: knownToolNames)
+                    : []
+                let calls = (toolCalls ?? []).isEmpty ? recovered : toolCalls!
+
+                if !content.isEmpty && recovered.isEmpty {
                     ollamaMessages.append(OllamaMessage(role: "assistant", content: content))
                 }
 
-                guard let toolCalls, !toolCalls.isEmpty else {
+                guard !calls.isEmpty else {
                     let finalText = stripThinking(continuedText + content)
                     if AnswerGuards.shouldContinueAfterTruncation(truncated: truncated, used: continuationsUsed, max: maxContinuations) {
                         continuedText += content
@@ -203,6 +214,15 @@ public final class ConversationTurnRunner {
                         continue
                     }
                     let noMetaTalk = "Ne commente pas ce message : ni excuses, ni promesses, ni résumé de consignes. "
+                    // Le modèle a recopié la doc des outils au lieu d'appeler :
+                    // on le relance une fois avec une consigne explicite, dans
+                    // le même budget correctif que les autres relances.
+                    if toolCallHistory.isEmpty, correctiveRetries < 1, AnswerGuards.isToolListEcho(finalText, knownTools: knownToolNames) {
+                        ollamaMessages.append(OllamaMessage(role: "user", content: "\(noMetaTalk)Tu as recopié la liste des outils au lieu d'en appeler un. Ne décris JAMAIS les outils et ne cite jamais leurs noms dans ton texte : appelle DIRECTEMENT l'outil adapté à la demande « \(userText) » avec ses arguments, puis réponds avec son résultat."))
+                        ollamaMessages = trimmedForContext(ollamaMessages)
+                        correctiveRetries += 1
+                        continue
+                    }
                     if AnswerGuards.shouldRetryVacuousAnswer(finalText: finalText, hasWebSources: !turnSources.isEmpty, used: correctiveRetries) {
                         ollamaMessages.append(OllamaMessage(role: "user", content: "\(noMetaTalk)Rappel de la demande d'origine : « \(userText) ». Exécute-la maintenant : reformule une réponse complète qui reprend les résultats de recherche reçus et cite leurs URL, et appelle les outils nécessaires (ex. create_note pour créer la note) au lieu de t'arrêter."))
                         ollamaMessages = trimmedForContext(ollamaMessages)
@@ -216,7 +236,15 @@ public final class ConversationTurnRunner {
                         continue
                     }
                     if !finalText.isEmpty {
-                        var savedText = ToolCallLoop.appendMissingSources(to: finalText, sources: turnSources)
+                        // Un écho de la liste d'outils ne doit jamais être persisté :
+                        // relu comme exemple aux tours suivants, le modèle l'imite
+                        // (boucle auto-entretenue constatée : échos identiques en
+                        // chaîne dans la même conversation). On persiste un aveu
+                        // neutre à la place.
+                        let persistText = AnswerGuards.isToolListEcho(finalText, knownTools: knownToolNames)
+                            ? "Je n'ai pas réussi à lancer l'action demandée. Reformule et je réessaie."
+                            : finalText
+                        var savedText = ToolCallLoop.appendMissingSources(to: persistText, sources: turnSources)
                         if truncated {
                             savedText += "\n…(réponse tronquée : limite du serveur atteinte)"
                         }
@@ -240,9 +268,9 @@ public final class ConversationTurnRunner {
                     return
                 }
 
-                ollamaMessages.append(OllamaMessage(role: "assistant", content: nil, toolCalls: toolCalls))
+                ollamaMessages.append(OllamaMessage(role: "assistant", content: nil, toolCalls: calls))
 
-                let (toolMessages, nudge) = try await loop.runBatch(toolCalls, conversationId: cid, seen: &toolCallHistory, counts: &toolCallCounts)
+                let (toolMessages, nudge) = try await loop.runBatch(calls, conversationId: cid, seen: &toolCallHistory, counts: &toolCallCounts)
                 ollamaMessages.append(contentsOf: toolMessages)
                 if let nudge {
                     ollamaMessages.append(OllamaMessage(role: "user", content: nudge))
@@ -250,7 +278,9 @@ public final class ConversationTurnRunner {
                 }
 
                 let interimText = stripThinking(content)
-                if !interimText.isEmpty {
+                // Pas d'interim persisté pour un tour récupéré : le contenu est
+                // l'écho lui-même, le persister réempoisonnerait l'historique.
+                if !interimText.isEmpty && recovered.isEmpty && !AnswerGuards.isToolListEcho(interimText, knownTools: knownToolNames) {
                     if let interimMsg = try? await db.insertMessage(role: "assistant", content: interimText, conversationId: cid) {
                         ui.appendMessage(interimMsg)
                     }
@@ -278,7 +308,7 @@ public final class ConversationTurnRunner {
 
     // MARK: - Prompt système (déplacé à l'identique)
 
-    nonisolated static func buildSystemPrompt(dateStr: String, toolList: String, factsContext: String) -> String {
+    nonisolated static func buildSystemPrompt(dateStr: String, factsContext: String) -> String {
         """
         Tu es Jarvis, l'IA personnelle de Dimitri — dans l'esprit du Jarvis d'Iron Man, mais qui tutoie son utilisateur. Tu n'es pas un chatbot générique qui liste des options : tu es un majordome numérique compétent, avec du sang-froid et un humour sec et discret.
 
@@ -308,6 +338,7 @@ public final class ConversationTurnRunner {
         - Règle anti-refus : si une étape de la demande correspond à un de tes outils (lire une URL, créer une note, chercher sur le web…), tu APPELLES l'outil au lieu d'expliquer que tu ne peux pas. On n'explique jamais une incapacité quand l'outil existe.
         - Règle agir-d'abord : une demande vague mais ACTIONNABLE ne se discute pas, elle s'exécute avec la meilleure interprétation raisonnable — "cherche l'actu tech" → search_web query: dernières actualités tech PUIS réponse structurée, JAMAIS une contre-question ("quel site préfères-tu ?", "quelle requête ?"). Tu ne poses une question que si l'action est IMPOSSIBLE sans précision (choix destructeur, destinataire manquant pour un envoi, cible ambiguë entre plusieurs existants…).
         - Zéro préambule sur tes capacités : jamais "je peux faire X avec l'outil Y, donne-moi Z". Tu agis, puis tu présentes le résultat de façon structurée : titres courts + une ligne de substance chacun, puis la ligne "Sources :". Pas de pavé, pas de bavardage, pas de liste d'options.
+        - Ne recopie JAMAIS la liste des outils (noms, descriptions, paramètres) dans tes réponses : quand un outil est pertinent, tu l'APPELLES directement sans le décrire ni citer son nom.
         - N'invente JAMAIS de limites à tes outils : leurs descriptions disent exactement ce qu'ils font (read_url retourne le texte COMPLET de la page, prix inclus — pas un résumé qui interdirait d'extraire des données).
         - Ne JAMAIS inventer de faits : si un outil ne retourne rien, dis que la recherche a échoué.
         - Si un outil échoue, dis-le simplement et propose une alternative.
@@ -316,8 +347,6 @@ public final class ConversationTurnRunner {
         - Quand un outil retourne un résultat, cite-le EXACTEMENT sans inventer. Si take_screenshot retourne un chemin, réponds "C'est fait. Capture enregistrée et ouverte : <nom>" et n'ajoute JAMAIS "je n'ai pas de fichier".
         - Quand ta réponse s'appuie sur search_web ou read_url, termine par une ligne "Sources :" avec les URL fournies dans les résultats (n'utilise QUE ces URL-là, ne les invente jamais, et ne recycle JAMAIS les URL des messages précédents — elles appartiennent à d'anciennes recherches). Si un chiffre n'y figure pas, dis que tu ne l'as pas trouvé au lieu de le deviner.
         - Quand tu as reçu des résultats d'outils (recherche, météo, calendrier…), ta réponse DOIT les reprendre et les citer : une phrase générique qui les ignore est une erreur.
-
-        \(toolList)
 
         Exemples :
         - "météo à Paris" → get_weather city: Paris

@@ -121,6 +121,18 @@ final class JarvisLocalOllamaService_OllamaTests: XCTestCase {
         XCTAssertNil(url)
     }
 
+    func testMakeURLTrimsTrailingSpace() {
+        // Régression constatée : URL valide + espace final (copier-coller)
+        // → URL(string:) nil → invalidURL. Le trim doit l'absorber.
+        let settings = Settings.shared
+        let originalURL = settings.ollamaURL
+        settings.ollamaURL = "http://localhost:11434 "
+        defer { settings.ollamaURL = originalURL }
+
+        let url = ollamaService.makeURL()
+        XCTAssertEqual(url?.absoluteString, "http://localhost:11434/v1/chat/completions")
+    }
+
     func testMakeBaseURL() {
         let settings = Settings.shared
         let originalURL = settings.ollamaURL

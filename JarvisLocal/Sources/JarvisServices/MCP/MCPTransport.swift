@@ -17,6 +17,9 @@ actor MCPStdioTransport {
     private var nextId = 1
     private var pending: [Int: CheckedContinuation<[String: Any], Error>] = [:]
     private var buffer = Data()
+    /// Vrai après stop() : les données arrivées tard (handler déjà dispatché)
+    /// sont jetées au lieu d'alimenter un nouveau cycle.
+    private var stopped = false
     /// Plafond du buffer stdout : sans newline (serveur verbeux, gros tool result),
     /// buffer.append() grossit sans limite. Au-delà, on purge et on échoue les
     /// requêtes en attente plutôt que de laisser la RAM diverger.
@@ -49,22 +52,37 @@ actor MCPStdioTransport {
             throw MCPError.binaryNotFound(command)
         }
         self.proc = p; self.stdin = i.fileHandleForWriting; self.stdout = o.fileHandleForReading; self.stderr = e.fileHandleForReading
+        self.stopped = false
+        // NOTE crash (SIGABRT constaté en réel) : `availableData` lève une
+        // NSException ObjC, irrattrapable en Swift, si le fd est fermé pendant
+        // l'appel. `stop()` ne ferme donc JAMAIS stdout/stderr (voir stop) :
+        // le fd reste valide jusqu'au deinit, EOF se signale par Data vide →
+        // on retire alors le handler (sinon readability refire en continu).
         self.stdout?.readabilityHandler = { [weak self] h in
-            Task { await self?.ingest(h.availableData) }
+            guard h.fileDescriptor >= 0 else { return }
+            let data = h.availableData
+            if data.isEmpty { h.readabilityHandler = nil; return }
+            Task { await self?.ingest(data) }
         }
         // Drain stderr : un pipe jamais lu se remplit (~64 Ko) puis BLOQUE le
         // serveur fils à sa prochaine écriture (deadlock apparent : tools/list
         // ne répond plus, timeout, relance…). On jette le contenu (logs serveur).
         self.stderr?.readabilityHandler = { h in
-            _ = h.availableData
+            guard h.fileDescriptor >= 0 else { return }
+            if h.availableData.isEmpty { h.readabilityHandler = nil }
         }
     }
 
     func stop() {
+        stopped = true
         stdout?.readabilityHandler = nil
         stderr?.readabilityHandler = nil
-        try? stdin?.close(); try? stdout?.close(); try? stderr?.close()
-        stderr = nil
+        // Ne PAS fermer stdout/stderr ici : un readabilityHandler déjà dispatché
+        // appellerait availableData sur un fd fermé → NSException → SIGABRT
+        // (crash réel du 27/09). Les fd sont libérés au deinit (handlers déjà
+        // nilés, aucun appel en vol ne peut lever). Seul stdin est fermé
+        // (aucun reader dessus, close sans risque).
+        try? stdin?.close(); stdin = nil
         proc?.terminate(); proc = nil
         // Les requêtes en vol ne doivent pas rester suspendues pour toujours.
         let stale = pending
@@ -76,6 +94,7 @@ actor MCPStdioTransport {
     }
 
     private func ingest(_ data: Data) {
+        guard !stopped else { return }
         buffer.append(data)
         if buffer.count > Self.maxBufferBytes {
             // Serveur bavard ou réponse gigantesque : purge + échec propre des
