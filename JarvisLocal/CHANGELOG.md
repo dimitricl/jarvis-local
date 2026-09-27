@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.1] - 2026-09-27
+
+### Correctifs tour de conversation + crash MCP (session Ollama distant)
+- **Échos d'outils exécutés** — le modèle citait parfois la doc au lieu d'appeler (3 formes : `→ … (requis:)`, `search_web(query="…")`, `get_weather city: Paris`) : les pseudo-appels sont désormais parsés (`ToolArgumentParser.extractPseudoCalls`, formes `k="v"` / JSON / `k: v`) et exécutés comme de vrais appels (confirmations et audit inchangés) ; sinon relance anti-écho (`AnswerGuards.isToolListEcho`) dans le budget correctif
+- **Historique dépoisonné** — le dump texte de la doc des outils est retiré du prompt système (`buildSystemPrompt` sans `toolList`) ; un écho n'est plus jamais persisté (ni final, ni intermédiaire)
+- **Crash MCP (SIGABRT)** — `MCPStdioTransport.stop()` ne ferme plus les pipes de lecture (course `availableData` sur fd fermé) ; garde `fileDescriptor`, retrait sur EOF
+- **Erreurs lisibles** — `OllamaError` conforme à `LocalizedError`, `makeURL` trimme l'URL, warm-up keep-alive avec le même `num_ctx` que le chat
+- **Contexte distant** — `loadConversations` assure l'ouverture DB ; exception ATS pour l'hôte Ollama Tailscale
+- Tests : +10, suite verte, lint 0 violations.
+
 ## [0.9.0] - 2026-09-26
 
 ### Phase 3 — Restructuration complète AppViewModel (6 coordinateurs)

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.1 (2026-09-27)
+
+### Correctifs tour de conversation + crash MCP (session Ollama distant)
+- **Échos d'outils exécutés** — le modèle citait parfois la doc au lieu d'appeler (3 formes : `→ … (requis:)`, `search_web(query="…")`, `get_weather city: Paris`) : les pseudo-appels sont désormais parsés (`ToolArgumentParser.extractPseudoCalls`, formes `k="v"` / JSON / `k: v`) et exécutés comme de vrais appels (confirmations et audit inchangés) ; sinon relance anti-écho (`AnswerGuards.isToolListEcho`) dans le budget correctif
+- **Historique dépoisonné** — le dump texte de la doc des outils est retiré du prompt système (c'était le texte recraché) ; un écho n'est plus jamais persisté (ni final, ni intermédiaire) pour ne plus servir d'exemple aux tours suivants
+- **Crash MCP (SIGABRT)** — `stop()` ne ferme plus les pipes de lecture : un `readabilityHandler` en vol appelait `availableData` sur fd fermé (exception ObjC non rattrapable) ; garde `fileDescriptor`, retrait sur EOF, `ingest` ignore l'après-`stop`
+- **Erreurs lisibles** — `OllamaError` conforme à `LocalizedError` (fini « L'opération n'a pas pu s'achever (erreur 4) »), `makeURL` trimme l'URL (espace final = `invalidURL`), warm-up keep-alive avec le même `num_ctx` que le chat (fini le rechargement complet du modèle à chaque premier message)
+- **Contexte distant** — `loadConversations` assure l'ouverture DB ; exception ATS pour l'hôte Ollama Tailscale (`Info.plist`)
+- Tests : +10 (parseur pseudo-appels, garde écho, relance + non-persistance + récupération en runner), suite verte, lint 0 violations.
+
 ## 0.9.0 (2026-09-26)
 
 ### Phase 3 — Restructuration complète AppViewModel
