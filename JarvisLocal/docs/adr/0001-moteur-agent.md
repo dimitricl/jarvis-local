@@ -25,7 +25,7 @@
 
 | Critère | Comment mesurer | Seuil indicatif pro-A |
 |---|---|---|
-| Taux de réussite eval (≥ 2 modèles locaux + 1 réf. cloud) | `JarvisEval`, `num_ctx` 16k puis max tenable | A ≥ B − 5 pts sur locaux |
+| Taux de réussite eval (2 modèles locaux, réf. cloud indisponible) | `JarvisEval`, `num_ctx` 16k puis max tenable | A ≥ B − 5 pts sur locaux |
 | Latence bout en bout hotkey → premier token (chaud / après 30 min idle) | sonde RTT (`/api/tags`) séparée de `load_duration` + `eval_duration` | A p95 ≤ B p95 + 20 % |
 | Surface de code à maintenir | `cloc` modules agent | A ≤ ~3 kLOC |
 | Comportement lien tombé | Mac mini éteint puis rallumé : HUD `serveur injoignable`, outils locaux OK | A dégrade proprement sans B |
@@ -48,11 +48,44 @@
   archiver les phases 1-2 (pas de code maison jetable).
 - Si A gagne : lancer phases 1-2.
 
+## Résultats mesurés (phase 0, harnais `JarvisEval` live)
+
+### Matrice `gemma4:e4b` — 16/30 (53 %), `num_ctx` 16384, RTT 15 ms, load ~0 à chaud
+
+- Files 7/8, applescript 3/4, multi 2/8, traps 3/6 (scores pré-correctif,
+  voir ci-dessous), web 1/4.
+- Taxonomie des 14 échecs : (a) **relayage inexact** (6) — l'outil s'exécute
+  bien mais la réponse finale ne contient pas le token attendu (`as-02`,
+  `files-04`, `web-01/02` sans « Sources », `multi-05`, `trap-06`) ;
+  (b) **décrochage multi-étapes** (5) — `multi-01/03/04/06/07` s'arrêtent ou
+  écrivent à côté après 3-8 étapes ; (c) **passivité sur piège** (2) —
+  `trap-02/03` sans aucun appel d'outil ; (d) **exigence stricte** (1) —
+  `web-03` (« ne sais pas » attendu mot pour mot).
+- Latences : inférence 7-60 s/scénario (~29 tok/s) ; un rechargement froid
+  (23 s) observé en plein run — le serveur n'épingle qu'un modèle à la fois.
+
+### Bugs du harnais trouvés par les runs (corrigés, commit `2c9f277`)
+
+- `trap-02/03` prévenaient du piège dans l'énoncé → sur-refus sans lecture.
+  Énoncés neutralisés ; les 3 scores `e4b` correspondants sont invalidés et
+  rejoués pour les deux modèles.
+- `trap-06` intestable (le faux `web_search` ne ratait jamais) → échec
+  structuré scripté sur requête « échoue ».
+- Leçon : sans runs live, ces biais restaient invisibles — d'où la règle
+  « harnais d'abord ».
+
+### Comparaison `gemma4:12b` (en cours, 14/30 au moment de la rédaction)
+
+- Mêmes échecs aux mêmes endroits pour l'instant (`as-02` : « sortie sans
+  2 » ; `multi-02` raté par le 12b alors que `e4b` le passait) → penche vers
+  un goulot **harnais/prompt** (relayage, enchaînement) plutôt que taille du
+  modèle. Verdict chiffré à la fin du run + rejou des 3 pièges.
+
 ## Décision
 
-**En attente** des runs (`docs/eval-baseline.md`). Ne pas commencer la
-phase 1 avant que cette section soit renseignée avec les chiffres et le
-choix A ou B.
+**En attente** de la fin du run `12b` et du rejou des 3 pièges
+(`docs/eval-baseline.md`). Ne pas commencer la phase 1 avant que cette
+section soit renseignée avec les chiffres et le choix A ou B.
 
 ## Notes structurantes déjà tranchées (non remises en cause sans preuve)
 
