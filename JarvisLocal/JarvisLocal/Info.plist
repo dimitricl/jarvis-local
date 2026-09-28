@@ -40,26 +40,20 @@
     <string>Jarvis a besoin de capture d'écran pour prendre des screenshots.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
-        <!-- Pas de NSAllowsArbitraryLoads : seul le réseau LOCAL a droit au HTTP
-             en clair (Ollama sur localhost, 127.0.0.1 ou une IP LAN — l'exception
-             par domaine "localhost" seule ne couvrait pas 127.0.0.1, d'où l'erreur
-             ATS au lancement). Tout le reste (DDG, Open-Meteo, GitHub) reste en
-             HTTPS forcé. Une URL Ollama distante non-locale affiche un
-             avertissement dans les Réglages.
-             Exception Tailscale : HTTP en clair autorisé vers le Mac mini distant
-             (100.101.108.111 + domaine tailnet) pour Ollama distant. -->
+        <!-- Pas de NSAllowsArbitraryLoads, pas d'IP ni de nom en dur : le HTTP
+             en clair est autorisé par l'OS vers le local (NSAllowsLocalNetworking)
+             et vers *.ts.net (noms MagicDNS Tailscale, quel que soit le tailnet).
+             La restriction AU SEUL hôte configuré est applicative
+             (OllamaHostPolicy : localhost / 100.64.0.0/10 / *.ts.net, sinon
+             HTTPS exigé) — et Tailscale ne route de toute façon que son propre
+             tailnet. En pratique : renseigner le NOM MagicDNS du serveur dans
+             les réglages (pas son IP). Tout le reste (DDG, Open-Meteo, GitHub)
+             reste en HTTPS forcé. -->
         <key>NSAllowsLocalNetworking</key>
         <true/>
         <key>NSExceptionDomains</key>
         <dict>
-            <key>100.101.108.111</key>
-            <dict>
-                <key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
-                <true/>
-                <key>NSIncludesSubdomains</key>
-                <false/>
-            </dict>
-            <key>tail1cd9dd.ts.net</key>
+            <key>ts.net</key>
             <dict>
                 <key>NSIncludesSubdomains</key>
                 <true/>
@@ -68,5 +62,9 @@
             </dict>
         </dict>
     </dict>
+    <!-- App omniprésente : pas de Dock, vit dans la menu bar + HUD. Elle ne
+         quitte JAMAIS à la fermeture d'une fenêtre. -->
+    <key>LSUIElement</key>
+    <true/>
 </dict>
 </plist>

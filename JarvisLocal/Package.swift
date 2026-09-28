@@ -41,7 +41,7 @@ let package = Package(
         // Composition root : seul endroit qui assemble concrets (Services) + UI.
         .executableTarget(
             name: "JarvisLocal",
-            dependencies: ["JarvisCore", "JarvisServices", "JarvisUI"],
+            dependencies: ["JarvisCore", "JarvisServices", "JarvisUI", "JarvisShell"],
             path: "Sources/JarvisLocal"
         ),
         // L0 — types purs du moteur d'agent v1.0 : JSONValue, Message,
@@ -74,6 +74,14 @@ let package = Package(
             name: "JarvisTools",
             dependencies: ["JarvisKit", "JarvisAgent", "JarvisServices"],
             path: "Sources/JarvisTools",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // L3 — shell macOS : LSUIElement, hotkey, HUD, voix, monitor.
+        // Swift 6. Ne dépend jamais de JarvisUI (destiné à le remplacer).
+        .target(
+            name: "JarvisShell",
+            dependencies: ["JarvisKit", "JarvisAgent", "JarvisTools", "JarvisProviders", "JarvisCore", "JarvisServices"],
+            path: "Sources/JarvisShell",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // Grille du garde-fou ADR (70 %) : rejoue evals/*.yaml sur le NOUVEAU
@@ -135,6 +143,11 @@ let package = Package(
             name: "JarvisToolsTests",
             dependencies: ["JarvisTools", "JarvisAgent", "JarvisKit", "JarvisEvalKit"],
             path: "Tests/JarvisToolsTests"
+        ),
+        .testTarget(
+            name: "JarvisShellTests",
+            dependencies: ["JarvisShell", "JarvisKit", "JarvisAgent"],
+            path: "Tests/JarvisShellTests"
         ),
     ],
     // La migration Swift 6 exige d'abord un conteneur Sendable pour les arguments

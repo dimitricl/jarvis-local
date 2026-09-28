@@ -16,6 +16,10 @@ public struct OllamaConfig: Sendable {
     public var connectTimeout: Double
     public var requestTimeout: Double
     public var authToken: String?
+    /// Premier token : long (chargement à froid du modèle distant).
+    public var firstTokenTimeout: Double
+    /// Entre deux tokens : court (un trou = incident réseau).
+    public var interTokenTimeout: Double
 
     public init(
         baseURL: String,
@@ -24,6 +28,8 @@ public struct OllamaConfig: Sendable {
         temperature: Double = 0.2,
         connectTimeout: Double = 3,
         requestTimeout: Double = 300,
+        firstTokenTimeout: Double = 180,
+        interTokenTimeout: Double = 30,
         authToken: String? = nil
     ) {
         self.baseURL = baseURL
@@ -32,6 +38,8 @@ public struct OllamaConfig: Sendable {
         self.temperature = temperature
         self.connectTimeout = connectTimeout
         self.requestTimeout = requestTimeout
+        self.firstTokenTimeout = firstTokenTimeout
+        self.interTokenTimeout = interTokenTimeout
         self.authToken = authToken
     }
 
@@ -103,7 +111,7 @@ public struct OllamaProvider: AgentLLM {
                     if let token = config.authToken, !token.isEmpty {
                         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     }
-                    req.timeoutInterval = config.requestTimeout
+                    req.timeoutInterval = config.connectTimeout
                     req.httpBody = try OllamaProvider.requestBody(
                         model: config.model, messages: messages, tools: tools,
                         numCtx: config.numCtx, temperature: config.temperature)
@@ -114,14 +122,41 @@ public struct OllamaProvider: AgentLLM {
                         throw OllamaProviderError.badStatus
                     }
 
+                    // Watchdog : premier token long (chargement à froid),
+                    // inter-tokens court. Un timeout n'est jamais silencieux :
+                    // il termine le stream en erreur explicite.
+                    let activity = StreamActivity()
+                    await activity.mark()
+                    let watchdog = Task {
+                        while !Task.isCancelled {
+                            try? await Task.sleep(nanoseconds: 1_000_000_000)
+                            let idle = await activity.idleSeconds()
+                            let limit = await activity.seenFirst ? config.interTokenTimeout : config.firstTokenTimeout
+                            if idle > limit {
+                                let first = !(await activity.seenFirst)
+                                await activity.trip()
+                                continuation.finish(throwing: OllamaProviderError.stalled(
+                                    first: first, idleSeconds: idle))
+                                return
+                            }
+                        }
+                    }
+                    defer { watchdog.cancel() }
+
                     var state = OllamaProvider.SseState()
                     var metrics: LLMMetrics?
                     for try await line in bytes.lines {
                         try Task.checkCancellation()
+                        if await activity.isTripped() { return }
                         let emitted = OllamaProvider.applySSELine(line, state: &state, metrics: &metrics)
+                        if !emitted.textDeltas.isEmpty || emitted.finished {
+                            await activity.mark()
+                        }
                         for text in emitted.textDeltas { continuation.yield(.textDelta(text)) }
                         if emitted.finished { break }
                     }
+                    watchdog.cancel()
+                    if await activity.isTripped() { return }
                     if !state.calls.isEmpty { continuation.yield(.toolCalls(state.calls)) }
                     continuation.yield(.finished(metrics))
                     continuation.finish()
@@ -289,4 +324,34 @@ public struct OllamaProvider: AgentLLM {
 public enum OllamaProviderError: Error, Sendable, Equatable {
     case badStatus
     case invalidResponse
+    /// Stream muet : `first` = aucun premier token (chargement à froid
+    /// probable), sinon trou inter-tokens. `idleSeconds` = durée constatée.
+    case stalled(first: Bool, idleSeconds: Double)
+}
+
+/// Activité du stream pour le watchdog (acteur : partagé entre la boucle de
+/// lecture et la tâche de surveillance).
+actor StreamActivity {
+    private var last: Date
+    private(set) var seenFirst = false
+    private var tripped = false
+
+    init() {
+        self.last = Date()
+    }
+
+    func mark() {
+        last = Date()
+        seenFirst = true
+    }
+
+    func trip() {
+        tripped = true
+    }
+
+    func isTripped() -> Bool { tripped }
+
+    func idleSeconds() -> Double {
+        Date().timeIntervalSince(last)
+    }
 }

@@ -30,6 +30,8 @@ public struct Transcript: Sendable, Codable, Equatable {
 public protocol TranscriptStore: Sendable {
     func save(_ transcript: Transcript) async throws
     func load(id: UUID) async throws -> Transcript?
+    /// Identifiants connus, du plus récent au plus ancien (I/O locale pure).
+    func listIDs() async throws -> [UUID]
 }
 
 /// Stockage fichier JSON (un fichier par transcript). Acteur : I/O
@@ -55,6 +57,18 @@ public actor FileTranscriptStore: TranscriptStore {
         let u = url(for: id)
         guard FileManager.default.fileExists(atPath: u.path) else { return nil }
         return try JSONDecoder().decode(Transcript.self, from: Data(contentsOf: u))
+    }
+
+    public func listIDs() async throws -> [UUID] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        var ids: [(UUID, Date)] = []
+        for name in names where name.hasSuffix(".json") {
+            let idString = (name as NSString).deletingPathExtension
+            guard let id = UUID(uuidString: idString) else { continue }
+            let mtime = (try? FileManager.default.attributesOfItem(atPath: directory.appendingPathComponent(name).path)[.modificationDate] as? Date) ?? .distantPast
+            ids.append((id, mtime))
+        }
+        return ids.sorted { $0.1 > $1.1 }.map { $0.0 }
     }
 }
 
