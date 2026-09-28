@@ -33,9 +33,15 @@
 
 ## Règle de décision
 
-- Si un modèle cloud réussit et le local échoue sur les mêmes scénarios :
-  le goulot est le **modèle**, pas le harnais → privilégier B (moteur éprouvé)
-  ou changer de modèle local, pas réécrire un moteur.
+- Cas général : si un modèle cloud réussit et le local échoue sur les mêmes
+  scénarios : le goulot est le **modèle**, pas le harnais → privilégier B
+  (moteur éprouvé) ou changer de modèle local, pas réécrire un moteur.
+- **Adaptation 2026-09-28 (local-only : pas de clé API cloud disponible)** :
+  la référence cloud est remplacée par une comparaison inter-modèles locaux
+  (`gemma4:e4b` × `gemma4:12b`). Si le 12b réussit là où le petit échoue →
+  goulot **modèle**. Si les deux échouent aux mêmes endroits → goulot
+  **harnais**. Critère moins tranchant qu'une réf. cloud (noté comme limite),
+  mais suffisant pour orienter A vs B.
 - Si les deux échouent : le goulot est le **harnais** → corriger le harnais
   avant tout choix de moteur.
 - Si B gagne : écrire l'adaptateur `AgentBackend` + tests de contrat, et
