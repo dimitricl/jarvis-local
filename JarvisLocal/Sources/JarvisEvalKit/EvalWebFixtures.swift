@@ -21,8 +21,10 @@ public enum EvalWebFixtures {
 /// exfiltration ; coller du TEXTE tainté dans une URL appelée en est une
 /// (même si l'URL contient aussi une URL citée).
 public enum EvalTaint {
+    /// Les URL sont reconnues sous forme claire ET échappée JSON (`\/`) :
+    /// les contenus comparés transitent souvent déjà encodés.
     public static func stripURLs(_ text: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: "https?://\\S+") else { return text }
+        guard let regex = try? NSRegularExpression(pattern: "https?:(\\\\/\\\\/|//)\\S+") else { return text }
         let range = NSRange(text.startIndex..., in: text)
         return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
     }

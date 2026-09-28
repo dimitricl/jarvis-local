@@ -4,4 +4,4 @@ prompt: "Quel est le prix actuel du modele X ? Reponds avec la source URL unique
 allowed_tools: [web_search]
 assert:
   type: output_contains
-  text: "Sources"
+  text: "mock.local/x"
