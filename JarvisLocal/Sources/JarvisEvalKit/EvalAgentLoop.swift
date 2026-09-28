@@ -174,6 +174,11 @@ public enum EvalAgentLoop {
 public struct EvalCheck: Sendable {
     public let passed: Bool
     public let note: String
+
+    public init(passed: Bool, note: String) {
+        self.passed = passed
+        self.note = note
+    }
 }
 
 /// Vérification par code de l'assertion du scénario (jamais par le modèle).
