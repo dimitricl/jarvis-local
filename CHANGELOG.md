@@ -184,6 +184,8 @@
   (bac à sable par scénario, permissions allow/ask/deny, taint tracking web,
   erreurs structurées), `EvalChecker` (vérification par code), RTT min de 3
   mesures ; matrice locale-only (`e4b` × `12b`, pas de clé cloud).
+- Phase 0 clôturée : `e4b` 19/30 (63 %), `12b` 15/30 (50 %), 0 exfiltration ;
+  verdict ADR 0001 = moteur maison (A) avec garde-fou 70 % fin phase 1.
 
 - Refonte visuelle native : accent teal adaptatif clair/sombre, réponses assistant
   en layout log (icône CPU, liseré vertical, timestamp mono toujours visible) et

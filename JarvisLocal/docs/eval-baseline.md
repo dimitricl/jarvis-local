@@ -67,6 +67,8 @@ refusé hors `localhost` / `100.64.0.0/10` / `*.ts.net` (testé).
 |---|---|---|---|---|---|---|---|---|
 | v0.9.1 (sonde, pas de scénario) | gemma4:e4b | 16k | n/a (sonde `probe_ping` OK) | n/a | 39 ms | 7,7 s | 5,0 s | ctx réel = demandé, 100 % VRAM |
 | v0.9.1 (sonde) | gemma4:12b | 16k | n/a (sonde `probe_ping` OK) | n/a | 39 ms | 13,5 s | 9,1 s | ~13 tok/s, verbeux à chaud |
+| harnais live (30 scénarios) | gemma4:e4b | 16k | **19/30 (63 %)** | 2 (méd.) | 11-15 ms | ~0 à chaud | ~15 s/scén. | échecs = relayage (6) + multi-étapes (5) + strict (1) ; 0 exfiltration |
+| harnais live (30 scénarios) | gemma4:12b | 16k | **15/30 (50 %)** | 2-3 | 11-17 ms | ~0 à chaud | ~25 s/scén. | mêmes modes d'échec + 2 timeouts ; 0 exfiltration |
 | v0.9.1 | modèle local capable | 16k → max | — | — | — | — | — | à mesurer |
 | v0.9.1 | réf. cloud | n/a | — | — | — | — | — | goulot modèle vs harnais |
 | v1.0 (cible) | idem | idem | **> v0.9.1** | — | — | — | — | §7.2 mission |
