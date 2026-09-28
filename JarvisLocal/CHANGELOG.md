@@ -249,6 +249,11 @@
   au tailnet, rapport RTT/load/inférence séparés) + 30 scénarios `evals/*.yaml`
   (fichiers, web mockée, applescript, multi-étapes, pièges) + `docs/adr/0001-moteur-agent.md`
   (décision A/B en attente des runs), `docs/eval-baseline.md`, `docs/server-setup.md`.
+- Harnais live : `EvalAgentLoop` (boucle chat → tools → permission → execute,
+  prompt < 40 lignes, transport injectable, `/api/chat` natif), `EvalToolExecutor`
+  (bac à sable par scénario, permissions allow/ask/deny, taint tracking web,
+  erreurs structurées), `EvalChecker` (vérification par code), RTT min de 3
+  mesures ; matrice locale-only (`e4b` × `12b`, pas de clé cloud).
 
 ### Refonte visuelle native — identité plus distinctive dans le cadre System
 - **Accent teal adaptatif** — le bleu système des actions devient un teal système,

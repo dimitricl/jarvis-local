@@ -32,17 +32,24 @@ private struct ProbeOutcome {
 }
 
 private func measureTagsRTT(base: URL) async -> Double? {
-    let url = base.appendingPathComponent("api/tags")
-    var req = URLRequest(url: url)
-    req.timeoutInterval = 10
-    let start = Date()
-    do {
-        let (_, resp) = try await URLSession.shared.data(for: req)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-        return Date().timeIntervalSince(start) * 1000.0
-    } catch {
-        return nil
+    // 3 mesures, minimum retenu (pratique standard : écarte les à-coups,
+    // ex. relais DERP lent ou requête coincée derrière un chargement).
+    var best: Double?
+    for _ in 1...3 {
+        let url = base.appendingPathComponent("api/tags")
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 10
+        let start = Date()
+        do {
+            let (_, resp) = try await URLSession.shared.data(for: req)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let ms = Date().timeIntervalSince(start) * 1000.0
+            best = min(best ?? ms, ms)
+        } catch {
+            return nil
+        }
     }
+    return best
 }
 
 private func fetchPs(base: URL) async -> [PsModelInfo] {
@@ -99,9 +106,14 @@ private func runCLI() async -> Int32 {
 
     if config.probeOnly { return 0 }
 
-    // Chargement des scénarios ; exécution live = itération suivante
-    // (branchement sur le moteur d'agent). Ici : rapport avec statuts
-    // `skipped` + métriques de sonde, format contrat stable et testé.
+    guard config.provider == "ollama" else {
+        FileHandle.standardError.write(Data("Exécution live non supportée pour --provider \(config.provider) (référence cloud indisponible : matrice locale uniquement).\n".utf8))
+        return 2
+    }
+
+    // Chargement des scénarios puis exécution live : un workspace bac à
+    // sable par scénario (fixtures montées, effets réels confinés), boucle
+    // d'agent (†EvalAgentLoop), vérification par code (EvalChecker).
     let scenarios: [EvalScenario]
     do {
         scenarios = try EvalLoader.loadScenarios(directory: config.evalsDir)
@@ -109,10 +121,31 @@ private func runCLI() async -> Int32 {
         FileHandle.standardError.write(Data("Chargement evals impossible : \(error)\n".utf8))
         return 2
     }
-    let dateISO = ISO8601DateFormatter().string(from: Date())
-    let results = scenarios.map {
-        ScenarioResult.skipped(name: $0.name, category: $0.category, note: "exécution live non branchée (sonde seule)")
+    let transport = OllamaEvalTransport(baseURL: base)
+    var results: [ScenarioResult] = []
+    for scenario in scenarios {
+        let workspace = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jarvis-eval-\(scenario.name)", isDirectory: true)
+        try? FileManager.default.removeItem(at: workspace)
+        try? FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        for (name, content) in scenario.fixtureFiles {
+            try? content.write(to: workspace.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        FileHandle.standardError.write(Data("→ \(scenario.name)…\n".utf8))
+        let live = await EvalAgentLoop.run(
+            scenario: scenario, model: config.model, numCtx: config.numCtx,
+            workspace: workspace.path, transport: transport)
+        let (tokens, calibrated) = ServerProbeParsing.estimatePromptTokens(
+            promptEvalCount: live.tokensCalibrated ? live.promptTokens : nil,
+            charCount: scenario.prompt.count)
+        results.append(ScenarioResult(
+            name: scenario.name, category: scenario.category, status: live.status,
+            steps: live.steps, rttMs: rtt, loadMs: live.loadMs, inferenceMs: live.inferenceMs,
+            promptTokens: tokens, tokensCalibrated: calibrated, note: live.note))
+        FileHandle.standardError.write(Data("  \(live.status) (\(live.steps) étapes) — \(live.note)\n".utf8))
+        try? FileManager.default.removeItem(at: workspace)
     }
+    let dateISO = ISO8601DateFormatter().string(from: Date())
     let report = EvalReport(
         model: config.model,
         provider: config.provider,
