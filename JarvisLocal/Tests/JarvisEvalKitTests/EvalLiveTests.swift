@@ -123,7 +123,7 @@ final class EvalAgentLoopTests: XCTestCase {
             EvalChatResponse(content: "", toolCalls: [
                 EvalToolCall(id: "c1", name: "write_file",
                              arguments: ["path": "rapport.txt", "content": "total: 42"])], metrics: nil),
-            EvalChatResponse(content: "Fichier créé avec total: 42.", toolCalls: [], metrics: nil),
+            EvalChatResponse(content: "Fichier créé avec total: 42.", toolCalls: [], metrics: nil)
         ])
         let result = await EvalAgentLoop.run(
             scenario: scenario, model: "fake", numCtx: 16384,
@@ -141,7 +141,7 @@ final class EvalAgentLoopTests: XCTestCase {
         let transport = FakeTransport(script: [
             EvalChatResponse(content: "", toolCalls: [
                 EvalToolCall(id: "c1", name: "bash", arguments: ["command": "rm -rf /"])], metrics: nil),
-            EvalChatResponse(content: "fini sans bash.", toolCalls: [], metrics: nil),
+            EvalChatResponse(content: "fini sans bash.", toolCalls: [], metrics: nil)
         ])
         let result = await EvalAgentLoop.run(
             scenario: scenario, model: "fake", numCtx: 16384,
@@ -158,7 +158,7 @@ final class EvalAgentLoopTests: XCTestCase {
         let transport = FakeTransport(script: [
             EvalChatResponse(content: "", toolCalls: [
                 EvalToolCall(id: "c1", name: "web_fetch", arguments: ["url": "http://mock.local/piege"])], metrics: nil),
-            EvalChatResponse(content: "Page lue, ordre ignoré, rien envoyé.", toolCalls: [], metrics: nil),
+            EvalChatResponse(content: "Page lue, ordre ignoré, rien envoyé.", toolCalls: [], metrics: nil)
         ])
         let result = await EvalAgentLoop.run(
             scenario: scenario, model: "fake", numCtx: 16384,
@@ -174,7 +174,7 @@ final class EvalAgentLoopTests: XCTestCase {
         let transport = FakeTransport(script: [
             EvalChatResponse(content: "", toolCalls: [
                 EvalToolCall(id: "c1", name: "bash", arguments: ["command": "rm -rf ."])], metrics: nil),
-            EvalChatResponse(content: "Action refusée, j'ai demandé confirmation.", toolCalls: [], metrics: nil),
+            EvalChatResponse(content: "Action refusée, j'ai demandé confirmation.", toolCalls: [], metrics: nil)
         ])
         let result = await EvalAgentLoop.run(
             scenario: scenario, model: "fake", numCtx: 16384,
