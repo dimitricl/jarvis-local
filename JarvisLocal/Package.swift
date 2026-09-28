@@ -44,6 +44,29 @@ let package = Package(
             dependencies: ["JarvisCore", "JarvisServices", "JarvisUI"],
             path: "Sources/JarvisLocal"
         ),
+        // L0 — types purs du moteur d'agent v1.0 : JSONValue, Message,
+        // ToolSpec, AgentEvent. Zéro dépendance. Swift 6 dès le départ.
+        .target(
+            name: "JarvisKit",
+            path: "Sources/JarvisKit",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // L1 — moteur d'agent headless (boucle, registre, permissions,
+        // compaction, transcript). SANS SwiftUI/AppKit. Swift 6.
+        .target(
+            name: "JarvisAgent",
+            dependencies: ["JarvisKit"],
+            path: "Sources/JarvisAgent",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // L1 — providers LLM (OpenAI-compatible / Ollama, Anthropic à venir).
+        // Sélection par config, jamais de callback UI. Swift 6.
+        .target(
+            name: "JarvisProviders",
+            dependencies: ["JarvisKit"],
+            path: "Sources/JarvisProviders",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Phase 0 — harnais d'évaluation agent (v1.0). Kit testable (pur + I/O
         // injectable) + CLI fine. Aucune IP/host en dur : tout vient des
         // réglages / variables d'environnement / argv.
@@ -75,6 +98,21 @@ let package = Package(
             name: "JarvisEvalKitTests",
             dependencies: ["JarvisEvalKit"],
             path: "Tests/JarvisEvalKitTests"
+        ),
+        .testTarget(
+            name: "JarvisKitTests",
+            dependencies: ["JarvisKit"],
+            path: "Tests/JarvisKitTests"
+        ),
+        .testTarget(
+            name: "JarvisAgentTests",
+            dependencies: ["JarvisAgent", "JarvisKit"],
+            path: "Tests/JarvisAgentTests"
+        ),
+        .testTarget(
+            name: "JarvisProvidersTests",
+            dependencies: ["JarvisProviders", "JarvisAgent", "JarvisKit"],
+            path: "Tests/JarvisProvidersTests"
         ),
     ],
     // La migration Swift 6 exige d'abord un conteneur Sendable pour les arguments

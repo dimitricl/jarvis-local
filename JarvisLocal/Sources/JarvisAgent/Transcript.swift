@@ -1,0 +1,74 @@
+import Foundation
+import JarvisKit
+
+/// L1 — transcript COMPLET et persisté.
+///
+/// user, assistant (+ tool_calls), tool (+ résultat tronqué de façon
+/// déterministe avec marqueur). Reprise possible après crash : le run
+/// repart de l'historique chargé, le modèle revoit ce qu'il a fait.
+public struct Transcript: Sendable, Codable, Equatable {
+    public var id: UUID
+    public var model: String
+    public var messages: [Message]
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(id: UUID = UUID(), model: String, messages: [Message] = [], createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.id = id
+        self.model = model
+        self.messages = messages
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    public mutating func append(_ message: Message) {
+        messages.append(message)
+        updatedAt = Date()
+    }
+}
+
+public protocol TranscriptStore: Sendable {
+    func save(_ transcript: Transcript) async throws
+    func load(id: UUID) async throws -> Transcript?
+}
+
+/// Stockage fichier JSON (un fichier par transcript). Acteur : I/O
+/// sérialisée, pas de `@unchecked Sendable`.
+public actor FileTranscriptStore: TranscriptStore {
+    private let directory: URL
+
+    public init(directory: URL) {
+        self.directory = directory
+    }
+
+    private func url(for id: UUID) -> URL {
+        directory.appendingPathComponent("\(id.uuidString).json")
+    }
+
+    public func save(_ transcript: Transcript) async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(transcript)
+        try data.write(to: url(for: transcript.id), options: .atomic)
+    }
+
+    public func load(id: UUID) async throws -> Transcript? {
+        let u = url(for: id)
+        guard FileManager.default.fileExists(atPath: u.path) else { return nil }
+        return try JSONDecoder().decode(Transcript.self, from: Data(contentsOf: u))
+    }
+}
+
+/// Troncature DÉTERMINISTE des résultats d'outils, avec marqueur et octets.
+///
+/// Le modèle sait qu'il voit un extrait et comment relire la suite
+/// (`offset=…`), au lieu de raisonner sur du texte coupé en silence.
+public enum TranscriptTrimming {
+    public static func truncateResult(_ text: String, limitBytes: Int) -> String {
+        let total = text.utf8.count
+        guard total > limitBytes else { return text }
+        var prefix = text
+        while prefix.utf8.count > limitBytes { prefix = String(prefix.dropLast()) }
+        let dropped = total - prefix.utf8.count
+        return prefix + "\n[tronqué : \(dropped) octets, relire avec offset=\(prefix.utf8.count)]"
+    }
+}

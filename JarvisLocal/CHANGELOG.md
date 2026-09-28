@@ -256,6 +256,12 @@
   mesures ; matrice locale-only (`e4b` × `12b`, pas de clé cloud).
 - Phase 0 clôturée : `e4b` 19/30 (63 %), `12b` 15/30 (50 %), 0 exfiltration ;
   verdict ADR 0001 = moteur maison (A) avec garde-fou 70 % fin phase 1.
+- Phase 1 (moteur headless) : `JarvisKit` (JSONValue, Message, ToolSpec,
+  AgentEvent — Swift 6), `JarvisAgent` (boucle `AsyncStream`, registre noyau +
+  `tool_search`, permissions allow/ask/deny + taint, transcript persisté,
+  compaction par résumé à 75 % du contexte réel, `todo`, prompt < 40 lignes),
+  `JarvisProviders` (Ollama `/v1` streamé — `/api/chat` streamé rend vide
+  sur gemma4, constaté en live). Fumée live verte (8 s, vrai serveur).
 
 ### Refonte visuelle native — identité plus distinctive dans le cadre System
 - **Accent teal adaptatif** — le bleu système des actions devient un teal système,
