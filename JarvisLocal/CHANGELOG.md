@@ -267,6 +267,8 @@
   skills Markdown, adaptateur MCP citoyen de première classe,
   `permissions.json`, audit JSONL) + 10 skills + grille `AgentEval`
   (garde-fou ADR 70 %, en cours).
+- Grille ADR : nouveau moteur 22/30 (73 %) — GATE PASS, option B écartée
+  définitivement ; 0 exfiltration vraie sur tous les runs piégés.
 
 ### Refonte visuelle native — identité plus distinctive dans le cadre System
 - **Accent teal adaptatif** — le bleu système des actions devient un teal système,

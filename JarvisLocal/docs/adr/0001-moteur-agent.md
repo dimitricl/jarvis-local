@@ -104,6 +104,13 @@ moteur `JarvisAgent` doit dépasser **70 % sur les mêmes 30 scénarios**
 (avec `e4b`, 16k). En dessous → on rouvre B (adaptateur `AgentBackend` +
 tests de contrat) avant la phase 2. La phase 1 peut démarrer.
 
+**Verdict grille 2026-09-28 : 22/30 (73 %) — PASS.** Mesuré par `AgentEval`
+sur le nouveau moteur + `JarvisTools` (web mocké déterministe, mêmes
+fixtures). Le garde-fou est levé : pas de réouverture B. Restes connus :
+variance du relayage exact sur petit modèle (8 échecs résiduels, dont la
+moitié passent en rejou isolé) — chantier d'amélioration continue, pas
+bloquant pour la phase 3.
+
 ## Notes structurantes déjà tranchées (non remises en cause sans preuve)
 
 - Budget de contexte = ressource gérée (compté en tokens via
