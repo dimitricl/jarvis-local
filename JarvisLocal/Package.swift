@@ -67,6 +67,23 @@ let package = Package(
             path: "Sources/JarvisProviders",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        // L2 — outils généraux + adaptateur MCP. Swift 6. Réutilise les
+        // garde-fous éprouvés (FileTools, BoundedHTTPReader, WebSearchService,
+        // MCPToolProvider) via leur surface publique, sans les réécrire.
+        .target(
+            name: "JarvisTools",
+            dependencies: ["JarvisKit", "JarvisAgent", "JarvisServices"],
+            path: "Sources/JarvisTools",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        // Grille du garde-fou ADR (70 %) : rejoue evals/*.yaml sur le NOUVEAU
+        // moteur + JarvisTools et rend le verdict chiffré.
+        .executableTarget(
+            name: "AgentEval",
+            dependencies: ["JarvisEvalKit", "JarvisKit", "JarvisAgent", "JarvisTools", "JarvisProviders"],
+            path: "Sources/AgentEval",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         // Phase 0 — harnais d'évaluation agent (v1.0). Kit testable (pur + I/O
         // injectable) + CLI fine. Aucune IP/host en dur : tout vient des
         // réglages / variables d'environnement / argv.
@@ -113,6 +130,11 @@ let package = Package(
             name: "JarvisProvidersTests",
             dependencies: ["JarvisProviders", "JarvisAgent", "JarvisKit"],
             path: "Tests/JarvisProvidersTests"
+        ),
+        .testTarget(
+            name: "JarvisToolsTests",
+            dependencies: ["JarvisTools", "JarvisAgent", "JarvisKit", "JarvisEvalKit"],
+            path: "Tests/JarvisToolsTests"
         ),
     ],
     // La migration Swift 6 exige d'abord un conteneur Sendable pour les arguments

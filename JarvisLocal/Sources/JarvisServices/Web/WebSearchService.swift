@@ -16,9 +16,9 @@ import SwiftSoup
 /// sur `getaddrinfo` (pas de résolveur public dans Network.framework).
 /// NOTE : fonctions pures `static`, testables sans réseau (sauf resolve, testée en
 /// intégration sur localhost qui doit être bloquée).
-enum URLSafety {
+public enum URLSafety {
     /// true si l'URL doit être REFUSÉE.
-    nonisolated static func isBlocked(_ url: URL) -> Bool {
+    nonisolated public static func isBlocked(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return true }
         guard let host = url.host?.lowercased(), !host.isEmpty else { return true }
         if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local")
@@ -138,15 +138,15 @@ struct WebSearchResult: Sendable, Equatable {
 /// Pourquoi un actor isolé : l'ancien searchWeb vivait dans le monolithe
 /// ToolService, intestable sans réseau ni EventKit. Ici tout le parsing est
 /// en fonctions pures `static` testables sans actor ni réseau.
-actor WebSearchService {
-    static let shared = WebSearchService()
+public actor WebSearchService {
+    public static let shared = WebSearchService()
 
     private let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
     /// Point d'entrée unique appelé par ToolService / WebTools.
     /// Ne throw jamais sur panne réseau : retourne un texte explicite pour
     /// que le modèle réponde avec ses connaissances au lieu de planter le tour.
-    func search(query: String) async -> String {
+    public func search(query: String) async -> String {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return "Requête vide : précise ce que tu veux chercher." }
 

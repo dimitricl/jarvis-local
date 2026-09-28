@@ -19,19 +19,24 @@ public actor AgentLoop {
         public var maxIdenticalRepeats: Int
         /// Messages récents gardés tels quels à la compaction.
         public var keepRecentMessages: Int
+        /// Expose les outils étendus directement (harnais d'eval : mesure la
+        /// capacité, pas la découverte via `tool_search`).
+        public var exposeExtendedTools: Bool
 
         public init(
             maxTurns: Int = 30,
             timeoutSeconds: Double? = 600,
             resultTruncationBytes: Int = 4000,
             maxIdenticalRepeats: Int = 3,
-            keepRecentMessages: Int = 6
+            keepRecentMessages: Int = 6,
+            exposeExtendedTools: Bool = false
         ) {
             self.maxTurns = maxTurns
             self.timeoutSeconds = timeoutSeconds
             self.resultTruncationBytes = resultTruncationBytes
             self.maxIdenticalRepeats = maxIdenticalRepeats
             self.keepRecentMessages = keepRecentMessages
+            self.exposeExtendedTools = exposeExtendedTools
         }
     }
 
@@ -174,7 +179,7 @@ public actor AgentLoop {
             try Task.checkCancellation()
             if let deadline, Date() > deadline { throw TimeoutError.timedOut }
             turns += 1
-            let schemas = registry.coreSpecs()
+            let schemas = registry.coreSpecs(exposeExtended: config.exposeExtendedTools)
 
             // Compaction par résumé quand > 75 % du contexte RÉEL.
             let realLength = await realContextLength()

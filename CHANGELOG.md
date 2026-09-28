@@ -192,6 +192,11 @@
   compaction par résumé à 75 % du contexte réel, `todo`, prompt < 40 lignes),
   `JarvisProviders` (Ollama `/v1` streamé — `/api/chat` streamé rend vide
   sur gemma4, constaté en live). Fumée live verte (8 s, vrai serveur).
+- Phase 2 (outils) : `JarvisTools` (fichiers/bac, bash confiné double
+  barrière, web réutilisé + mocks, macOS via runners injectés, remember +
+  skills Markdown, adaptateur MCP citoyen de première classe,
+  `permissions.json`, audit JSONL) + 10 skills + grille `AgentEval`
+  (garde-fou ADR 70 %, en cours).
 
 - Refonte visuelle native : accent teal adaptatif clair/sombre, réponses assistant
   en layout log (icône CPU, liseré vertical, timestamp mono toujours visible) et

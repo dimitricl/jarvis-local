@@ -138,7 +138,7 @@ public actor MCPToolProvider {
     /// Au moins un serveur a terminé son handshake + tools/list.
     /// `internal` : exposé à ToolService (même module) pour le Health Check,
     /// jamais au modèle ni à l'UI directement.
-    func isOnline() -> Bool { !online.isEmpty }
+    public func isOnline() -> Bool { !online.isEmpty }
 
     func handles(tool name: String) -> Bool { remoteTools[name] != nil }
 
@@ -161,8 +161,25 @@ public actor MCPToolProvider {
     /// `internal` pour les tests — le chemin réel reste connectAll().
     func registerForTests(_ tool: MCPRemoteTool) { remoteTools[tool.name] = tool }
 
-    func toolDefs() -> [ToolDef] {
+    /// Liste publique pour l'adaptateur d'outils (JarvisTools).
+    public func toolDefs() -> [ToolDef] {
         remoteTools.values.map { $0.asToolDef() }.sorted { $0.function.name < $1.function.name }
+    }
+
+    /// Pont Sendable vers les nouveaux modules (Swift 6) : `[String: Any]`
+    /// ne traverse pas les frontières d'isolation, le JSON si.
+    /// Le décodage a lieu ici, en mode langage v5.
+    public func callJSON(tool name: String, argsJSON: String) async throws -> String {
+        let args: [String: Any]
+        if argsJSON.isEmpty {
+            args = [:]
+        } else if let data = argsJSON.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            args = obj
+        } else {
+            throw MCPError.remote("arguments JSON illisibles pour \(name)")
+        }
+        return try await call(tool: name, args: args)
     }
 
     func call(tool name: String, args: [String: Any]) async throws -> String {

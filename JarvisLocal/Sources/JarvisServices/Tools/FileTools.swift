@@ -11,14 +11,14 @@ import Foundation
 /// - Lecture plafonnée à maxFileBytes (même pattern que WebTools.maxPageBytes,
 ///   via FileHandle borné — jamais de Data(contentsOf:) sur un fichier arbitraire).
 /// - Fichier non décodable en UTF-8 = refus explicite (pas de mojibake au LLM).
-actor FileTools {
+public actor FileTools {
     /// Plafond de lecture : même pattern que WebTools.maxPageBytes.
     /// NOTE : `internal`/`static` pour les tests.
-    nonisolated static let maxFileBytes = 200_000
+    nonisolated public static let maxFileBytes = 200_000
 
     /// Racines autorisées, résolues (symlinks) une fois pour comparer avec
     /// des chemins eux-mêmes résolus. `internal` pour les tests.
-    nonisolated static func allowedRoots(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
+    nonisolated public static func allowedRoots(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [URL] {
         ["Documents", "Desktop", "Downloads"].map { home.appendingPathComponent($0).resolvingSymlinksInPath().standardized }
     }
 
@@ -26,7 +26,7 @@ actor FileTools {
     /// résolus, ".." normalisés. Retourne nil si le chemin n'existe pas
     /// (fail-closed : on ne devine jamais, même pour lister).
     /// NOTE : `internal`/`static` pour les tests.
-    nonisolated static func canonical(_ rawPath: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
+    nonisolated public static func canonical(_ rawPath: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL? {
         let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let expanded = NSString(string: trimmed).expandingTildeInPath
@@ -44,7 +44,7 @@ actor FileTools {
 
     /// Garde fail-closed, miroir de URLSafety.isBlocked : true = REFUSÉ.
     /// NOTE : `internal`/`static` pour les tests.
-    nonisolated static func isBlocked(_ canonical: URL, roots: [URL]) -> Bool {
+    nonisolated public static func isBlocked(_ canonical: URL, roots: [URL]) -> Bool {
         let path = canonical.path
         return !roots.contains { root in
             path == root.path || path.hasPrefix(root.path + "/")

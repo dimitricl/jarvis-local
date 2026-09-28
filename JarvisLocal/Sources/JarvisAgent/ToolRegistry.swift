@@ -81,23 +81,55 @@ public struct ToolRegistry: Sendable {
     }
 
     /// Schémas du noyau (+ `tool_search` si des outils étendus existent).
-    public func coreSpecs() -> [ToolSpec] {
+    /// `exposeExtended = true` (harnais d'eval) expose tout directement pour
+    /// mesurer la capacité, pas la découverte.
+    public func coreSpecs(exposeExtended: Bool = false) -> [ToolSpec] {
+        if exposeExtended { return allSpecs() }
         var specs = definitions.values.filter { $0.isCore }.map { $0.spec }
         if definitions.values.contains(where: { !$0.isCore }) {
-            specs.append(ToolSpec(
-                name: "tool_search",
-                description: "Recherche un outil étendu par mot-clé et expose son schéma.",
-                parameters: .object([
-                    "type": .string("object"),
-                    "properties": .object(["query": .object([
-                        "type": .string("string"),
-                        "description": .string("mot-clé"),
-                    ])]),
-                    "required": .array([.string("query")]),
-                ])
-            ))
+            specs.append(toolSearchSpec)
         }
         return specs.sorted { $0.name < $1.name }
+    }
+
+    /// Tous les schémas, noyau + étendus.
+    public func allSpecs() -> [ToolSpec] {
+        definitions.values.map { $0.spec }.sorted { $0.name < $1.name }
+    }
+
+    private var toolSearchSpec: ToolSpec {
+        ToolSpec(
+            name: "tool_search",
+            description: "Recherche un outil étendu par mot-clé et expose son schéma.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object(["query": .object([
+                    "type": .string("string"),
+                    "description": .string("mot-clé"),
+                ])]),
+                "required": .array([.string("query")]),
+            ])
+        )
+    }
+
+    /// Définition exécutable de `tool_search` (le registre se cherche
+    /// lui-même). À enregistrer quand des outils étendus existent.
+    public func toolSearchDefinition() -> ToolDefinition? {
+        guard definitions.values.contains(where: { !$0.isCore }) else { return nil }
+        return ToolDefinition(
+            name: "tool_search",
+            description: "Recherche un outil étendu par mot-clé et expose son schéma.",
+            parameters: toolSearchSpec.parameters
+        ) { args, _ in
+            let query = args["query"].string ?? ""
+            let found = self.search(query: query)
+            if found.isEmpty {
+                return .failure(code: "not_found", message: "Aucun outil pour « \(query) ».",
+                                hint: "Essaie un autre mot-clé ou décris le besoin.")
+            }
+            let text = found.map { "- \($0.name) : \($0.description)" }.joined(separator: "\n")
+            return .success(JSONValue(text))
+        }
     }
 
     /// Recherche textuelle simple (nom + description) pour `tool_search`.

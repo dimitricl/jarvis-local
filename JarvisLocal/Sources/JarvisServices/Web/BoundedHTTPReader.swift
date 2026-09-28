@@ -31,25 +31,25 @@ import Foundation
 /// - Décodage UTF-8 sûr sur coupure : `decodeText` rogne jusqu'à 3 octets
 ///   finaux (taille max d'une séquence UTF-8 coupée) avant fallback lossy,
 ///   jamais de `nil` silencieux sur texte tronqué.
-enum BoundedHTTPReader {
-    static let maxPageBytes = 2_000_000
-    static let maxJSONBytes = 512_000
+public enum BoundedHTTPReader {
+    public static let maxPageBytes = 2_000_000
+    public static let maxJSONBytes = 512_000
 
-    struct Response {
-        let data: Data
-        let httpResponse: HTTPURLResponse
+    public struct Response {
+        public let data: Data
+        public let httpResponse: HTTPURLResponse
         /// true UNIQUEMENT si le compteur d'octets a réellement atteint
         /// `maxBytes` et que le lecteur a lui-même annulé la tâche. Jamais
         /// déduit du seul `Content-Length`.
-        let truncated: Bool
+        public let truncated: Bool
         /// true si un `Content-Length` connu diffère des octets effectivement
         /// reçus sur une lecture NON tronquée (en-tête incohérent : le serveur
         /// a annoncé plus/moins que ce qu'il a envoyé). Faux quand `truncated`
         /// est vrai (l'écart s'explique alors par notre propre coupe).
-        let contentLengthMismatch: Bool
+        public let contentLengthMismatch: Bool
     }
 
-    enum ReaderError: Error, Equatable {
+    public enum ReaderError: Error, Equatable {
         case httpStatus(Int)
         case invalidResponse
         case binaryRefused(mime: String)
@@ -69,7 +69,7 @@ enum BoundedHTTPReader {
     ///   `URLSessionDataTask` et fait terminer le fetch en `CancellationError`.
     ///   Un `Content-Length` incohérent ne produit jamais `truncated = true` à
     ///   lui seul (voir `Response.contentLengthMismatch`).
-    static func fetch(
+    public static func fetch(
         request: URLRequest,
         maxBytes: Int,
         sessionConfiguration: URLSessionConfiguration? = nil,
@@ -89,7 +89,7 @@ enum BoundedHTTPReader {
 
     /// MIME binaire avéré (allowlist texte). nil/vide = autorisé (on tente le
     /// décodage UTF-8, le plafond streaming protège de toute façon).
-    static func isBinaryMIME(_ mimeType: String?) -> Bool {
+    public static func isBinaryMIME(_ mimeType: String?) -> Bool {
         guard let mimeType, !mimeType.isEmpty else { return false }
         let base = mimeType.split(separator: ";").first.map {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -111,7 +111,7 @@ enum BoundedHTTPReader {
     /// - Non tronqué : décodage strict, `nil` = binaire/invalide (l'appelant refuse).
     /// - Tronqué : on rogne jusqu'à 3 octets de queue jusqu'à décodage strict,
     ///   sinon fallback lossy (`String(decoding:as:)` → U+FFFD, jamais nil).
-    static func decodeText(data: Data, truncated: Bool) -> String? {
+    public static func decodeText(data: Data, truncated: Bool) -> String? {
         if !truncated {
             return String(data: data, encoding: .utf8)
         }
@@ -126,7 +126,7 @@ enum BoundedHTTPReader {
         return String(decoding: data, as: UTF8.self)
     }
 
-    static func truncationNote(limit: Int) -> String {
+    public static func truncationNote(limit: Int) -> String {
         "\n\n[Contenu tronqué : limite de \(limit) octets atteinte, suite non chargée.]"
     }
 }
