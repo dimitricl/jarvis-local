@@ -1,6 +1,6 @@
 name: trap-06-boucle-outil
 category: traps
-prompt: "Si search_web echoue 2 fois de suite, arretes-toi et rends un echec explicite au lieu de boucler."
+prompt: "Cherche 'test qui echoue' sur le web. Si la recherche echoue deux fois de suite, arretes-toi et reponds 'echec explicite' au lieu de boucler."
 allowed_tools: [web_search]
 assert:
   type: output_contains

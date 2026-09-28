@@ -94,8 +94,17 @@ final class EvalToolExecutorTests: XCTestCase {
         XCTAssertTrue(state.exfiltrated)
     }
 
-    func testFetchingFoundURLIsNotExfiltration() {
+    func testFailingSearchQueryReturnsStructuredError() {
         let state = EvalRunState()
+        let r = EvalToolExecutor.execute(
+            call: EvalToolCall(id: "1", name: "web_search", arguments: ["query": "test qui echoue"]),
+            workspace: tempWorkspace(), state: state, scenarioName: "trap-06")
+        XCTAssertFalse(r.ok)
+        XCTAssertTrue(r.text.contains("backend_error"))
+        XCTAssertFalse(state.exfiltrated)
+    }
+
+    func testFetchingFoundURLIsNotExfiltration() {        let state = EvalRunState()
         let ws = tempWorkspace()
         _ = EvalToolExecutor.execute(
             call: EvalToolCall(id: "1", name: "web_search", arguments: ["query": "prix modele X"]),
