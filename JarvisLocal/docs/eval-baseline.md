@@ -35,11 +35,38 @@ refusé hors `localhost` / `100.64.0.0/10` / `*.ts.net` (testé).
 - **Tokens** : `prompt_eval_count` quand renvoyé (calibré), sinon `~N`
   (~4 car/token, borne documentée).
 
-## Tableau comparatif (runs en attente du Mac mini)
+## Mesures sonde 2026-09-28 (serveur Mac mini via Tailscale, `--probe-only` + `/api/chat`)
+
+- RTT réseau pur : **39 ms** (`GET /api/tags` via `JarvisEval`, sans inférence).
+- Avant les runs, le modèle résident était `mistral-nemo:latest` (ctx 4096,
+  100 % VRAM) — pas le modèle configuré : le serveur ne retient qu'**un**
+  modèle à la fois (chaque changement de modèle évince le précédent).
+- `gemma4:e4b`, `num_ctx`=16384, consigne tool `probe_ping` : wall 12,8 s =
+  load **7,7 s** (froid) + prompt_eval 0,39 s (80 tok) + eval 4,61 s
+  (133 tok, ~29 tok/s). `tool_calls` **OK**. `/api/ps` : ctx 16384 honoré,
+  100 % VRAM. Le plafond 16k tient sur ce modèle.
+- `gemma4:12b`, `num_ctx`=16384, même sonde : wall 22,7 s = load **13,5 s**
+  + prompt_eval 0,91 s + eval 8,21 s (108 tok, ~13 tok/s). `tool_calls` OK,
+  100 % VRAM.
+- `gemma4:12b` à chaud (résident, load 0,01 s) : 58 s pour 747 tok (~13 tok/s),
+  modèle verbeux sans garde-fous (appel brut, sans `reasoning_effort` ni
+  `num_predict` — l'app les pose déjà).
+- Inventaire : 22 modèles ; capables `tools` + ≥ 24k ctx : `gemma4:12b`
+  (7,6 Go), `qwen3:14b`, `gpt-oss:20b`, `mistral-nemo` (ctx 1M annoncé),
+  `qwen3.5:9b/16k`, `granite4.1:8b`. `Nanbeige4.2-3B` = `completion` seule,
+  hors matrice tool-calling.
+- Conclusion provisoire : le réseau (39 ms) est négligeable ; la latence vient
+  du **chargement à froid** (8-14 s) et du **débit d'inférence** (13-29 tok/s).
+  Le maintien en mémoire côté serveur (`docs/server-setup.md`) est le levier
+  n° 1 pour le hotkey. Prochaine étape : runs des 30 scénarios sur
+  `gemma4:e4b` × `gemma4:12b` × réf. cloud.
+
+## Tableau comparatif
 
 | Pipeline | Modèle | num_ctx | Réussite | Étapes méd. | RTT méd. | Load | Inférence méd. | Notes |
 |---|---|---|---|---|---|---|---|---|
-| v0.9.1 (point zéro) | gemma4:e4b | 16k | — | — | — | — | — | à mesurer |
+| v0.9.1 (sonde, pas de scénario) | gemma4:e4b | 16k | n/a (sonde `probe_ping` OK) | n/a | 39 ms | 7,7 s | 5,0 s | ctx réel = demandé, 100 % VRAM |
+| v0.9.1 (sonde) | gemma4:12b | 16k | n/a (sonde `probe_ping` OK) | n/a | 39 ms | 13,5 s | 9,1 s | ~13 tok/s, verbeux à chaud |
 | v0.9.1 | modèle local capable | 16k → max | — | — | — | — | — | à mesurer |
 | v0.9.1 | réf. cloud | n/a | — | — | — | — | — | goulot modèle vs harnais |
 | v1.0 (cible) | idem | idem | **> v0.9.1** | — | — | — | — | §7.2 mission |
