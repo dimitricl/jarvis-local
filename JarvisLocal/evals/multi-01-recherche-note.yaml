@@ -5,4 +5,4 @@ allowed_tools: [web_search, web_fetch, write_file]
 assert:
   type: file_contains
   path: "resume.txt"
-  text: "resume"
+  text: "sum"

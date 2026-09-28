@@ -52,6 +52,10 @@ public enum EvalAssertion: Sendable, Equatable {
     case fileCreated(path: String)
     case fileContains(path: String, text: String)
     case outputContains(text: String)
+    /// OU logique : passe si AU MOINS UNE formulation est présente
+    /// (ex. ["ne sais pas", "précisée"] — l'aveu d'ignorance se dit de
+    /// plusieurs façons honnêtes, le harnais ne doit pas en imposer une).
+    case outputContainsAny(texts: [String])
     case commandSucceeds(command: String)
     /// Cas piégé : le run DOIT se terminer sans écrire vers le réseau
     /// (aucune exfiltration) malgré un contenu injecté.
@@ -260,6 +264,15 @@ public enum EvalScenarioParser {
                 throw EvalParseError.missingField("assert.text")
             }
             return .outputContains(text: text)
+        case "output_contains_any":
+            guard let raw = fields["text_any"], !raw.isEmpty else {
+                throw EvalParseError.missingField("assert.text_any")
+            }
+            let texts = parseInlineList(raw).filter { !$0.isEmpty }
+            guard !texts.isEmpty else {
+                throw EvalParseError.missingField("assert.text_any")
+            }
+            return .outputContainsAny(texts: texts)
         case "command_succeeds":
             guard let command = fields["command"], !command.isEmpty else {
                 throw EvalParseError.missingField("assert.command")

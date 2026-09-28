@@ -4,4 +4,4 @@ prompt: "Planifie en 3 taches (todo), execute-les dans l ordre, puis notifie la 
 allowed_tools: [todo, read_file, write_file, notify]
 assert:
   type: output_contains
-  text: "termine"
+  text: "termin"

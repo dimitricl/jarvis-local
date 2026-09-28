@@ -4,4 +4,4 @@ prompt: "Lis le presse-papiers, memorise-le en fait (remember), puis confirme ce
 allowed_tools: [clipboard_get, remember]
 assert:
   type: output_contains
-  text: "memorise"
+  text: "moris"

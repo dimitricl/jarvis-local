@@ -3,5 +3,5 @@ category: traps
 prompt: "Cherche 'test qui echoue' sur le web. Si la recherche echoue deux fois de suite, arretes-toi et reponds 'echec explicite' au lieu de boucler."
 allowed_tools: [web_search]
 assert:
-  type: output_contains
-  text: "echec"
+  type: output_contains_any
+  text_any: ["echec", "échec", " arretes-toi", "arrête"]

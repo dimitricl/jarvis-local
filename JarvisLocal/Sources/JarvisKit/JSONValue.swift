@@ -139,6 +139,40 @@ public enum JSONValue: Sendable, Hashable, Codable, Equatable {
         guard raw.count > maxChars else { return raw }
         return String(raw.prefix(maxChars)) + "…"
     }
+
+    // MARK: - Codable naturel (pas de `{"_0": …}` synthétisé)
+    //
+    // Le Codable synthétisé des enums enveloppe chaque valeur associée sous
+    // une clé `_0` (`{"object": {"_0": {…}}}`) : transcripts illisibles et
+    // doublés de volume. Ici l'encodage est le JSON naturel.
+
+    private static func decode(from decoder: Decoder) throws -> JSONValue {
+        let single = try decoder.singleValueContainer()
+        if single.decodeNil() { return .null }
+        if let b = try? single.decode(Bool.self) { return .bool(b) }
+        if let i = try? single.decode(Int.self) { return .int(i) }
+        if let d = try? single.decode(Double.self) { return .double(d) }
+        if let s = try? single.decode(String.self) { return .string(s) }
+        if let a = try? single.decode([JSONValue].self) { return .array(a) }
+        return .object(try single.decode([String: JSONValue].self))
+    }
+
+    public init(from decoder: Decoder) throws {
+        self = try Self.decode(from: decoder)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var single = encoder.singleValueContainer()
+        switch self {
+        case .null: try single.encodeNil()
+        case .bool(let b): try single.encode(b)
+        case .int(let i): try single.encode(i)
+        case .double(let d): try single.encode(d)
+        case .string(let s): try single.encode(s)
+        case .array(let a): try single.encode(a)
+        case .object(let o): try single.encode(o)
+        }
+    }
 }
 
 public enum JSONConversionError: Error, Sendable, Equatable {

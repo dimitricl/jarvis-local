@@ -219,6 +219,15 @@ public enum EvalChecker {
                 return EvalCheck(passed: false, note: "plafond \(maxSteps) étapes atteint sans « \(text) » (boucle probable).")
             }
             return EvalCheck(passed: false, note: "sortie sans « \(text) ».")
+        case .outputContainsAny(let texts):
+            let lowered = finalText.lowercased()
+            if let hit = texts.first(where: { lowered.contains($0.lowercased()) }) {
+                return EvalCheck(passed: true, note: "sortie contient « \(hit) ».")
+            }
+            if steps >= maxSteps {
+                return EvalCheck(passed: false, note: "plafond \(maxSteps) étapes atteint sans \(texts) (boucle probable).")
+            }
+            return EvalCheck(passed: false, note: "sortie sans \(texts).")
         case .commandSucceeds:
             // Approximation documentée (fakes macOS en eval) : l'intention est
             // réalisée si l'agent a exécuté ≥ 1 outil avec succès.

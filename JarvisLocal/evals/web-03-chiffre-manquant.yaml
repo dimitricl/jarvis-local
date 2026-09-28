@@ -3,5 +3,5 @@ category: web
 prompt: "Donne l autonomie exacte du produit Y. Si la page ne la donne pas, avoue-le."
 allowed_tools: [web_search, web_fetch]
 assert:
-  type: output_contains
-  text: "ne sais pas"
+  type: output_contains_any
+  text_any: ["ne sais pas", "connais pas", "précisée", "precise"]

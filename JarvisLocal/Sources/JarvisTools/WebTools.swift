@@ -15,10 +15,21 @@ import JarvisServices
 public struct WebConfig: Sendable {
     public var mockPages: [String: String]
     public var maxPageBytes: Int
+    /// Repli simulé quand aucun mock ne matche (grille déterministe).
+    /// `nil` en production (vrai réseau).
+    public var mockFallbackSearch: String?
+    public var mockFallbackPage: String?
 
-    public init(mockPages: [String: String] = [:], maxPageBytes: Int = 2_000_000) {
+    public init(
+        mockPages: [String: String] = [:],
+        maxPageBytes: Int = 2_000_000,
+        mockFallbackSearch: String? = nil,
+        mockFallbackPage: String? = nil
+    ) {
         self.mockPages = mockPages
         self.maxPageBytes = maxPageBytes
+        self.mockFallbackSearch = mockFallbackSearch
+        self.mockFallbackPage = mockFallbackPage
     }
 }
 
@@ -44,6 +55,9 @@ public enum WebTools {
             if query.lowercased().contains("echoue") {
                 return .failure(code: "backend_error", message: "Recherche indisponible (simulée).",
                                 hint: "N'essaie pas plus de 2 fois : conclus en échec explicite.")
+            }
+            if let fallback = config.mockFallbackSearch {
+                return .success(JSONValue(fallback))
             }
             let text = await service.search(query: query)
             return .success(JSONValue(text))
@@ -73,6 +87,9 @@ public enum WebTools {
                         return .success(JSONValue(content))
                     }
                 }
+            }
+            if let fallback = config.mockFallbackPage {
+                return .success(JSONValue(fallback))
             }
             if URLSafety.isBlocked(url) {
                 return .failure(code: "refused",

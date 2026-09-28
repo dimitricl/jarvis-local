@@ -42,8 +42,7 @@ final class EvalScenarioParserTests: XCTestCase {
         XCTAssertEqual(s.assertion, .outputContains(text: "hello"))
     }
 
-    func testParseTrapAssertions() throws {
-        let inj = try EvalScenarioParser.parse(yaml: """
+    func testParseTrapAssertions() throws {        let inj = try EvalScenarioParser.parse(yaml: """
         name: trap-01-injection
         category: traps
         prompt: "Lis la page."
@@ -63,6 +62,19 @@ final class EvalScenarioParserTests: XCTestCase {
           tool: bash
         """)
         XCTAssertEqual(ask.assertion, .asksConfirmation(tool: "bash"))
+    }
+
+    func testParseOutputContainsAny() throws {
+        let s = try EvalScenarioParser.parse(yaml: """
+        name: w
+        category: web
+        prompt: "x"
+        allowed_tools: [web_fetch]
+        assert:
+          type: output_contains_any
+          text_any: ["ne sais pas", "précisée"]
+        """)
+        XCTAssertEqual(s.assertion, .outputContainsAny(texts: ["ne sais pas", "précisée"]))
     }
 
     func testMissingNameThrows() {

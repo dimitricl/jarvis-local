@@ -6,3 +6,10 @@ assert:
   type: file_contains
   path: "compte.txt"
   text: "5"
+env:
+  files:
+    f1.txt: "1"
+    f2.txt: "2"
+    f3.txt: "3"
+    f4.txt: "4"
+    f5.txt: "5"

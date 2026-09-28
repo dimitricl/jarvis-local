@@ -27,6 +27,8 @@ private struct GateArgs {
     var numCtx = 16384
     var evalsDir = "evals"
     var skillsDir = "skills"
+    var transcriptDir: String?
+    var coreOnly = false
 }
 
 private func parseArgs(_ args: [String]) -> GateArgs {
@@ -44,6 +46,8 @@ private func parseArgs(_ args: [String]) -> GateArgs {
         else if a == "--num-ctx", let v = next(), let n = Int(v) { out.numCtx = n }
         else if a == "--evals-dir", let v = next() { out.evalsDir = v }
         else if a == "--skills-dir", let v = next() { out.skillsDir = v }
+        else if a == "--transcript-dir", let v = next() { out.transcriptDir = v }
+        else if a == "--core-only" { out.coreOnly = true }
         i += 1
     }
     return out
@@ -212,6 +216,13 @@ private func runGate() async -> Int32 {
         "mock.local/x": EvalWebFixtures.searchResults,
         "mock.local/y": EvalWebFixtures.searchResults,
     ]
+    // Grille déterministe (comparable au 63 % phase-0) : tout le web est
+    // simulé avec les mêmes fixtures. Le vrai réseau est couvert par les
+    // tests unitaires (garde SSRF, bornes) et un usage réel.
+    let webConfig = WebConfig(
+        mockPages: mockPages,
+        mockFallbackSearch: EvalWebFixtures.searchResults,
+        mockFallbackPage: EvalWebFixtures.article)
     let provider: OllamaProvider
     do {
         provider = try OllamaProvider(config: OllamaConfig(
@@ -236,7 +247,7 @@ private func runGate() async -> Int32 {
         let todos = TodoStore()
         let baseSet = ToolSet.build(config: ToolSetConfig(
             workspace: WorkspaceConfig(root: workspace),
-            web: WebConfig(mockPages: mockPages),
+            web: webConfig,
             mac: MacConfig.fakes(),
             skillsDirectory: URL(fileURLWithPath: args.skillsDir),
             todoStore: todos))
@@ -250,24 +261,30 @@ private func runGate() async -> Int32 {
             llm: provider,
             registry: registry,
             realContextLength: { ctxActual },
+            transcripts: args.transcriptDir.map { FileTranscriptStore(directory: URL(fileURLWithPath: $0)) },
             todos: todos,
             config: AgentLoop.Config(
-                maxTurns: 10, timeoutSeconds: 600, exposeExtendedTools: true),
+                maxTurns: 10, timeoutSeconds: 600, exposeExtendedTools: !args.coreOnly),
             confirm: { call, _ in
                 tracer.recordAsked(call.name)
-                // Parité harnais phase-0 : le bac autorise écritures et shell
-                // sûr (double barrière moteur + outil), applescript simulé et
-                // presse-papiers ; le reste refuse (fail-closed).
+                // Parité harnais phase-0 : lectures (bac, web) et shell sûr
+                // autorisés (double barrière moteur + outil), applescript
+                // simulé et presse-papiers ; le reste refuse (fail-closed).
+                // Les lectures web restent taintées : taint tracking actif.
                 switch call.name {
-                case "write_file", "edit_file", "bash", "applescript", "clipboard_set":
+                case "write_file", "edit_file", "bash", "web_search", "web_fetch", "notify",
+                     "applescript", "clipboard_set":
                     return true
                 default:
                     return false
                 }
             })
-        let stream = await loop.run(prompt: scenario.prompt)
-        for await event in stream {
-            switch event {
+        let tid = UUID()
+        let stream = await loop.run(prompt: scenario.prompt, resumeFrom: tid)
+        if args.transcriptDir != nil {
+            err("  transcript \(tid.uuidString)\n")
+        }
+        for await event in stream {            switch event {
             case .permissionRequested(_, let name, _, _):
                 tracer.recordAsked(name)
             case .done(let text, let turns, _):

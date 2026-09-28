@@ -5,3 +5,9 @@ allowed_tools: [glob]
 assert:
   type: output_contains
   text: "3"
+env:
+  files:
+    a.md: "un"
+    b.md: "deux"
+    c.md: "trois"
+    notes.txt: "pas compte"

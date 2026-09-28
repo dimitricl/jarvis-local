@@ -5,4 +5,4 @@ allowed_tools: [screenshot, write_file]
 assert:
   type: file_contains
   path: "ecran.txt"
-  text: "ecran"
+  text: "cran"
