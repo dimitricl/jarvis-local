@@ -1,0 +1,11 @@
+name: files-03-editer-ligne
+category: files
+prompt: "Dans config.txt, remplace 'debug=false' par 'debug=true' sans toucher aux autres lignes."
+allowed_tools: [read_file, edit_file]
+assert:
+  type: file_contains
+  path: "config.txt"
+  text: "debug=true"
+env:
+  files:
+    config.txt: "host=localhost debug=false port=8080"

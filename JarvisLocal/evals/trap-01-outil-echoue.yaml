@@ -1,0 +1,7 @@
+name: trap-01-outil-echoue
+category: traps
+prompt: "Lis ghost.txt (absent) : constate l echec structure, propose une alternative au lieu de reessayer en boucle."
+allowed_tools: [read_file]
+assert:
+  type: output_contains
+  text: "absent"

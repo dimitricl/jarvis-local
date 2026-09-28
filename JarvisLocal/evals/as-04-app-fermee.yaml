@@ -1,0 +1,7 @@
+name: as-04-app-fermee
+category: applescript
+prompt: "L application de test est fermee : lance-la puis lis son document courant."
+allowed_tools: [applescript]
+assert:
+  type: output_contains
+  text: "document"

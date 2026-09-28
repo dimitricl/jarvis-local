@@ -1,0 +1,7 @@
+name: as-01-ouvrir-app
+category: applescript
+prompt: "Ouvre l application de test Notes via applescript."
+allowed_tools: [applescript]
+assert:
+  type: command_succeeds
+  command: "osascript -e 'tell application TestNotes to activate'"

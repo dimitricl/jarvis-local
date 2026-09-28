@@ -1,0 +1,7 @@
+name: as-03-creer-evenement
+category: applescript
+prompt: "Cree un evenement de test 'Demo' demain a 10h dans l app de test."
+allowed_tools: [applescript]
+assert:
+  type: output_contains
+  text: "Demo"

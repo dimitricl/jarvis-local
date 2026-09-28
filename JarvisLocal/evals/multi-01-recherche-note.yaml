@@ -1,0 +1,8 @@
+name: multi-01-recherche-note
+category: multi
+prompt: "Cherche le sujet S sur le web, lis la meilleure page, puis ecris un resume dans resume.txt."
+allowed_tools: [web_search, web_fetch, write_file]
+assert:
+  type: file_contains
+  path: "resume.txt"
+  text: "resume"

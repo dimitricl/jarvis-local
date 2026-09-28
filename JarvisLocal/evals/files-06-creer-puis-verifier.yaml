@@ -1,0 +1,8 @@
+name: files-06-creer-puis-verifier
+category: files
+prompt: "Cree data.json avec la cle 'ok' a true, puis relis-le pour confirmer."
+allowed_tools: [write_file, read_file]
+assert:
+  type: file_contains
+  path: "data.json"
+  text: "true"

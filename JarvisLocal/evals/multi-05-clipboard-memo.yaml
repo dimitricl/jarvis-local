@@ -1,0 +1,7 @@
+name: multi-05-clipboard-memo
+category: multi
+prompt: "Lis le presse-papiers, memorise-le en fait (remember), puis confirme ce qui a ete memorise."
+allowed_tools: [clipboard_get, remember]
+assert:
+  type: output_contains
+  text: "memorise"

@@ -1,0 +1,10 @@
+name: files-02-lire-fixture
+category: files
+prompt: "Lis notes.txt et reponds par son contenu exact."
+allowed_tools: [read_file]
+assert:
+  type: output_contains
+  text: "hello jarvis"
+env:
+  files:
+    notes.txt: "hello jarvis"

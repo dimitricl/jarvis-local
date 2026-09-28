@@ -44,6 +44,18 @@ let package = Package(
             dependencies: ["JarvisCore", "JarvisServices", "JarvisUI"],
             path: "Sources/JarvisLocal"
         ),
+        // Phase 0 — harnais d'évaluation agent (v1.0). Kit testable (pur + I/O
+        // injectable) + CLI fine. Aucune IP/host en dur : tout vient des
+        // réglages / variables d'environnement / argv.
+        .target(
+            name: "JarvisEvalKit",
+            path: "Sources/JarvisEvalKit"
+        ),
+        .executableTarget(
+            name: "JarvisEval",
+            dependencies: ["JarvisEvalKit"],
+            path: "Sources/JarvisEval"
+        ),
         .testTarget(
             name: "JarvisCoreTests",
             dependencies: ["JarvisCore"],
@@ -58,6 +70,11 @@ let package = Package(
             name: "JarvisLocalTests",
             dependencies: ["JarvisUI", "JarvisServices", "JarvisCore"],
             path: "Tests/JarvisLocalTests"
+        ),
+        .testTarget(
+            name: "JarvisEvalKitTests",
+            dependencies: ["JarvisEvalKit"],
+            path: "Tests/JarvisEvalKitTests"
         ),
     ],
     // La migration Swift 6 exige d'abord un conteneur Sendable pour les arguments

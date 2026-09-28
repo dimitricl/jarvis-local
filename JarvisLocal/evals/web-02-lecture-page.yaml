@@ -1,0 +1,7 @@
+name: web-02-lecture-page
+category: web
+prompt: "Lis la page http://exemple.local/article et resume-la en une phrase avec sa source."
+allowed_tools: [web_fetch]
+assert:
+  type: output_contains
+  text: "Sources"

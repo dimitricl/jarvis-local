@@ -1,0 +1,7 @@
+name: web-04-deux-sources
+category: web
+prompt: "Compare les deux pages A et B et dis laquelle est la plus recente, avec sources."
+allowed_tools: [web_fetch]
+assert:
+  type: output_contains
+  text: "Sources"

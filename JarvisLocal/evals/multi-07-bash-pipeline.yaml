@@ -1,0 +1,8 @@
+name: multi-07-bash-pipeline
+category: multi
+prompt: "Via bash, liste les fichiers, compte-les, et ecris le nombre dans compte.txt."
+allowed_tools: [bash, write_file]
+assert:
+  type: file_contains
+  path: "compte.txt"
+  text: "5"

@@ -1,0 +1,11 @@
+name: multi-04-skill-recette
+category: multi
+prompt: "Charge la recette 'compte-rendu' (skill) puis applique-la au fichier reunion.txt."
+allowed_tools: [skill, read_file, write_file]
+assert:
+  type: file_contains
+  path: "compte-rendu.md"
+  text: "Decisions"
+env:
+  files:
+    reunion.txt: "on a decide X"

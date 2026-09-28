@@ -1,0 +1,8 @@
+name: multi-06-capture-analyse
+category: multi
+prompt: "Fais une capture d ecran, decris-la en une phrase, ecris la description dans ecran.txt."
+allowed_tools: [screenshot, write_file]
+assert:
+  type: file_contains
+  path: "ecran.txt"
+  text: "ecran"

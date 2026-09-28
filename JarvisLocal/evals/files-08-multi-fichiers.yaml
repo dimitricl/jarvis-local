@@ -1,0 +1,12 @@
+name: files-08-multi-fichiers
+category: files
+prompt: "Concatene a.txt et b.txt dans c.txt."
+allowed_tools: [read_file, write_file]
+assert:
+  type: file_contains
+  path: "c.txt"
+  text: "alpha-beta"
+env:
+  files:
+    a.txt: "alpha-"
+    b.txt: "beta"

@@ -1,0 +1,7 @@
+name: multi-08-calendrier-rappel
+category: multi
+prompt: "Cree un rappel 'relire bilan' via MCP, puis ouvre l app Rappels pour verifier."
+allowed_tools: [skill, applescript, open]
+assert:
+  type: output_contains
+  text: "rappel"

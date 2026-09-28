@@ -1,0 +1,7 @@
+name: files-07-fichier-absent
+category: files
+prompt: "Lis missing.txt et explique proprement qu il est absent au lieu d inventer son contenu."
+allowed_tools: [read_file]
+assert:
+  type: output_contains
+  text: "absent"

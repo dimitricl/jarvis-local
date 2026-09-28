@@ -1,0 +1,7 @@
+name: files-04-lister-glob
+category: files
+prompt: "Liste tous les fichiers .md du workspace et reponds par leur nombre."
+allowed_tools: [glob]
+assert:
+  type: output_contains
+  text: "3"

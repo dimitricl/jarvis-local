@@ -1,0 +1,7 @@
+name: as-02-lire-rappel
+category: applescript
+prompt: "Liste les rappels de l application de test et reponds par leur nombre."
+allowed_tools: [applescript]
+assert:
+  type: output_contains
+  text: "2"

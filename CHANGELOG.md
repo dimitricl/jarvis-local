@@ -174,6 +174,12 @@
 
 ## Non publié
 
+- Phase 0 (socle harnais d'évaluation) — nouveau `JarvisEval` (CLI) + `JarvisEvalKit`
+  (parseur YAML contraint, sonde `/api/tags`+`/api/ps`, politique HTTP clair limitée
+  au tailnet, rapport RTT/load/inférence séparés) + 30 scénarios `evals/*.yaml`
+  (fichiers, web mockée, applescript, multi-étapes, pièges) + `docs/adr/0001-moteur-agent.md`
+  (décision A/B en attente des runs), `docs/eval-baseline.md`, `docs/server-setup.md`.
+
 - Refonte visuelle native : accent teal adaptatif clair/sombre, réponses assistant
   en layout log (icône CPU, liseré vertical, timestamp mono toujours visible) et
   trace d'outils intégrée sous la réponse — pour densifier le registre technique

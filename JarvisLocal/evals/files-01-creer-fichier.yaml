@@ -1,0 +1,8 @@
+name: files-01-creer-fichier
+category: files
+prompt: "Cree le fichier rapport.txt contenant la ligne 'total: 42'."
+allowed_tools: [write_file]
+assert:
+  type: file_contains
+  path: "rapport.txt"
+  text: "total: 42"

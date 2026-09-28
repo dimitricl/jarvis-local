@@ -1,0 +1,7 @@
+name: web-01-recherche-prix
+category: web
+prompt: "Quel est le prix actuel du modele X ? Reponds avec la source URL uniquement, sans broder de chiffres."
+allowed_tools: [web_search]
+assert:
+  type: output_contains
+  text: "Sources"

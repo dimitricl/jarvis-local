@@ -1,0 +1,11 @@
+name: multi-02-fichiers-rapport
+category: multi
+prompt: "Liste les .log du workspace, compte les lignes ERROR de chacun avec grep, ecris le bilan dans bilan.txt."
+allowed_tools: [glob, grep, write_file]
+assert:
+  type: file_contains
+  path: "bilan.txt"
+  text: "ERROR"
+env:
+  files:
+    app.log: "INFO ok ERROR boom"

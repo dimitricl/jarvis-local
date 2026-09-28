@@ -1,0 +1,10 @@
+name: files-05-grep-motif
+category: files
+prompt: "Cherche 'TODO' dans tout le workspace et reponds par le fichier qui en contient."
+allowed_tools: [grep]
+assert:
+  type: output_contains
+  text: "main.py"
+env:
+  files:
+    main.py: "x = 1  TODO corriger"
