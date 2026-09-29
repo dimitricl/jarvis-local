@@ -51,7 +51,7 @@ public struct PermissionRule: Sendable, Equatable {
             PermissionRule(toolGlob: "edit_file", decision: .ask, reason: "écriture fichier"),
             PermissionRule(toolGlob: "bash", decision: .ask, reason: "commande shell"),
             PermissionRule(toolGlob: "applescript", decision: .ask, reason: "contrôle d'application"),
-            PermissionRule(toolGlob: "open", decision: .ask, reason: "ouverture / envoi"),
+            PermissionRule(toolGlob: "open", decision: .allow, reason: "ouverture d'application"),
             PermissionRule(toolGlob: "notify", decision: .allow, reason: "notification locale"),
             PermissionRule(toolGlob: "*", decision: .ask, reason: "défaut : demander"),
         ]
