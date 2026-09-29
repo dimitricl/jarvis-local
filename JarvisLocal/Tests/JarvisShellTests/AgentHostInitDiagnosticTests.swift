@@ -76,4 +76,15 @@ final class AgentErrorStateTests: XCTestCase {
         XCTAssertTrue(coordinator.panelExists)
         XCTAssertEqual(coordinator.hudState, .transcribing(text: ""))
     }
+
+    @MainActor
+    func testEntreeNonConfisqueeSansDemande() {
+        // Régression constatée : `onConfirmKey` armé dès la création avalait
+        // Entrée (envoi mort, pastille orange figée). Il ne s'arme que sur
+        // vraie demande de confirmation.
+        let coordinator = ShellCoordinator(settings: ShellSettings(
+            defaults: UserDefaults(suiteName: "jarvis-diagnostic-\(UUID().uuidString)")!))
+        coordinator.showHUD()
+        XCTAssertFalse(coordinator.confirmArmed)
+    }
 }

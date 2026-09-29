@@ -275,6 +275,10 @@
 - Saisie impossible dans le HUD — panneau non-activant jamais `key` :
   `showForInput()` (activate + `makeKey`) sur ouverture explicite (menu,
   tap hotkey) ; les affichages pilotés par l'agent restent non-intrusifs.
+- Envoi mort (pastille orange figée) — `onConfirmKey` armé dès la création
+  avalait Entrée via `answerConfirm` sans effet : armé uniquement sur vraie
+  demande de confirmation, désarmé en fin de run / interruption / réponse.
+  Couvert par `testEntreeNonConfisqueeSansDemande`.
 
 - Phase 0 (socle harnais d'évaluation) — nouveau `JarvisEval` (CLI) + `JarvisEvalKit`
   (parseur YAML contraint, sonde `/api/tags`+`/api/ps`, politique HTTP clair limitée

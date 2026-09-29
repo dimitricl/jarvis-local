@@ -100,7 +100,10 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     private func ensurePanel() {
         if panel == nil {
             let created = HUDPanelController()
-            created.onConfirmKey = { [weak self] allowed in self?.answerConfirm(allowed: allowed, always: false) }
+            // `onConfirmKey` RESTE nil ici : Entrée = envoyer. Il n'est armé
+            // que pendant une vraie demande de confirmation (sinon Entrée est
+            // avalée par `answerConfirm` sans effet et l'envoi ne part jamais
+            // — constaté en réel : pastille orange figée, aucun run).
             created.onEscapeKey = { [weak self] in self?.interrupt() }
             created.onSubmitKey = { [weak self] in self?.submitInput() }
             panel = created
@@ -108,6 +111,9 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     }
 
     internal var panelExists: Bool { panel != nil }
+
+    /// Entrée = confirmation seulement si une demande est en cours.
+    internal var confirmArmed: Bool { panel?.onConfirmKey != nil }
 
     private func applyAction(_ action: HUDAction) {
         hudState = HUDReduce.reduce(state: hudState, action: action, runActive: runActive)
@@ -233,6 +239,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
             }
             runActive = false
             pendingConfirm = nil
+            panel?.onConfirmKey = nil
             if settings.ttsEnabled, !finalText.isEmpty {
                 hudState = .speaking(text: String(finalText.prefix(120)))
                 refreshPanel()
@@ -257,6 +264,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     func interrupt() {
         runActive = false
         pendingConfirm = nil
+        panel?.onConfirmKey = nil
         Task { @MainActor [weak self] in
             await self?.voice?.stopSpeaking()
             await self?.voice?.cancelDictation()
