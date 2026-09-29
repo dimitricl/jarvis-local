@@ -49,4 +49,19 @@ final class AgentErrorStateTests: XCTestCase {
             XCTFail("attendu .unavailable (pas .unreachable), obtenu \(coordinator.hudState)")
         }
     }
+
+    @MainActor
+    func testSondeAutoNArrachePasLaSaisie() async {
+        var s = ShellSettings(defaults: UserDefaults(suiteName: "jarvis-diagnostic-\(UUID().uuidString)")!)
+        s.ollamaURL = "http://127.0.0.1:9" // valide mais injoignable (connexion refusée)
+        s.model = "gemma4:e4b"
+        let coordinator = ShellCoordinator(settings: s)
+        coordinator.showHUD()
+        XCTAssertEqual(coordinator.hudState, .transcribing(text: ""))
+        await coordinator.probeAndWarmup() // sonde auto : ne touche pas à la saisie
+        XCTAssertEqual(coordinator.hudState, .transcribing(text: ""))
+        await coordinator.probeAndWarmup(force: true) // « Réessayer » : dit la vérité
+        if case .unreachable = coordinator.hudState { return }
+        XCTFail("attendu .unreachable après retry forcé, obtenu \(coordinator.hudState)")
+    }
 }

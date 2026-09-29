@@ -116,7 +116,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
             onConfirm: { [weak self] allowed, always in self?.answerConfirm(allowed: allowed, always: always) },
             onInterrupt: { [weak self] in self?.interrupt() },
             onSubmit: { [weak self] text in self?.runAgent(prompt: text) },
-            onRetry: { [weak self] in Task { await self?.probeAndWarmup() } }))
+            onRetry: { [weak self] in Task { await self?.probeAndWarmup(force: true) } }))
     }
 
     // MARK: - Gestes hotkey
@@ -304,7 +304,8 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
             if isUnreachableState || isLoadingState || isUnavailableState {
                 applyAction(.dismiss)
             }
-        } else {
+        } else if isConnectionManagedState {
+            // Pépin réseau : ne jamais arracher la saisie / le run / etc.
             applyAction(.connection(state))
         }
     }
@@ -324,21 +325,35 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         return false
     }
 
-    func probeAndWarmup() async {
+    /// États que la sonde auto est autorisée à piloter. Tout le reste
+    /// (saisie, écoute, run, confirmation…) appartient à l'utilisateur :
+    /// une sonde qui rend ne doit jamais le lui arracher (le HUD
+    /// s'affichait puis disparaissait aussitôt — constaté en réel).
+    private var isConnectionManagedState: Bool {
+        switch hudState {
+        case .idle, .unreachable, .loading, .unavailable: return true
+        default: return false
+        }
+    }
+
+    func probeAndWarmup(force: Bool = false) async {
         guard let base = try? OllamaHostPolicy.validateBaseURL(settings.ollamaURL) else { return }
         let request = ConnectionProbeRequest(baseURL: base, model: settings.model)
         let probe = await request.run()
         let state = ConnectionMonitor.classify(probe: probe, host: base.host ?? "?")
-        if !runActive { applyAction(.connection(state)) }
+        // `force` = bouton « Réessayer » explicite : l'utilisateur demande
+        // la vérité réseau même s'il est en saisie. Sinon, ne piloter que
+        // les états gérés par la sonde (jamais arracher la saisie).
+        if !runActive, force || isConnectionManagedState { applyAction(.connection(state)) }
         if ConnectionMonitor.needsWarmup(probe: probe) {
-            if !runActive {
+            if !runActive, force || isConnectionManagedState {
                 hudState = .loading(elapsed: 0)
                 refreshPanel()
                 panel?.show()
             }
             _ = await AgentHost.warmupIfNeeded(
                 baseURL: settings.ollamaURL, model: settings.model, numCtx: settings.numCtx)
-            if !runActive {
+            if !runActive, force || isConnectionManagedState {
                 let probe2 = await request.run()
                 let state2 = ConnectionMonitor.classify(probe: probe2, host: base.host ?? "?")
                 applyAction(.connection(state2))

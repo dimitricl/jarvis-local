@@ -261,6 +261,11 @@
 - Tests : `AgentHostInitDiagnosticTests` (init URL Tailscale ne lève pas) +
   `AgentErrorStateTests` (reduce + `rebuildHost` KO → `.unavailable`, run en
   cours préservé) ; `testClassify` couvrait déjà `{"models":[]}` → loading.
+- HUD qui ne s'affichait pas — la sonde auto écrasait la saisie : `probeTick`
+  et `probeAndWarmup` ne pilotent plus que les états gérés (`idle`,
+  `unreachable`, `loading`, `unavailable`), jamais la saisie/écoute/run ;
+  le bouton « Réessayer » force (`force: true`). Couvert par
+  `testSondeAutoNArrachePasLaSaisie`.
 
 - Phase 0 (socle harnais d'évaluation) — nouveau `JarvisEval` (CLI) + `JarvisEvalKit`
   (parseur YAML contraint, sonde `/api/tags`+`/api/ps`, politique HTTP clair limitée
