@@ -111,7 +111,14 @@ public struct OllamaProvider: AgentLLM {
                     if let token = config.authToken, !token.isEmpty {
                         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                     }
-                    req.timeoutInterval = config.connectTimeout
+                    // `bytes(for:)` compte les silences inter-octets dans
+                    // `timeoutInterval` : avec `connectTimeout` (3 s), tout
+                    // chargement à froid (> 3 s sans octet) mourait en -1001
+                    // avant le premier token — constaté en réel (modèle
+                    // déchargé, -1001 puis spirale `badStatus`). Le watchdog
+                    // ci-dessous (180 s / 30 s) reste le garde-fou explicite ;
+                    // ce timeout n'est qu'un filet. Ne pas resserrer.
+                    req.timeoutInterval = config.requestTimeout
                     req.httpBody = try OllamaProvider.requestBody(
                         model: config.model, messages: messages, tools: tools,
                         numCtx: config.numCtx, temperature: config.temperature)
@@ -221,6 +228,10 @@ public struct OllamaProvider: AgentLLM {
             // gemma4 est thinking : sans ça, 20-30 s de raisonnement invisible
             // par tour (mesuré 32 s → 4 s sur un simple bonjour).
             "reasoning_effort": "none",
+            // Garde le modèle résident (cohérent avec `warmupIfNeeded`) : le
+            // défaut Ollama (5 min) décharge entre deux sessions, et chaque
+            // session suivante repaie le chargement à froid.
+            "keep_alive": "24h",
         ]
         if !tools.isEmpty {
             body["tools"] = tools.map { t in

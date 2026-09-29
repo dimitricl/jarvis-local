@@ -68,6 +68,27 @@ func echoTool() -> ToolDefinition {
     }
 }
 
+/// LLM en panne permanente : compte les appels, échoue toujours.
+struct ThrowingLLM: AgentLLM {
+    struct Boom: Error {}
+    final class Counter: @unchecked Sendable {
+        var calls = 0
+        let lock = NSLock()
+    }
+
+    let counter = Counter()
+
+    func chat(messages: [Message], tools: [ToolSpec]) -> AsyncThrowingStream<LLMEvent, Error> {
+        let counter = counter
+        return AsyncThrowingStream { continuation in
+            counter.lock.lock()
+            counter.calls += 1
+            counter.lock.unlock()
+            continuation.finish(throwing: Boom())
+        }
+    }
+}
+
 func writeTool() -> ToolDefinition {
     ToolDefinition(
         name: "write_file", description: "Écrit.", parameters: .object([:]),
@@ -286,8 +307,27 @@ final class AgentLoopTests: XCTestCase {
         }
     }
 
-    func testTimeoutGlobal() async {
-        var llm = FakeLLM(turns: [
+    func testTransportAbandonneApres3Echecs() async {
+        // Sans discipline, une panne transport est rejouée jusqu'à maxTurns
+        // en pilonnant le serveur (constaté : 30 tours « badStatus »).
+        let llm = ThrowingLLM()
+        let loop = AgentLoop(
+            llm: llm,
+            registry: ToolRegistry(definitions: []),
+            realContextLength: { 100_000 },
+            config: AgentLoop.Config(maxTurns: 30, timeoutSeconds: nil))
+        let events = await collect(loop.run(prompt: "panne"))
+        if case .failed(let err) = events.last {
+            if case .transport = err { /* attendu */ } else {
+                XCTFail("attendu transport, reçu \(err)")
+            }
+        } else {
+            XCTFail("attendu failed")
+        }
+        XCTAssertEqual(llm.counter.calls, 3)
+    }
+
+    func testTimeoutGlobal() async {        var llm = FakeLLM(turns: [
             FakeTurn(calls: [(name: "echo", args: .object(["text": .string("x")]))]),
             FakeTurn(calls: [(name: "echo", args: .object(["text": .string("x")]))])
         ])

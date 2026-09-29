@@ -75,6 +75,16 @@ final class OllamaMappingTests: XCTestCase {
         XCTAssertEqual(json?["reasoning_effort"] as? String, "none")
     }
 
+    func testRequestBodyKeepsModelResident() throws {
+        // Sans keep_alive, Ollama décharge après 5 min et chaque session
+        // repaie le chargement à froid (qui tuait le stream en -1001).
+        let data = try OllamaProvider.requestBody(
+            model: "m", messages: [Message(role: .user, content: "hi")],
+            tools: [], numCtx: 4096, temperature: 0)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(json?["keep_alive"] as? String, "24h")
+    }
+
     func testApplySSELineAccumulatesFragments() {
         var state = OllamaProvider.SseState()
         var metrics: LLMMetrics?

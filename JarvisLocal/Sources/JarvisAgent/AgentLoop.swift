@@ -174,6 +174,8 @@ public actor AgentLoop {
         emit: (AgentEvent) -> Void
     ) async throws {
         let compactor = Compactor(keepRecentMessages: config.keepRecentMessages)
+        // Échecs transport consécutifs (pas de `continue` aveugle : voir catch).
+        var transportFailures = 0
 
         while turns < config.maxTurns {
             try Task.checkCancellation()
@@ -224,6 +226,15 @@ public actor AgentLoop {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                // Discipline anti-spirale : rejouer immédiatement à chaque tour
+                // une panne transport (serveur saturé, modèle en chargement)
+                // pilonne le serveur au lieu de le laisser récupérer —
+                // constaté en réel : 30 tours « badStatus » qui s'auto-entretiennent.
+                // Backoff 2 s × n, puis échec explicite après 3 échecs
+                // consécutifs ; le compteur repart à zéro dès qu'un tour aboutit.
+                transportFailures += 1
+                guard transportFailures < 3 else { throw error }
+                try await Task.sleep(nanoseconds: UInt64(transportFailures) * 2_000_000_000)
                 // UNE réparation : l'erreur structurée repart au tour suivant
                 // via l'historique, le modèle s'adapte au lieu de subir.
                 transcript.append(Message(role: .assistant, content: text.isEmpty ? nil : text))
@@ -231,6 +242,7 @@ public actor AgentLoop {
                 await saveTranscript(transcript)
                 continue
             }
+            transportFailures = 0
             // `for-await` sur un AsyncThrowingStream se termine en SILENCE
             // (nil) quand la tâche est annulée : convertir explicitement,
             // sinon l'annulation ressemble à une fin de stream normale.
