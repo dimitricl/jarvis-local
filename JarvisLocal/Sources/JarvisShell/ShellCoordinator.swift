@@ -92,7 +92,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         let hasPanel = panel != nil
         log.info("showHUD: panel=\(hasPanel ? "present" : "nil", privacy: .public)")
         refreshPanel()
-        panel?.show()
+        panel?.showForInput()
     }
 
     /// Filet : si une instance non `boot()`ée reçoit un ordre UI (cf.
@@ -112,8 +112,9 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     private func applyAction(_ action: HUDAction) {
         hudState = HUDReduce.reduce(state: hudState, action: action, runActive: runActive)
         let desc = String(describing: hudState)
+        let actDesc = String(describing: action)
         let visible = hudState.isVisible
-        log.debug("applyAction -> \(desc, privacy: .public) visible=\(visible)")
+        log.debug("applyAction \(actDesc, privacy: .public) -> \(desc, privacy: .public) visible=\(visible)")
         if hudState.isVisible {
             refreshPanel()
             panel?.show()
@@ -148,7 +149,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
                 // Tap = afficher le HUD en saisie (pas de dictée).
                 hudState = .transcribing(text: "")
                 refreshPanel()
-                panel?.show()
+                panel?.showForInput()
             }
         case .holdBegan:
             if await voice?.isSpeaking == true {

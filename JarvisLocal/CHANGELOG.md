@@ -272,6 +272,9 @@
   nil ; prouvé : 3× `showHUD` sans un seul `hud show` dans le stream).
   Fix = `_coordinator = StateObject(wrappedValue: booted)` + `ensurePanel()`
   auto-curatif dans `showHUD`, couvert par `testShowHUDSansBootCreeLePanel`.
+- Saisie impossible dans le HUD — panneau non-activant jamais `key` :
+  `showForInput()` (activate + `makeKey`) sur ouverture explicite (menu,
+  tap hotkey) ; les affichages pilotés par l'agent restent non-intrusifs.
 
 - Phase 0 (socle harnais d'évaluation) — nouveau `JarvisEval` (CLI) + `JarvisEvalKit`
   (parseur YAML contraint, sonde `/api/tags`+`/api/ps`, politique HTTP clair limitée

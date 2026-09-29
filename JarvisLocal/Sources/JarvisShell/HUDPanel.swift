@@ -100,6 +100,15 @@ public final class HUDPanelController {
         installKeyMonitor()
     }
 
+    /// Ouverture explicite pour saisie (menu, hotkey) : le panneau devient
+    /// `key` pour que le champ prenne le focus. Les affichages pilotés par
+    /// l'agent (`applyAction`) restent non-intrusifs et passent par `show()`.
+    public func showForInput() {
+        show()
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKey()
+    }
+
     private func screenAtCursor() -> NSScreen? {
         let mouse = NSEvent.mouseLocation
         return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
