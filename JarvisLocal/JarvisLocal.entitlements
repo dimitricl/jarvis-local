@@ -21,5 +21,9 @@
          Cibles utilisées : com.apple.Notes, com.apple.MobileSMS, com.apple.systemevents. -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
+    <!-- Accès réseau sortant (Ollama distant, DuckDuckGo, GitHub, météo…).
+         Requis pour toute requête HTTP sortante (Hardened Runtime). -->
+    <key>com.apple.security.network.client</key>
+    <true/>
 </dict>
 </plist>
