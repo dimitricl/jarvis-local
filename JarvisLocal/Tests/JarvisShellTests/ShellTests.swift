@@ -197,8 +197,42 @@ final class TranscriptListTests: XCTestCase {
     }
 }
 
-final class HUDFocusPolicyTests: XCTestCase {
-    func testInputRequiresRegularIdleRestoresAccessory() {
+final class ChatReduceTests: XCTestCase {
+    func testEnvoiPuisStreamingPuisDone() {
+        var messages = ChatReduce.send(messages: [], text: "bonjour")
+        XCTAssertEqual(messages.count, 2)
+        XCTAssertEqual(messages[0].role, .user)
+        XCTAssertEqual(messages[0].text, "bonjour")
+        messages = ChatReduce.apply(messages: messages, event: .textDelta("Bon"))
+        messages = ChatReduce.apply(messages: messages, event: .textDelta("jour !"))
+        XCTAssertEqual(messages.last?.text, "Bonjour !")
+        messages = ChatReduce.apply(
+            messages: messages,
+            event: .done(
+                finalText: "Bonjour !", turnsUsed: 1,
+                usage: TokenUsage(promptTokens: 5, calibrated: true)))
+        XCTAssertEqual(messages.count, 2)
+        XCTAssertEqual(messages.last?.role, .assistant)
+        XCTAssertEqual(messages.last?.text, "Bonjour !")
+    }
+
+    func testEchecVisibleEnNote() {
+        var messages = ChatReduce.send(messages: [], text: "x")
+        messages = ChatReduce.apply(messages: messages, event: .failed(.transport("boom")))
+        XCTAssertEqual(messages.last?.role, .note)
+        XCTAssertTrue(messages.last?.text.contains("boom") == true)
+    }
+
+    func testMemoireVientDeLaReprise() {
+        // La mémoire inter-prompts est portée par le transcript chaîné
+        // (pas par les messages) : un nouvel envoi repart des messages courants.
+        let first = ChatReduce.send(messages: [], text: "un")
+        let second = ChatReduce.send(messages: first, text: "deux")
+        XCTAssertEqual(second.filter { $0.role == .user }.count, 2)
+    }
+}
+
+final class HUDFocusPolicyTests: XCTestCase {    func testInputRequiresRegularIdleRestoresAccessory() {
         XCTAssertEqual(HUDFocusPolicy.input, .regular)
         XCTAssertEqual(HUDFocusPolicy.idle, .accessory)
         XCTAssertNotEqual(HUDFocusPolicy.input, HUDFocusPolicy.idle)

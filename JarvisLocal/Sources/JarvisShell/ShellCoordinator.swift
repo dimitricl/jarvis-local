@@ -24,6 +24,13 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     @Published public var steps: [String] = []
     @Published public var input: String = ""
     @Published public var settings: ShellSettings
+    // Chat multi-tours (fenêtre Discussion) : mêmes runs que le HUD, mémoire
+    // via reprise de transcript. Le HUD ne s'en mêle pas (pas de hudState).
+    @Published public var chatMessages: [ChatMessage] = []
+    @Published public var chatInput: String = ""
+    @Published public var chatBusy = false
+    @Published public var chatConfirm: ChatConfirm?
+    private var chatTranscriptID: UUID?
 
     private var host: AgentHost?
     private var panel: HUDPanelController?
@@ -251,18 +258,24 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
 
     func answerConfirm(allowed: Bool, always: Bool) {
         guard let pending = pendingConfirm else { return }
+        let wasChat = chatConfirm != nil
         pendingConfirm = nil
+        chatConfirm = nil
         panel?.onConfirmKey = nil
         Task {
             await host?.answerConfirmation(
                 callId: pending.callId, tool: pending.tool, allowed: allowed, always: always)
         }
+        // Un run chat ne fait pas surgir le HUD : seul le HUD pilote hudState.
+        guard !wasChat else { return }
         hudState = .thinking
         refreshPanel()
     }
 
     func interrupt() {
         runActive = false
+        chatBusy = false
+        chatConfirm = nil
         pendingConfirm = nil
         panel?.onConfirmKey = nil
         Task { @MainActor [weak self] in
@@ -278,6 +291,46 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         guard !text.isEmpty else { return }
         input = ""
         runAgent(prompt: text)
+    }
+
+    // MARK: - Chat multi-tours
+
+    /// Envoi depuis la fenêtre Discussion : même pipeline qu'un run HUD
+    /// (un seul run à la fois, `runActive` partagé), mais sans toucher au
+    /// HUD — les événements alimentent `chatMessages`. La mémoire vient de la
+    /// reprise (`chatTranscriptID`, chaîné en fin de run).
+    func sendChat() {
+        let text = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !runActive, let host else { return }
+        chatInput = ""
+        chatMessages = ChatReduce.send(messages: chatMessages, text: text)
+        runActive = true
+        chatBusy = true
+        let resume = chatTranscriptID
+        Task {
+            let stream = await host.run(prompt: text, resumeFrom: resume)
+            for await event in stream {
+                if case .permissionRequested(let callId, let tool, let reason, let decision) = event,
+                   decision == .ask {
+                    pendingConfirm = (callId: callId, tool: tool)
+                    chatConfirm = ChatConfirm(tool: tool, reason: reason)
+                }
+                chatMessages = ChatReduce.apply(messages: chatMessages, event: event)
+            }
+            runActive = false
+            chatBusy = false
+            pendingConfirm = nil
+            chatConfirm = nil
+            chatTranscriptID = await host.lastTranscriptID()
+        }
+    }
+
+    /// Nouvelle discussion : le transcript courant reste dans l'historique.
+    func newChat() {
+        guard !runActive else { return }
+        chatTranscriptID = nil
+        chatMessages = []
+        chatConfirm = nil
     }
 
     private func scheduleAutoHide() {
