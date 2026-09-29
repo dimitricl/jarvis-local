@@ -27,7 +27,9 @@ public struct HistoryView: View {
             .navigationTitle("Historique")
             .task { await reload() }
             .onChange(of: selected) { _, item in
-                Task { await loadDetail(item) }
+                // `Task` nu = fond : muter un `@State` hors MainActor perd la
+                // mise à jour (clic sans effet sur le détail).
+                Task { @MainActor in await loadDetail(item) }
             }
         } detail: {
             ScrollView {
