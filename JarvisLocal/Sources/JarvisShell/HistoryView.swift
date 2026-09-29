@@ -8,7 +8,7 @@ import JarvisAgent
 public struct HistoryView: View {
     var store: FileTranscriptStore
     @State private var transcripts: [TranscriptSummary] = []
-    @State private var selected: TranscriptSummary?
+    @State private var selectedID: UUID?
     @State private var detail: [Message] = []
 
     public init(store: FileTranscriptStore) {
@@ -17,19 +17,20 @@ public struct HistoryView: View {
 
     public var body: some View {
         NavigationSplitView {
-            List(transcripts, selection: $selected) { item in
+            List(transcripts, selection: $selectedID) { item in
                 VStack(alignment: .leading) {
                     Text(item.preview).lineLimit(1)
                     Text(item.date, style: .date)
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                .tag(item.id)
             }
             .navigationTitle("Historique")
             .task { await reload() }
-            .onChange(of: selected) { _, item in
+            .onChange(of: selectedID) { _, id in
                 // `Task` nu = fond : muter un `@State` hors MainActor perd la
                 // mise à jour (clic sans effet sur le détail).
-                Task { @MainActor in await loadDetail(item) }
+                Task { @MainActor in await loadDetail(id: id) }
             }
         } detail: {
             ScrollView {
@@ -65,9 +66,9 @@ public struct HistoryView: View {
         transcripts = await HistoryLoading.list(store: store)
     }
 
-    private func loadDetail(_ item: TranscriptSummary?) async {
-        guard let item,
-              let transcript = try? await store.load(id: item.id)
+    private func loadDetail(id: UUID?) async {
+        guard let id,
+              let transcript = try? await store.load(id: id)
         else {
             detail = []
             return
