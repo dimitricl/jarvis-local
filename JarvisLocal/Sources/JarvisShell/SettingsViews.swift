@@ -5,25 +5,53 @@ import SwiftUI
 /// (historique et faits y transitent, souvent en clair).
 public struct ShellSettingsView: View {
     @Binding var settings: ShellSettings
+    @ObservedObject var coordinator: ShellCoordinator
+    @State private var availableModels: [String] = []
+    @State private var isLoadingModels = false
 
-    public init(settings: Binding<ShellSettings>) {
+    public init(settings: Binding<ShellSettings>, coordinator: ShellCoordinator) {
         self._settings = settings
+        self.coordinator = coordinator
     }
 
     public var body: some View {
         Form {
             Section("Serveur d'inférence") {
-                TextField("URL Ollama :", text: $settings.ollamaURL)
+                HStack {
+                    TextField("URL Ollama :", text: $settings.ollamaURL)
+                        .textFieldStyle(.roundedBorder)
+                    
+                    Button(action: { testConnection() }) {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isLoadingModels)
+                }
+                
                 if settings.isRemote {
-                    Label("URL distante : l'historique et les faits y sont envoyés (souvent en clair, protégé uniquement par le tunnel).", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                    Label("URL distante Tailscale : l'historique et les faits sont envoyés via tunnel sécurisé.", systemImage: "checkmark.shield")
+                        .foregroundStyle(.green)
                         .font(.caption)
                 }
-                TextField("Modèle :", text: $settings.model)
+                
+                Picker("Modèle :", selection: $settings.model) {
+                    if isLoadingModels {
+                        Text("Chargement...").tag("loading")
+                    } else if availableModels.isEmpty {
+                        Text(settings.model).tag(settings.model)
+                    } else {
+                        ForEach(availableModels, id: \.self) { model in
+                            Text(model).tag(model)
+                        }
+                    }
+                }
+                .pickerStyle(.menu)
+                
                 Stepper(value: $settings.numCtx, in: 2048...32768, step: 1024) {
-                    Text("Contexte demandé : \(settings.numCtx)")
+                    Text("Contexte : \(settings.numCtx) tokens")
                 }
             }
+            
             Section("Hotkey global") {
                 Stepper(value: $settings.hotkeyKeyCode, in: 0...126) {
                     Text("Keycode : \(settings.hotkeyKeyCode) (\(HotkeyNames.name(for: settings.hotkeyKeyCode)))")
@@ -31,19 +59,79 @@ public struct ShellSettingsView: View {
                 Text("Appui court = afficher le HUD. Maintenir = dicter, relâcher = envoyer. Échap = refuser / interrompre (×2).")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            
             Section("Voix") {
                 Toggle("Dictée vocale", isOn: $settings.voiceEnabled)
                 Toggle("Réponse parlée (TTS local)", isOn: $settings.ttsEnabled)
             }
+            
             Section("Système") {
                 TextField("Workspace :", text: $settings.workspacePath)
+                    .textFieldStyle(.roundedBorder)
                 Toggle("Lancement à l'ouverture de session", isOn: $settings.launchAtLogin)
+            }
+            
+            Section("Informations") {
+                HStack {
+                    Text("Version")
+                    Spacer()
+                    Text(getAppVersion())
+                        .foregroundStyle(.secondary)
+                }
+                
+                HStack {
+                    Text("Statut connexion")
+                    Spacer()
+                    ConnectionIndicator(status: coordinator.connectionStatus)
+                }
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 420, minHeight: 380)
+        .frame(minWidth: 420, minHeight: 450)
         .navigationTitle("Réglages Jarvis")
+        .onAppear {
+            loadAvailableModels()
+        }
         .onDisappear { settings.save() }
+    }
+    
+    private func loadAvailableModels() {
+        isLoadingModels = true
+        Task {
+            do {
+                let models = try await fetchAvailableModels()
+                availableModels = models
+                isLoadingModels = false
+            } catch {
+                isLoadingModels = false
+            }
+        }
+    }
+    
+    private func fetchAvailableModels() async throws -> [String] {
+        guard let url = URL(string: "\(settings.ollamaURL.trimmingCharacters(in: .whitespacesAndNewlines))/api/tags") else {
+            return []
+        }
+        
+        let (data, _) = try await URLSession.shared.data(from: url)
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = json["models"] as? [[String: Any]] else {
+            return []
+        }
+        
+        return models.compactMap { $0["name"] as? String }
+    }
+    
+    private func testConnection() {
+        isLoadingModels = true
+        Task {
+            try? await Task.sleep(nanoseconds: 500_000_000) // Délai artificiel pour feedback
+            loadAvailableModels()
+        }
+    }
+    
+    private func getAppVersion() -> String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Inconnue"
     }
 }
 

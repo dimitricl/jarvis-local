@@ -63,29 +63,50 @@ public struct HomeView: View {
     
     private var header: some View {
         HStack {
-            Text("Jarvis")
-                .font(.system(size: 18, weight: .semibold))
+            HStack(spacing: 8) {
+                Image(systemName: "waveform.path")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Color.blue)
+                
+                Text("Jarvis")
+                    .font(.system(size: 18, weight: .semibold))
+            }
             
             Spacer()
             
-            HStack(spacing: 8) {
-                Button(action: { coordinator.newChat() }) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .disabled(coordinator.chatBusy)
-                .help("Nouvelle discussion")
+            HStack(spacing: 12) {
+                // Indicateur de connexion
+                ConnectionIndicator(status: coordinator.connectionStatus)
                 
-                if coordinator.chatBusy {
-                    Button(action: { coordinator.interrupt() }) {
-                        Image(systemName: "stop.circle.fill")
+                if let error = coordinator.errorMessage {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.orange)
+                        .help(error)
+                }
+                
+                Divider()
+                    .frame(height: 20)
+                
+                HStack(spacing: 8) {
+                    Button(action: { coordinator.newChat() }) {
+                        Image(systemName: "square.and.pencil")
                             .font(.system(size: 14))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Interrompre")
+                    .disabled(coordinator.chatBusy)
+                    .help("Nouvelle discussion")
+                    
+                    if coordinator.chatBusy {
+                        Button(action: { coordinator.interrupt() }) {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Interrompre")
+                    }
                 }
             }
         }
@@ -237,6 +258,21 @@ public struct HomeView: View {
     private var inputArea: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
+                // Bouton micro
+                Button(action: { /* TODO: Activer dictée vocale */ }) {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(coordinator.chatBusy ? .secondary : Color.blue)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(.white.opacity(0.1))
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(coordinator.chatBusy)
+                .help("Dictée vocale")
+                
                 TextField(
                     "Écris un message…",
                     text: $coordinator.chatInput,
@@ -269,5 +305,91 @@ public struct HomeView: View {
     private var sendDisabled: Bool {
         coordinator.chatBusy
             || coordinator.chatInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// Indicateur de connexion avec animation
+struct ConnectionIndicator: View {
+    let status: ConnectionStatus
+    @State private var isPulsing = false
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(colorForStatus)
+                .frame(width: 8, height: 8)
+                .overlay(
+                    Circle()
+                        .stroke(colorForStatus, lineWidth: 2)
+                        .scaleEffect(isPulsing ? 1.5 : 1.0)
+                        .opacity(isPulsing ? 0 : 1)
+                        .animation(
+                            shouldPulse ? .easeOut(duration: 1.5).repeatForever(autoreverses: false) : .default,
+                            value: isPulsing
+                        )
+                )
+                .onAppear {
+                    if shouldPulse {
+                        isPulsing = true
+                    }
+                }
+            
+            Text(textForStatus)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .help(helpText)
+    }
+    
+    private var colorForStatus: Color {
+        switch status {
+        case .online:
+            return .green
+        case .connecting:
+            return .orange
+        case .offline, .error:
+            return .red
+        case .unknown:
+            return .gray
+        }
+    }
+    
+    private var textForStatus: String {
+        switch status {
+        case .online:
+            return "En ligne"
+        case .connecting:
+            return "Connexion..."
+        case .offline:
+            return "Hors ligne"
+        case .error:
+            return "Erreur"
+        case .unknown:
+            return "Inconnu"
+        }
+    }
+    
+    private var shouldPulse: Bool {
+        switch status {
+        case .online, .connecting:
+            return true
+        default:
+            return false
+        }
+    }
+    
+    private var helpText: String {
+        switch status {
+        case .online:
+            return "Connecté au serveur Ollama"
+        case .connecting:
+            return "Connexion au serveur Ollama en cours"
+        case .offline:
+            return "Serveur Ollama inaccessible"
+        case .error(let message):
+            return "Erreur: \(message)"
+        case .unknown:
+            return "Statut de connexion inconnu"
+        }
     }
 }

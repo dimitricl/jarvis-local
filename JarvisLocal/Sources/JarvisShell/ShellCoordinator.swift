@@ -9,6 +9,15 @@ import JarvisAgent
 import JarvisProviders
 import JarvisServices
 
+/// Statut de connexion au serveur Ollama
+public enum ConnectionStatus: Sendable {
+    case unknown
+    case connecting
+    case online
+    case offline
+    case error(String)
+}
+
 /// L3 — coordinateur du shell : hotkey, HUD, voix, monitor, agent.
 ///
 /// `@MainActor` : tout l'état observable vit ici (HUD, étapes, saisie).
@@ -32,6 +41,8 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     @Published public var chatConfirm: ChatConfirm?
     @Published public var homeExpanded = false
     @Published public var unreadCount = 0
+    @Published public var connectionStatus: ConnectionStatus = .unknown
+    @Published public var errorMessage: String?
     private var chatTranscriptID: UUID?
 
     private var host: AgentHost?
@@ -226,11 +237,13 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     func runAgent(prompt: String) {
         guard let host = self.host else {
             applyAction(.connection(.agentError(detail: "agent non initialisé")))
+            errorMessage = "Agent non initialisé - vérifiez les réglages"
             return
         }
         runActive = true
         steps = []
         hudState = .thinking
+        errorMessage = nil
         refreshPanel()
         panel?.show()
         Task { [weak self] in
@@ -249,6 +262,9 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
                     }
                 }
                 if case .done(let text, _, _) = event { finalText = text }
+                if case .failed(let err) = event {
+                    self.errorMessage = self.extractErrorMessage(from: err)
+                }
                 self.applyAction(.agentEvent(event))
                 self.refreshPanel()
             }
@@ -261,6 +277,21 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
                 await self.voice?.speak(finalText, enabled: true)
             }
             self.scheduleAutoHide()
+        }
+    }
+    
+    private func extractErrorMessage(from error: AgentError) -> String {
+        switch error {
+        case .cancelled:
+            return "Annulé par l'utilisateur"
+        case .timeout:
+            return "Délai d'attente dépassé"
+        case .maxTurnsReached(let turns):
+            return "Nombre maximum de tours atteint (\(turns))"
+        case .noProgress(let detail):
+            return "Pas de progression: \(detail)"
+        case .transport(let detail):
+            return "Erreur de transport: \(detail)"
         }
     }
 
@@ -314,6 +345,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         chatMessages = ChatReduce.send(messages: chatMessages, text: text)
         runActive = true
         chatBusy = true
+        errorMessage = nil
         let resume = chatTranscriptID
         Task { [weak self] in
             guard let self else { return }
@@ -323,6 +355,9 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
                    decision == .ask {
                     self.pendingConfirm = (callId: callId, tool: tool)
                     self.chatConfirm = ChatConfirm(tool: tool, reason: reason)
+                }
+                if case .failed(let err) = event {
+                    self.errorMessage = self.extractErrorMessage(from: err)
                 }
                 self.chatMessages = ChatReduce.apply(messages: self.chatMessages, event: event)
             }
@@ -404,6 +439,28 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         let request = ConnectionProbeRequest(baseURL: base, model: settings.model)
         let probe = await request.run()
         let state = ConnectionMonitor.classify(probe: probe, host: base.host ?? "?")
+        
+        // Mise à jour du statut de connexion
+        await MainActor.run {
+            switch state {
+            case .online:
+                connectionStatus = .online
+                errorMessage = nil
+            case .unreachable:
+                connectionStatus = .offline
+                errorMessage = "Serveur Ollama injoignable"
+            case .loadingModel:
+                connectionStatus = .connecting
+                errorMessage = nil
+            case .agentError(let detail):
+                connectionStatus = .error(detail)
+                errorMessage = detail
+            case .unknown:
+                connectionStatus = .unknown
+                errorMessage = nil
+            }
+        }
+        
         guard !runActive else { return }
         if case .online = state {
             // Retour en ligne : ne masquer que nos propres états réseau/agent.

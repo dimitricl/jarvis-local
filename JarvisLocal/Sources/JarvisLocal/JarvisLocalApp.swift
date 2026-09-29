@@ -81,7 +81,7 @@ struct JarvisLocalApp: App {
         .defaultPosition(.center)
 
         Window("Réglages Jarvis", id: "settings") {
-            ShellSettingsView(settings: $coordinator.settings)
+            ShellSettingsView(settings: $coordinator.settings, coordinator: coordinator)
                 .onChange(of: coordinator.settings.ollamaURL) { coordinator.rebuildHost() }
                 .onChange(of: coordinator.settings.model) { coordinator.rebuildHost() }
         }

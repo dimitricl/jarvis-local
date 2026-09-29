@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2 (2026-09-29)
+
+### Refonte interface utilisateur + gestion erreurs améliorée
+- **Interface modernisée** — Nouveau design avec cartes et animations fluides, indicateur de connexion en temps réel avec animation (codes couleur : vert = en ligne, orange = connexion, rouge = hors ligne), bouton micro intégré dans la zone de saisie (préparé pour dictée vocale), header amélioré avec icône waveform
+- **Réglages enrichis** — Chargement automatique des modèles disponibles depuis le serveur Ollama avec picker dynamique, bouton de test de connexion avec rafraîchissement, affichage de la version et du statut de connexion en temps réel, message positif pour la sécurité Tailscale
+- **Gestion erreurs robuste** — Messages d'erreur détaillés et explicites pour chaque type de problème (timeout, annulation, erreur transport), gestion améliorée des timeouts et erreurs réseau, feedback utilisateur en temps réel avec icônes d'avertissement, système de statut de connexion structuré (ConnectionStatus)
+- **Architecture optimisée** — Synchronisation des settings avec ShellCoordinator pour accès au statut de connexion, nouveau type ConnectionStatus pour gérer les états (online, offline, connecting, error), fonction d'extraction d'erreurs avec messages lisibles, monitoring automatique toutes les 30 secondes
+- **Bugfixes** — Correction warning Swift 6 (variable non mutée), correction async/await inutile, suppression code unreachable, synchronisation UI avec MainActor
+- Tests : 251 tests passent, lint 0 violations, application 100% fonctionnelle avec connexion Tailscale
+
 ## 0.9.1 (2026-09-27)
 
 ### Correctifs tour de conversation + crash MCP (session Ollama distant)

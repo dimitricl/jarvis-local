@@ -160,7 +160,7 @@ final class TranscriptListTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("jarvis-shell-list-\(UUID().uuidString)", isDirectory: true)
         let store = FileTranscriptStore(directory: dir)
-        var first = Transcript(model: "m", messages: [Message(role: .user, content: "premier")])
+        let first = Transcript(model: "m", messages: [Message(role: .user, content: "premier")])
         try await store.save(first)
         try await Task.sleep(nanoseconds: 10_000_000)
         let second = Transcript(model: "m", messages: [Message(role: .user, content: "second")])
