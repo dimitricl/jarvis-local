@@ -27,7 +27,11 @@ import JarvisKit
 /// montrée insuffisante en réel, `key=false active=false` persistait),
 /// puis `hide()` la restaure à `.accessory` (un seul point de fermeture du panel, via
 /// `ShellCoordinator.applyAction` → `hide()`, audité : aucun autre
-/// `orderOut` hors de ce fichier). Le comportement `NSApp`/`NSPanel` réel
+/// `orderOut` hors de ce fichier). Second étage (panel) : le panel est
+/// `borderless`, donc `NSWindow.canBecomeKey` de base retourne `false` et
+/// `makeKeyAndOrderFront` est ignoré silencieusement (`active=true` mais
+/// `key=false` persistant) — d'où la sous-classe `HUDFocusPanel`.
+/// Le comportement `NSApp`/`NSPanel` réel
 /// reste non testable en headless ; seule la logique pure de bascule
 /// (`HUDFocusPolicy`) est couverte par test.
 public enum HUDPlacement {
@@ -69,9 +73,20 @@ public enum HUDFocusPolicy {
     public static var idle: NSApplication.ActivationPolicy { .accessory }
 }
 
+/// Le panel est `borderless` (sans barre de titre ni resize) : l'implémentation
+/// de base de `NSWindow.canBecomeKey` retourne alors `false`, et
+/// `makeKeyAndOrderFront` est ignoré silencieusement — constaté en réel :
+/// `active=true` mais `key=false` persistant malgré l'activation différée et
+/// son rejeu. La sous-classe autorise le statut key pour la saisie ; les
+/// affichages agent restent non-activants via `show()` + `.nonactivatingPanel`.
+@MainActor
+private final class HUDFocusPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 public final class HUDPanelController {
-    private let panel: NSPanel
+    private let panel: HUDFocusPanel
     private var keyMonitor: Any?
     private var lastEscape = Date.distantPast
     private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "hud")
@@ -81,7 +96,7 @@ public final class HUDPanelController {
     public var onSubmitKey: (() -> Void)?
 
     public init() {
-        let panel = NSPanel(
+        let panel = HUDFocusPanel(
             contentRect: NSRect(x: 0, y: 0, width: 340, height: 120),
             styleMask: [.nonactivatingPanel, .borderless, .utilityWindow, .hudWindow],
             backing: .buffered,
