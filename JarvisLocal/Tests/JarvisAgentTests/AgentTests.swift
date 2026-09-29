@@ -537,6 +537,11 @@ final class BudgetEtPermissionsTests: XCTestCase {
         XCTAssertFalse(sys.contains("Dimitri"))
         XCTAssertFalse(sys.contains(where: { $0.isUppercase }) && sys.contains("JAMAIS"))
         XCTAssertLessThan(sys.components(separatedBy: "\n").count, 40)
+        // Anti-refus « environnement textuel » : le prompt affirme le pilotage
+        // Mac et la découverte via tool_search (constaté : « ouvre mail »
+        // refusé sans aucun appel d'outil).
+        XCTAssertTrue(sys.contains("tool_search"))
+        XCTAssertTrue(sys.contains("`open`"))
         let named = AgentPrompts.system(profile: AgentProfile(displayName: "Ada", facts: ["aime le thé"]))
         XCTAssertTrue(named.contains("Ada"))
     }
