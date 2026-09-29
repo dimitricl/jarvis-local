@@ -140,27 +140,34 @@ public final class HUDPanelController {
     /// App `LSUIElement` (`.accessory`) : `activate()` seul ne suffit pas à
     /// arracher le focus sur macOS récent (`key=false active=false`
     /// constaté en réel) — on bascule temporairement en `.regular`,
-    /// restaurée par `hide()`. Étape 1 (bascule seule) montrée insuffisante
-    /// en réel, d'où l'étape 2 ci-dessous (`ignoringOtherApps`) — voir son
-    /// commentaire avant tout nettoyage de lint.
+    /// restaurée par `hide()`. Étapes 1 (bascule seule) et 2 (`ignoringOtherApps`
+    /// dans le même tour) montrées insuffisantes en réel, d'où l'activation
+    /// différée d'un tour ci-dessous — voir son commentaire avant tout
+    /// nettoyage de lint.
     public func showForInput() {
         show()
         panel.styleMask.remove(.nonactivatingPanel)
-        NSApp.setActivationPolicy(HUDFocusPolicy.input)
-        // Étape 2 du fix focus : `activate()` seul ne suffit pas pour une
-        // app `.accessory` sur macOS récent (constaté en réel : `active=false`
-        // malgré la bascule `.regular`). On utilise volontairement la variante
-        // `ignoringOtherApps: true`, dépréciée depuis macOS 14 mais toujours
-        // fonctionnelle — ne pas la « moderniser » sans relire ce commentaire
-        // ni sans re-tester le log `hud input:` en réel.
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-        // L'activation est asynchrone : on constate au prochain tour.
+        let policyBefore = NSApp.activationPolicy()
+        let policyOK = NSApp.setActivationPolicy(HUDFocusPolicy.input)
+        // La bascule de politique doit être traitée par le runloop avant que
+        // l'activation puisse aboutir : activer dans le même tour échoue
+        // silencieusement (constaté en réel : `key=false active=false` malgré
+        // `.regular` + `ignoringOtherApps`). D'où l'activation différée d'un
+        // tour. Le log `policyBefore/setOK/policy` permet de distinguer un
+        // refus de bascule d'un échec d'activation à politique égale.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            let key = self.panel.isKeyWindow
-            let active = NSApp.isActive
-            self.log.info("hud input: key=\(key) active=\(active)")
+            NSApp.activate(ignoringOtherApps: true)
+            self.panel.makeKeyAndOrderFront(nil)
+            let policy = NSApp.activationPolicy().rawValue
+            self.log.info("hud input: policyBefore=\(policyBefore.rawValue) setOK=\(policyOK) policy=\(policy)")
+            // L'activation est asynchrone : on constate après un délai.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self else { return }
+                let key = self.panel.isKeyWindow
+                let active = NSApp.isActive
+                self.log.info("hud input: key=\(key) active=\(active)")
+            }
         }
     }
 
