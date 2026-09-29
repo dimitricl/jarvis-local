@@ -138,10 +138,12 @@ final class ToolPermissionsTests: XCTestCase {
     }
 
     func testEcritureEtEffetsDemandent() {
-        for t in ["write_file", "edit_file", "bash", "applescript", "open",
+        for t in ["write_file", "edit_file", "bash", "applescript",
                   "screenshot", "clipboard_get", "clipboard_set", "remember"] {
             XCTAssertEqual(decision(tool: t), .ask, t)
         }
+        // open_app est maintenant autorisé par défaut
+        XCTAssertEqual(decision(tool: "open"), .allow, "open")
     }
 
     func testDenyList() {
