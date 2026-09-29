@@ -542,6 +542,7 @@ final class BudgetEtPermissionsTests: XCTestCase {
         // refusé sans aucun appel d'outil).
         XCTAssertTrue(sys.contains("tool_search"))
         XCTAssertTrue(sys.contains("`open`"))
+        XCTAssertTrue(sys.contains("nom d'application"))
         let named = AgentPrompts.system(profile: AgentProfile(displayName: "Ada", facts: ["aime le thé"]))
         XCTAssertTrue(named.contains("Ada"))
     }
