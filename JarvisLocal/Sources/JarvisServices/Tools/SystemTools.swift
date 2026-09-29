@@ -125,7 +125,34 @@ actor SystemTools {
         // Bundle ID uniquement si la chaîne en a la forme (reverse-DNS) : sinon on passait
         // des noms d'apps à une API qui attend "com.apple.Safari" et elle échouait.
         var appURL: URL?
-        if resolved.contains("."), !resolved.contains(" ") {
+        
+        // Essayer d'abord le bundle ID direct pour les apps système courantes
+        let bundleIDs: [String: String] = [
+            "safari": "com.apple.Safari",
+            "Safari": "com.apple.Safari",
+            "mail": "com.apple.Mail",
+            "Mail": "com.apple.Mail",
+            "calendar": "com.apple.iCal",
+            "Calendar": "com.apple.iCal",
+            "notes": "com.apple.Notes",
+            "Notes": "com.apple.Notes",
+            "messages": "com.apple.MobileSMS",
+            "Messages": "com.apple.MobileSMS",
+            "music": "com.apple.Music",
+            "Music": "com.apple.Music",
+            "photos": "com.apple.Photos",
+            "Photos": "com.apple.Photos",
+            "finder": "com.apple.finder",
+            "Finder": "com.apple.finder",
+            "terminal": "com.apple.Terminal",
+            "Terminal": "com.apple.Terminal"
+        ]
+        
+        if let bundleID = bundleIDs[app] ?? bundleIDs[resolved] {
+            appURL = ws.urlForApplication(withBundleIdentifier: bundleID)
+        }
+        
+        if appURL == nil, resolved.contains("."), !resolved.contains(" ") {
             appURL = ws.urlForApplication(withBundleIdentifier: resolved)
         }
         if appURL == nil, let path = bundlePath(for: resolved) {
@@ -173,6 +200,8 @@ actor SystemTools {
             "/Applications",
             "/System/Applications",
             "/System/Applications/Utilities",
+            "/System/Cryptexes/App/System/Applications",
+            "/System/Cryptexes/App/System/Applications/Utilities",
             "/Applications/Utilities",
             NSHomeDirectory() + "/Applications"
         ]
@@ -185,14 +214,24 @@ actor SystemTools {
                 let bundles = items.filter { $0.hasSuffix(".app") }
                 if !wantPartial {
                     if let exact = bundles.first(where: { fold(String($0.dropLast(4))) == target }) {
-                        return URL(fileURLWithPath: dir).appendingPathComponent(exact)
+                        let path = URL(fileURLWithPath: dir).appendingPathComponent(exact)
+                        // Résoudre les symlinks système
+                        if let resolvedPath = try? FileManager.default.destinationOfSymbolicLink(atPath: path.path) {
+                            return URL(fileURLWithPath: resolvedPath)
+                        }
+                        return path
                     }
                 } else {
                     let candidates = bundles
                         .filter { fold(String($0.dropLast(4))).contains(target) }
                         .sorted { $0.count < $1.count }
                     if let best = candidates.first {
-                        return URL(fileURLWithPath: dir).appendingPathComponent(best)
+                        let path = URL(fileURLWithPath: dir).appendingPathComponent(best)
+                        // Résoudre les symlinks système
+                        if let resolvedPath = try? FileManager.default.destinationOfSymbolicLink(atPath: path.path) {
+                            return URL(fileURLWithPath: resolvedPath)
+                        }
+                        return path
                     }
                 }
             }
