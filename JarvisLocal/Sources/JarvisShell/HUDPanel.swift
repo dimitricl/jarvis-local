@@ -142,8 +142,9 @@ public final class HUDPanelController {
     /// constaté en réel) — on bascule temporairement en `.regular`,
     /// restaurée par `hide()`. Étapes 1 (bascule seule) et 2 (`ignoringOtherApps`
     /// dans le même tour) montrées insuffisantes en réel, d'où l'activation
-    /// différée d'un tour ci-dessous — voir son commentaire avant tout
-    /// nettoyage de lint.
+    /// en réel, d'où l'activation différée d'un tour ci-dessous puis le
+    /// `makeKey` rejoué une fois l'app active (`active=true` mais `key=false`
+    /// constaté) — voir les commentaires avant tout nettoyage de lint.
     public func showForInput() {
         show()
         panel.styleMask.remove(.nonactivatingPanel)
@@ -164,9 +165,19 @@ public final class HUDPanelController {
             // L'activation est asynchrone : on constate après un délai.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self else { return }
-                let key = self.panel.isKeyWindow
-                let active = NSApp.isActive
-                self.log.info("hud input: key=\(key) active=\(active)")
+                // `makeKey` émis alors que l'app n'était pas encore active est
+                // refusé silencieusement (constaté en réel : `active=true` mais
+                // `key=false`). Si l'app est active et le panel pas key, on
+                // rejoue `makeKey` maintenant que l'activation a abouti.
+                if NSApp.isActive, !self.panel.isKeyWindow {
+                    self.panel.makeKeyAndOrderFront(nil)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                    guard let self else { return }
+                    let key = self.panel.isKeyWindow
+                    let active = NSApp.isActive
+                    self.log.info("hud input: key=\(key) active=\(active)")
+                }
             }
         }
     }
