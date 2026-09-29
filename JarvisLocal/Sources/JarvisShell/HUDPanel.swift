@@ -114,6 +114,26 @@ public final class HUDPanelController {
 
     public func setContent<Content: View>(_ view: Content) {
         panel.contentView = NSHostingView(rootView: view)
+        fitToContent()
+    }
+
+    /// Le panel a une taille fixe à la création : sans réajustement, tout
+    /// contenu dépassant est clippé hors fenêtre (constaté en réel : la
+    /// réponse `.done` rendue mais invisible, seul « ✓ terminé » affiché —
+    /// les logs `hud show` gardaient une hauteur de 69/71 pt). On ajuste la
+    /// hauteur au contenu, plafonnée pour rester un HUD.
+    private func fitToContent() {
+        guard let content = panel.contentView else { return }
+        content.layoutSubtreeIfNeeded()
+        let fitting = content.fittingSize
+        let height = min(max(fitting.height, 69), 480)
+        var frame = panel.frame
+        let delta = height - frame.height
+        guard delta != 0 else { return }
+        // Ancre le bord haut : le HUD grandit vers le bas.
+        frame.origin.y -= delta
+        frame.size.height = height
+        panel.setFrame(frame, display: false)
     }
 
     public func show() {
