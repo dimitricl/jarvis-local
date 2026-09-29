@@ -30,6 +30,8 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     @Published public var chatInput: String = ""
     @Published public var chatBusy = false
     @Published public var chatConfirm: ChatConfirm?
+    @Published public var homeExpanded = false
+    @Published public var unreadCount = 0
     private var chatTranscriptID: UUID?
 
     private var host: AgentHost?
@@ -65,6 +67,11 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         startMonitor()
         startPathMonitor()
         Task { await self.probeAndWarmup() }
+        // Ouvrir automatiquement la nouvelle interface au démarrage
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            self.homeExpanded = true
+        }
     }
 
     public func rebuildHost() {
@@ -217,7 +224,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     // MARK: - Runs agent
 
     func runAgent(prompt: String) {
-        guard let host else {
+        guard let host = self.host else {
             applyAction(.connection(.agentError(detail: "agent non initialisé")))
             return
         }
@@ -226,33 +233,34 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         hudState = .thinking
         refreshPanel()
         panel?.show()
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             let stream = await host.run(prompt: prompt)
             var finalText = ""
             for await event in stream {
                 if case .toolStarted(_, let name, let preview) = event {
-                    steps.append("⚙ \(name) \(preview.prefix(60))")
+                    self.steps.append("⚙ \(name) \(preview.prefix(60))")
                 }
                 if case .permissionRequested(let callId, let tool, _, let decision) = event,
                    decision == .ask {
-                    pendingConfirm = (callId: callId, tool: tool)
-                    panel?.onConfirmKey = { [weak self] allowed in
+                    self.pendingConfirm = (callId: callId, tool: tool)
+                    self.panel?.onConfirmKey = { [weak self] allowed in
                         self?.answerConfirm(allowed: allowed, always: false)
                     }
                 }
                 if case .done(let text, _, _) = event { finalText = text }
-                applyAction(.agentEvent(event))
-                refreshPanel()
+                self.applyAction(.agentEvent(event))
+                self.refreshPanel()
             }
-            runActive = false
-            pendingConfirm = nil
-            panel?.onConfirmKey = nil
-            if settings.ttsEnabled, !finalText.isEmpty {
-                hudState = .speaking(text: String(finalText.prefix(120)))
-                refreshPanel()
-                await voice?.speak(finalText, enabled: true)
+            self.runActive = false
+            self.pendingConfirm = nil
+            self.panel?.onConfirmKey = nil
+            if self.settings.ttsEnabled, !finalText.isEmpty {
+                self.hudState = .speaking(text: String(finalText.prefix(120)))
+                self.refreshPanel()
+                await self.voice?.speak(finalText, enabled: true)
             }
-            scheduleAutoHide()
+            self.scheduleAutoHide()
         }
     }
 
@@ -301,27 +309,28 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     /// reprise (`chatTranscriptID`, chaîné en fin de run).
     func sendChat() {
         let text = chatInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !runActive, let host else { return }
+        guard !text.isEmpty, !runActive, let host = self.host else { return }
         chatInput = ""
         chatMessages = ChatReduce.send(messages: chatMessages, text: text)
         runActive = true
         chatBusy = true
         let resume = chatTranscriptID
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             let stream = await host.run(prompt: text, resumeFrom: resume)
             for await event in stream {
                 if case .permissionRequested(let callId, let tool, let reason, let decision) = event,
                    decision == .ask {
-                    pendingConfirm = (callId: callId, tool: tool)
-                    chatConfirm = ChatConfirm(tool: tool, reason: reason)
+                    self.pendingConfirm = (callId: callId, tool: tool)
+                    self.chatConfirm = ChatConfirm(tool: tool, reason: reason)
                 }
-                chatMessages = ChatReduce.apply(messages: chatMessages, event: event)
+                self.chatMessages = ChatReduce.apply(messages: self.chatMessages, event: event)
             }
-            runActive = false
-            chatBusy = false
-            pendingConfirm = nil
-            chatConfirm = nil
-            chatTranscriptID = await host.lastTranscriptID()
+            self.runActive = false
+            self.chatBusy = false
+            self.pendingConfirm = nil
+            self.chatConfirm = nil
+            self.chatTranscriptID = await host.lastTranscriptID()
         }
     }
 
@@ -331,6 +340,23 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         chatTranscriptID = nil
         chatMessages = []
         chatConfirm = nil
+        unreadCount = 0
+    }
+    
+    public func toggleHome() {
+        homeExpanded.toggle()
+        if homeExpanded {
+            unreadCount = 0
+        }
+    }
+    
+    public func showHome() {
+        homeExpanded = true
+        unreadCount = 0
+    }
+    
+    public func hideHome() {
+        homeExpanded = false
     }
 
     private func scheduleAutoHide() {

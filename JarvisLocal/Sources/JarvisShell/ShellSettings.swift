@@ -32,9 +32,9 @@ public struct ShellSettings: Sendable {
         let env = ProcessInfo.processInfo.environment
         self.ollamaURL = defaults.string(forKey: Self.urlKey)
             ?? env["JARVIS_OLLAMA_URL"]
-            ?? "http://localhost:11434"
+            ?? "http://100.101.108.111:11434"
         self.model = defaults.string(forKey: Self.modelKey)
-            ?? env["JARVIS_MODEL"] ?? "gemma4:e4b"
+            ?? env["JARVIS_MODEL"] ?? "gemma4:12b"
         let savedCtx = defaults.object(forKey: Self.numCtxKey) as? Int ?? 16384
         self.numCtx = max(2048, min(savedCtx, 32768))
         self.hotkeyKeyCode = defaults.object(forKey: Self.hotkeyKey) as? Int ?? 105
