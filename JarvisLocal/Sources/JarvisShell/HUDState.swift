@@ -24,6 +24,10 @@ public enum HUDState: Sendable, Equatable {
     case unavailable(detail: String)
     /// Modèle en chargement : durée écoulée visible, jamais de spinner muet.
     case loading(elapsed: Double)
+    /// Run terminé en échec : le message reste affiché au lieu de disparaître
+    /// (un `.failed` qui retombe à `.idle` fait croire que rien ne s'est passé).
+    /// Seule l'annulation volontaire (Échap) masque le HUD.
+    case failed(message: String)
     /// Contexte saturé : compaction en cours.
     case compacting
 
@@ -47,6 +51,7 @@ public enum HUDState: Sendable, Equatable {
         case .unreachable: return "⚠ serveur injoignable"
         case .unavailable: return "⚠ agent indisponible"
         case .loading(let e): return "… chargement \(Int(e)) s"
+        case .failed: return "⚠ échec"
         case .compacting: return "… compaction"
         }
     }
@@ -127,7 +132,16 @@ public enum HUDReduce {
             return .confirming(tool: name, reason: reason, callId: callId)
         case .compacted: return .compacting
         case .done(let text, _, _): return .done(summary: String(text.prefix(HUDReduce.doneSummaryMax)))
-        case .failed: return .idle
+        case .failed(let err):
+            // Annulation volontaire : on masque. Tout autre échec reste
+            // affiché avec sa cause (sinon le HUD disparaît sans réponse).
+            switch err {
+            case .cancelled: return .idle
+            case .timeout: return .failed(message: "Délai dépassé")
+            case .maxTurnsReached(let t): return .failed(message: "Sans conclusion après \(t) tours")
+            case .noProgress(let d): return .failed(message: d)
+            case .transport(let d): return .failed(message: String(d.prefix(160)))
+            }
         }
     }
 }

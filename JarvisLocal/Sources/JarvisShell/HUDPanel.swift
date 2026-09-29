@@ -226,14 +226,17 @@ public final class HUDPanelController {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, self.panel.isVisible else { return event }
-            // Entrée (36) / pavé (76) : autoriser ou envoyer.
+            // Entrée (36) / pavé (76) : autoriser ou envoyer, une seule fois.
             if event.keyCode == 36 || event.keyCode == 76 {
                 if self.onConfirmKey != nil {
                     self.onConfirmKey?(true)
                     return nil
                 }
+                // On avale l'événement : sinon `TextField.onCommit` le
+                // resoumet (constaté en réel : 3 runs concurrents pour un seul
+                // Entrée, qui s'annulent et pilonnent le serveur).
                 self.onSubmitKey?()
-                return event
+                return nil
             }
             // Échap (53) : sur confirmation = refuser ; ×2 rapide = interrompre.
             if event.keyCode == 53 {

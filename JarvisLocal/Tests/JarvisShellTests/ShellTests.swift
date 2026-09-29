@@ -40,7 +40,7 @@ final class HUDStateTests: XCTestCase {
             .done(summary: "fini"))
         XCTAssertEqual(
             HUDReduce.reduce(state: .thinking, action: .agentEvent(.failed(.timeout)), runActive: true),
-            .idle)
+            .failed(message: "Délai dépassé"))
     }
 
     func testConnectionNeMasquePasUnRun() {
@@ -56,6 +56,23 @@ final class HUDStateTests: XCTestCase {
     func testInterruptEtDismiss() {
         XCTAssertEqual(HUDReduce.reduce(state: .acting(tool: "x", target: ""), action: .interrupted, runActive: true), .idle)
         XCTAssertEqual(HUDReduce.reduce(state: .done(summary: "x"), action: .dismiss, runActive: false), .idle)
+    }
+
+    func testEchecVisibleSaufAnnulation() {
+        // Un échec reste affiché avec sa cause ; seule l'annulation masque.
+        XCTAssertEqual(
+            HUDReduce.reduce(state: .thinking, action: .agentEvent(.failed(.cancelled)), runActive: true),
+            .idle)
+        XCTAssertEqual(
+            HUDReduce.reduce(
+                state: .thinking, action: .agentEvent(.failed(.transport("boom"))), runActive: true),
+            .failed(message: "boom"))
+        XCTAssertEqual(
+            HUDReduce.reduce(
+                state: .thinking, action: .agentEvent(.failed(.maxTurnsReached(turns: 30))), runActive: true),
+            .failed(message: "Sans conclusion après 30 tours"))
+        XCTAssertTrue(HUDState.failed(message: "x").isVisible)
+        XCTAssertEqual(HUDState.failed(message: "x").pill, "⚠ échec")
     }
 
     func testPillsExplicites() {

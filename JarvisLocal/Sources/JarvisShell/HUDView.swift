@@ -78,6 +78,12 @@ public struct HUDView: View {
                     Button("Réessayer") { onRetry() }.buttonStyle(.glass)
                 }
             }
+            if case .failed(let message) = state {
+                HStack {
+                    Text(message).font(.system(size: 12)).lineLimit(4)
+                    Button("Réessayer") { onRetry() }.buttonStyle(.glass)
+                }
+            }
             // La réponse du run : sans ce bloc, `.done` n'affichait que la
             // pastille « ✓ terminé » et le texte final était perdu à
             // l'affichage. Zone scrollable à hauteur bornée : la réponse
@@ -127,6 +133,7 @@ public struct HUDView: View {
         case .done: .green
         case .unreachable: .red
         case .unavailable: .red
+        case .failed: .red
         case .compacting: .blue
         }
         Circle().fill(color).frame(width: 8, height: 8)
