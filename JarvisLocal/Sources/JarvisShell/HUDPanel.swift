@@ -22,8 +22,10 @@ import JarvisKit
 /// frontale précédente : le log constatait
 /// `hud input: key=false active=false` malgré
 /// `activate() + makeKeyAndOrderFront`. Le correctif bascule temporairement
-/// la politique d'activation à `.regular` avant d'activer, puis `hide()`
-/// la restaure à `.accessory` (un seul point de fermeture du panel, via
+/// la politique d'activation à `.regular` puis force l'activation via
+/// `activate(ignoringOtherApps: true)` (étape 2 : la bascule seule s'est
+/// montrée insuffisante en réel, `key=false active=false` persistait),
+/// puis `hide()` la restaure à `.accessory` (un seul point de fermeture du panel, via
 /// `ShellCoordinator.applyAction` → `hide()`, audité : aucun autre
 /// `orderOut` hors de ce fichier). Le comportement `NSApp`/`NSPanel` réel
 /// reste non testable en headless ; seule la logique pure de bascule
@@ -138,15 +140,20 @@ public final class HUDPanelController {
     /// App `LSUIElement` (`.accessory`) : `activate()` seul ne suffit pas à
     /// arracher le focus sur macOS récent (`key=false active=false`
     /// constaté en réel) — on bascule temporairement en `.regular`,
-    /// restaurée par `hide()`. Étape 1 du fix focus ; si le log montre
-    /// encore `active=false`, l'étape 2 envisagée est
-    /// `activate(ignoringOtherApps: true)` (dépréciée depuis macOS 14 mais
-    /// fonctionnelle — ne l'ajouter qu'après confirmation par le log).
+    /// restaurée par `hide()`. Étape 1 (bascule seule) montrée insuffisante
+    /// en réel, d'où l'étape 2 ci-dessous (`ignoringOtherApps`) — voir son
+    /// commentaire avant tout nettoyage de lint.
     public func showForInput() {
         show()
         panel.styleMask.remove(.nonactivatingPanel)
         NSApp.setActivationPolicy(HUDFocusPolicy.input)
-        NSApp.activate()
+        // Étape 2 du fix focus : `activate()` seul ne suffit pas pour une
+        // app `.accessory` sur macOS récent (constaté en réel : `active=false`
+        // malgré la bascule `.regular`). On utilise volontairement la variante
+        // `ignoringOtherApps: true`, dépréciée depuis macOS 14 mais toujours
+        // fonctionnelle — ne pas la « moderniser » sans relire ce commentaire
+        // ni sans re-tester le log `hud input:` en réel.
+        NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         // L'activation est asynchrone : on constate au prochain tour.
         DispatchQueue.main.async { [weak self] in
