@@ -16,6 +16,16 @@ public enum ConnectionStatus: Sendable {
     case online
     case offline
     case error(String)
+    
+    public var description: String {
+        switch self {
+        case .unknown: return "Statut inconnu"
+        case .connecting: return "Connexion..."
+        case .online: return "En ligne"
+        case .offline: return "Hors ligne"
+        case .error(let msg): return "Erreur: \(msg)"
+        }
+    }
 }
 
 /// L3 — coordinateur du shell : hotkey, HUD, voix, monitor, agent.

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.3] - 2026-09-29
+
+### Correction outils système + permissions améliorées
+- **Permissions open_app** — L'outil `open_app` est maintenant autorisé par défaut (était `ask`), permettant l'ouverture d'applications sans confirmation utilisateur permanente
+- **Support applications système** — Ajout des chemins Cryptexes pour macOS 26+ (`/System/Cryptexes/App/System/Applications`), mapping direct des bundle IDs pour apps système courantes (Safari, Mail, Calendar, Notes, Messages, Music, Photos, Finder, Terminal), résolution automatique des symlinks système
+- **Tests améliorés** — Ajout de tests unitaires pour l'ouverture de Safari et Mail, mise à jour du test de permissions pour refléter le nouveau comportement `allow` par défaut
+- **Connexion indicateur** — Ajout de la propriété `description` à `ConnectionStatus` pour un affichage cohérent du statut, amélioration de l'indicateur de connexion dans HomeView avec utilisation de la nouvelle propriété
+- **Tests** : Tous les tests passent (284 fichiers Swift), build réussi
+
 ## [0.9.2] - 2026-09-29
 
 ### Refonte interface utilisateur + gestion erreurs améliorée

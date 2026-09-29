@@ -47,6 +47,14 @@ public struct HomeView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             
+            // Indicateur de connexion
+            HStack {
+                ConnectionIndicator(status: coordinator.connectionStatus)
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            
             // Zone de saisie
             inputArea
         }
@@ -334,7 +342,7 @@ struct ConnectionIndicator: View {
                     }
                 }
             
-            Text(textForStatus)
+            Text(status.description)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -351,21 +359,6 @@ struct ConnectionIndicator: View {
             return .red
         case .unknown:
             return .gray
-        }
-    }
-    
-    private var textForStatus: String {
-        switch status {
-        case .online:
-            return "En ligne"
-        case .connecting:
-            return "Connexion..."
-        case .offline:
-            return "Hors ligne"
-        case .error:
-            return "Erreur"
-        case .unknown:
-            return "Inconnu"
         }
     }
     
