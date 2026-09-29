@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import os
 import JarvisKit
 
 /// L3 — panneau HUD : `NSPanel` non activant, flottant, tous espaces +
@@ -43,6 +44,7 @@ public final class HUDPanelController {
     private let panel: NSPanel
     private var keyMonitor: Any?
     private var lastEscape = Date.distantPast
+    private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "hud")
 
     public var onConfirmKey: ((Bool) -> Void)?
     public var onEscapeKey: (() -> Void)?
@@ -71,6 +73,7 @@ public final class HUDPanelController {
 
     public func show() {
         guard let screen = screenAtCursor() else {
+            log.info("hud show: no screen at cursor, centering")
             panel.center()
             orderFront()
             return
@@ -79,10 +82,13 @@ public final class HUDPanelController {
         let mouse = NSEvent.mouseLocation
         panel.setFrame(HUDPlacement.frame(
             panelSize: size, mouseLocation: mouse, screenFrame: screen.frame), display: true)
+        let frameDesc = String(describing: panel.frame)
+        log.info("hud show: frame=\(frameDesc, privacy: .public)")
         orderFront()
     }
 
     public func hide() {
+        log.info("hud hide")
         panel.orderOut(nil)
         lastEscape = .distantPast
     }

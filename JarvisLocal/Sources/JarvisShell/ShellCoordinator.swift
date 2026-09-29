@@ -45,11 +45,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
 
     public func boot() {
         rebuildHost()
-        let panel = HUDPanelController()
-        self.panel = panel
-        panel.onConfirmKey = { [weak self] allowed in self?.answerConfirm(allowed: allowed, always: false) }
-        panel.onEscapeKey = { [weak self] in self?.interrupt() }
-        panel.onSubmitKey = { [weak self] in self?.submitInput() }
+        ensurePanel()
         let hotkey = HotkeyManager(
             config: HotkeyConfig(keyCode: settings.hotkeyKeyCode),
             onGesture: { [weak self] gesture in Task { @MainActor in await self?.handleGesture(gesture) } },
@@ -91,13 +87,33 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     // MARK: - HUD
 
     public func showHUD() {
+        ensurePanel()
         hudState = .transcribing(text: "")
+        let hasPanel = panel != nil
+        log.info("showHUD: panel=\(hasPanel ? "present" : "nil", privacy: .public)")
         refreshPanel()
         panel?.show()
     }
 
+    /// Filet : si une instance non `boot()`ée reçoit un ordre UI (cf.
+    /// `JarvisLocalApp.init`), on (re)crée le panneau au lieu de rester muet.
+    private func ensurePanel() {
+        if panel == nil {
+            let created = HUDPanelController()
+            created.onConfirmKey = { [weak self] allowed in self?.answerConfirm(allowed: allowed, always: false) }
+            created.onEscapeKey = { [weak self] in self?.interrupt() }
+            created.onSubmitKey = { [weak self] in self?.submitInput() }
+            panel = created
+        }
+    }
+
+    internal var panelExists: Bool { panel != nil }
+
     private func applyAction(_ action: HUDAction) {
         hudState = HUDReduce.reduce(state: hudState, action: action, runActive: runActive)
+        let desc = String(describing: hudState)
+        let visible = hudState.isVisible
+        log.debug("applyAction -> \(desc, privacy: .public) visible=\(visible)")
         if hudState.isVisible {
             refreshPanel()
             panel?.show()

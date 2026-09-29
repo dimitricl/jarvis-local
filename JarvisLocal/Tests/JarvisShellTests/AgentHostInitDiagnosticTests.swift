@@ -64,4 +64,16 @@ final class AgentErrorStateTests: XCTestCase {
         if case .unreachable = coordinator.hudState { return }
         XCTFail("attendu .unreachable après retry forcé, obtenu \(coordinator.hudState)")
     }
+
+    @MainActor
+    func testShowHUDSansBootCreeLePanel() {
+        // Instance jamais boot()ée (cas SwiftUI : wrappedValue jeté dans init)
+        // : showHUD doit auto-créer le panneau au lieu de rester muet.
+        let coordinator = ShellCoordinator(settings: ShellSettings(
+            defaults: UserDefaults(suiteName: "jarvis-diagnostic-\(UUID().uuidString)")!))
+        XCTAssertFalse(coordinator.panelExists)
+        coordinator.showHUD()
+        XCTAssertTrue(coordinator.panelExists)
+        XCTAssertEqual(coordinator.hudState, .transcribing(text: ""))
+    }
 }

@@ -29,14 +29,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct JarvisLocalApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var coordinator = ShellCoordinator()
+    @StateObject private var coordinator: ShellCoordinator
     @Environment(\.openWindow) private var openWindow
     private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "app")
 
     init() {
+        // NE PAS toucher au wrappedValue avant installation : SwiftUI peut
+        // jeter l'instance créée dans `init` et en gérer une autre — le menu
+        // parlait alors à un coordinateur jamais `boot()`é (panel nil, HUD
+        // muet) pendant que l'orphelin sondait en fond. Constaté en réel
+        // (showHUD sans jamais un seul `hud show`). On installe explicitement
+        // l'instance bootée comme valeur gérée : c'est LA SEULE instance.
+        let booted = ShellCoordinator()
+        _coordinator = StateObject(wrappedValue: booted)
         // `App` est MainActor-isolé : démarrage explicite ici, une seule fois.
         // Le coordinateur possède tout (hotkey, HUD, voix, monitor).
-        coordinator.boot()
+        booted.boot()
         log.info("Jarvis shell boot")
     }
 

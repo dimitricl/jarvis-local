@@ -266,6 +266,12 @@
   `unreachable`, `loading`, `unavailable`), jamais la saisie/écoute/run ;
   le bouton « Réessayer » force (`force: true`). Couvert par
   `testSondeAutoNArrachePasLaSaisie`.
+- HUD muet malgré `showHUD` — double instance SwiftUI : `coordinator.boot()`
+  sur le wrappedValue dans `App.init()` bootait une instance que SwiftUI
+  jetait (l'orpheline sondait en fond, le menu parlait à une neuve au panel
+  nil ; prouvé : 3× `showHUD` sans un seul `hud show` dans le stream).
+  Fix = `_coordinator = StateObject(wrappedValue: booted)` + `ensurePanel()`
+  auto-curatif dans `showHUD`, couvert par `testShowHUDSansBootCreeLePanel`.
 
 - Phase 0 (socle harnais d'évaluation) — nouveau `JarvisEval` (CLI) + `JarvisEvalKit`
   (parseur YAML contraint, sonde `/api/tags`+`/api/ps`, politique HTTP clair limitée
