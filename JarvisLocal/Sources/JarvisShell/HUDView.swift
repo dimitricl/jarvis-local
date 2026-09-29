@@ -78,6 +78,14 @@ public struct HUDView: View {
                     Button("Réessayer") { onRetry() }.buttonStyle(.glass)
                 }
             }
+            // La réponse du run : sans ce bloc, `.done` n'affichait que la
+            // pastille « ✓ terminé » et le texte final était perdu à
+            // l'affichage (constaté en réel : « juste terminé », pas de réponse).
+            if case .done(let summary) = state, !summary.isEmpty {
+                Text(summary)
+                    .font(.system(size: 12))
+                    .lineLimit(8)
+            }
             if !steps.isEmpty {
                 Divider()
                 ForEach(steps.suffix(6), id: \.self) { step in
