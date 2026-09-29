@@ -171,8 +171,22 @@ final class TranscriptListTests: XCTestCase {
         _ = first
     }
 
-    func testHistoryLoadingResume() async throws {
+    func testDeleteRemovesConversation() async throws {
         let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jarvis-shell-del-\(UUID().uuidString)", isDirectory: true)
+        let store = FileTranscriptStore(directory: dir)
+        let transcript = Transcript(model: "m", messages: [Message(role: .user, content: "éphémère")])
+        try await store.save(transcript)
+        let afterSave = try await store.listIDs()
+        XCTAssertEqual(afterSave.count, 1)
+        try await store.delete(id: transcript.id)
+        let afterDelete = try await store.listIDs()
+        XCTAssertTrue(afterDelete.isEmpty)
+        let reloaded = try await store.load(id: transcript.id)
+        XCTAssertNil(reloaded)
+    }
+
+    func testHistoryLoadingResume() async throws {        let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("jarvis-shell-hist-\(UUID().uuidString)", isDirectory: true)
         let store = FileTranscriptStore(directory: dir)
         let transcript = Transcript(model: "m", messages: [Message(role: .user, content: "bonjour monde")])

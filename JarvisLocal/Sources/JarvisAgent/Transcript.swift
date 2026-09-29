@@ -32,6 +32,7 @@ public protocol TranscriptStore: Sendable {
     func load(id: UUID) async throws -> Transcript?
     /// Identifiants connus, du plus récent au plus ancien (I/O locale pure).
     func listIDs() async throws -> [UUID]
+    func delete(id: UUID) async throws
 }
 
 /// Stockage fichier JSON (un fichier par transcript). Acteur : I/O
@@ -69,6 +70,10 @@ public actor FileTranscriptStore: TranscriptStore {
             ids.append((id, mtime))
         }
         return ids.sorted { $0.1 > $1.1 }.map { $0.0 }
+    }
+
+    public func delete(id: UUID) async throws {
+        try FileManager.default.removeItem(at: url(for: id))
     }
 }
 

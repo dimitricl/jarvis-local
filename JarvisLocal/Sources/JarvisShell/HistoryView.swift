@@ -17,13 +17,23 @@ public struct HistoryView: View {
 
     public var body: some View {
         NavigationSplitView {
-            List(transcripts, selection: $selectedID) { item in
-                VStack(alignment: .leading) {
-                    Text(item.preview).lineLimit(1)
-                    Text(item.date, style: .date)
-                        .font(.caption).foregroundStyle(.secondary)
+            List(selection: $selectedID) {
+                ForEach(transcripts) { item in
+                    VStack(alignment: .leading) {
+                        Text(item.preview).lineLimit(1)
+                        Text(item.date, style: .date)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .tag(item.id)
+                    .contextMenu {
+                        Button("Supprimer", role: .destructive) {
+                            Task { @MainActor in await delete([item.id]) }
+                        }
+                    }
                 }
-                .tag(item.id)
+                .onDelete { offsets in
+                    Task { @MainActor in await deleteOffsets(offsets) }
+                }
             }
             .navigationTitle("Historique")
             .task { await reload() }
@@ -31,6 +41,16 @@ public struct HistoryView: View {
                 // `Task` nu = fond : muter un `@State` hors MainActor perd la
                 // mise à jour (clic sans effet sur le détail).
                 Task { @MainActor in await loadDetail(id: id) }
+            }
+            .onDeleteCommand { Task { @MainActor in await deleteSelection() } }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Supprimer la conversation", systemImage: "trash") {
+                        Task { @MainActor in await deleteSelection() }
+                    }
+                    .disabled(selectedID == nil)
+                    .help("Supprimer la conversation sélectionnée")
+                }
             }
         } detail: {
             ScrollView {
@@ -74,6 +94,24 @@ public struct HistoryView: View {
             return
         }
         detail = transcript.messages
+    }
+
+    private func deleteOffsets(_ offsets: IndexSet) async {
+        await delete(offsets.map { transcripts[$0].id })
+    }
+
+    private func deleteSelection() async {
+        guard let selectedID else { return }
+        await delete([selectedID])
+    }
+
+    private func delete(_ ids: [UUID]) async {
+        for id in ids { try? await store.delete(id: id) }
+        transcripts.removeAll { ids.contains($0.id) }
+        if let selectedID, ids.contains(selectedID) {
+            self.selectedID = nil
+            detail = []
+        }
     }
 }
 
