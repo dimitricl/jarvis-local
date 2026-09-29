@@ -72,6 +72,12 @@ public struct HUDView: View {
                     Button("Réessayer") { onRetry() }.buttonStyle(.glass)
                 }
             }
+            if case .unavailable(let detail) = state {
+                HStack {
+                    Text(String(detail.prefix(120))).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                    Button("Réessayer") { onRetry() }.buttonStyle(.glass)
+                }
+            }
             if !steps.isEmpty {
                 Divider()
                 ForEach(steps.suffix(6), id: \.self) { step in
@@ -107,6 +113,7 @@ public struct HUDView: View {
         case .speaking: .green
         case .done: .green
         case .unreachable: .red
+        case .unavailable: .red
         case .compacting: .blue
         }
         Circle().fill(color).frame(width: 8, height: 8)

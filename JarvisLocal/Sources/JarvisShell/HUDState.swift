@@ -17,6 +17,11 @@ public enum HUDState: Sendable, Equatable {
     case done(summary: String)
     /// Serveur injoignable : UNE ligne + bouton réessayer (état normal).
     case unreachable(host: String)
+    /// Agent indisponible alors que le réseau va bien (échec d'init :
+    /// config, permission, disque). DISTINCT de `unreachable` : ne jamais
+    /// mentir sur la cause — le polling réseau continue en fond et le HUD
+    /// reflète son résultat dès qu'il arrive.
+    case unavailable(detail: String)
     /// Modèle en chargement : durée écoulée visible, jamais de spinner muet.
     case loading(elapsed: Double)
     /// Contexte saturé : compaction en cours.
@@ -40,6 +45,7 @@ public enum HUDState: Sendable, Equatable {
         case .speaking: return "♪ parole"
         case .done: return "✓ terminé"
         case .unreachable: return "⚠ serveur injoignable"
+        case .unavailable: return "⚠ agent indisponible"
         case .loading(let e): return "… chargement \(Int(e)) s"
         case .compacting: return "… compaction"
         }
@@ -64,6 +70,10 @@ public enum ConnectionState: Sendable, Equatable {
     case online(rttMs: Double, modelResident: Bool)
     case loadingModel(elapsed: Double)
     case unreachable(host: String)
+    /// L'agent ne peut pas tourner (init impossible), indépendamment du
+    /// réseau. Le polling (`ConnectionProbeRequest`) reste découplé : il
+    /// continue et écrase cet état par le vrai état réseau dès qu'il rend.
+    case agentError(detail: String)
 
     public var hudState: HUDState? {
         switch self {
@@ -71,6 +81,7 @@ public enum ConnectionState: Sendable, Equatable {
         case .online: return nil
         case .loadingModel(let e): return .loading(elapsed: e)
         case .unreachable(let h): return .unreachable(host: h)
+        case .agentError(let d): return .unavailable(detail: d)
         }
     }
 }

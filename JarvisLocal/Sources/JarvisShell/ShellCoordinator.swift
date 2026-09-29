@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import Foundation
 import Network
+import os
 import SwiftUI
 import JarvisKit
 import JarvisAgent
@@ -34,6 +35,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
     private var runActive = false
     private var pendingConfirm: (callId: String, tool: String)?
     private var lastHostKey = ""
+    private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "shell")
 
     public init(settings: ShellSettings = ShellSettings()) {
         self.settings = settings
@@ -66,9 +68,14 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         let key = "\(settings.ollamaURL)|\(settings.model)|\(settings.numCtx)"
         guard key != lastHostKey else { return }
         lastHostKey = key
-        host = try? AgentHost(runtime: AgentHost.Runtime(settings: settings))
-        if host == nil {
-            applyAction(.connection(.unreachable(host: settings.ollamaURL)))
+        do {
+            host = try AgentHost(runtime: AgentHost.Runtime(settings: settings))
+        } catch {
+            host = nil
+            // État DISTINCT du réseau : le polling continue en fond et le
+            // HUD affichera le vrai état réseau dès la prochaine sonde.
+            log.error("AgentHost init failed: \(String(describing: error), privacy: .public)")
+            applyAction(.connection(.agentError(detail: String(describing: error))))
         }
     }
 
@@ -181,7 +188,7 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
 
     func runAgent(prompt: String) {
         guard let host else {
-            applyAction(.connection(.unreachable(host: settings.ollamaURL)))
+            applyAction(.connection(.agentError(detail: "agent non initialisé")))
             return
         }
         runActive = true
@@ -291,8 +298,10 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
         let state = ConnectionMonitor.classify(probe: probe, host: base.host ?? "?")
         guard !runActive else { return }
         if case .online = state {
-            // Retour en ligne : ne masquer que nos propres états réseau.
-            if isUnreachableState || isLoadingState {
+            // Retour en ligne : ne masquer que nos propres états réseau/agent.
+            // `.unavailable` (échec d'init) est écrasé par la vérité réseau :
+            // le polling est découplé de l'existence d'un AgentHost valide.
+            if isUnreachableState || isLoadingState || isUnavailableState {
                 applyAction(.dismiss)
             }
         } else {
@@ -307,6 +316,11 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
 
     private var isLoadingState: Bool {
         if case .loading = hudState { return true }
+        return false
+    }
+
+    private var isUnavailableState: Bool {
+        if case .unavailable = hudState { return true }
         return false
     }
 

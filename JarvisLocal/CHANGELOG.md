@@ -244,6 +244,24 @@
 
 ## [Non publié]
 
+- HUD « serveur injoignable » fantôme — cause racine = URL Ollama en IP
+  Tailscale brute (`100.101.108.111`), bloquée par l'ATS (HTTP clair autorisé
+  vers `localhost` + `*.ts.net` uniquement, jamais vers un littéral IP) alors
+  que `curl` passait : fix = nom MagicDNS dans les réglages
+  (`mac-mini-de-dimitri.tail1cd9dd.ts.net`), aucun code requis pour ce point.
+- Erreur agent distincte du réseau — `rebuildHost()` ne ment plus avec le
+  triangle `.unreachable` quand `AgentHost.init()` lève : nouvel état
+  `ConnectionState.agentError` → `HUDState.unavailable` (pastille « agent
+  indisponible » + détail + Réessayer), `os_log` (`shell`) au lieu du `print`
+  invisible, et `probeTick` laisse la vérité réseau écraser `.unavailable`
+  (polling découplé de l'agent, par construction).
+- `tagsRTT()` best-effort réel — un échec transitoire passe à la 2e tentative
+  (`continue`) au lieu de tuer la sonde (`return nil` → faux `.unreachable`).
+  Classification `ConnectionMonitor` inchangée (déjà correcte).
+- Tests : `AgentHostInitDiagnosticTests` (init URL Tailscale ne lève pas) +
+  `AgentErrorStateTests` (reduce + `rebuildHost` KO → `.unavailable`, run en
+  cours préservé) ; `testClassify` couvrait déjà `{"models":[]}` → loading.
+
 - Phase 0 (socle harnais d'évaluation) — nouveau `JarvisEval` (CLI) + `JarvisEvalKit`
   (parseur YAML contraint, sonde `/api/tags`+`/api/ps`, politique HTTP clair limitée
   au tailnet, rapport RTT/load/inférence séparés) + 30 scénarios `evals/*.yaml`

@@ -3,9 +3,8 @@ import XCTest
 
 /// Diagnostic étape 1 (HUD « serveur injoignable ») : vérifie qu'un
 /// `AgentHost.init()` avec l'URL Tailscale réelle ne lève pas hors GUI.
-/// Si ce test échoue, la cause est l'init (et `rebuildHost()` pousse à
-/// raison `.unreachable`). S'il passe, la cause est ailleurs (binaire
-/// obsolète sans `network.client`, probe, ou état initial).
+/// Si ce test échoue, la cause est l'init. S'il passe, la cause est
+/// ailleurs (binaire obsolète, probe, ou état initial).
 final class AgentHostInitDiagnosticTests: XCTestCase {
     func testInitAvecURLTailscaleNeLevePas() throws {
         var s = ShellSettings(defaults: UserDefaults(suiteName: "jarvis-diagnostic-\(UUID().uuidString)")!)
@@ -15,6 +14,39 @@ final class AgentHostInitDiagnosticTests: XCTestCase {
             _ = try AgentHost(runtime: AgentHost.Runtime(settings: s))
         } catch {
             XCTFail("AgentHost.init a levé avec l'URL Tailscale : \(error)")
+        }
+    }
+}
+
+/// Verrous étape 3 (points 4-5) : un échec d'init pousse un état DISTINCT
+/// du réseau (`.unavailable`, jamais le triangle `.unreachable` menteur),
+/// sans écraser un run en cours.
+final class AgentErrorStateTests: XCTestCase {
+    func testAgentErrorDonneEtatDistinctDeUnreachable() {
+        let viaReduce = HUDReduce.reduce(
+            state: .idle, action: .connection(.agentError(detail: "boom")), runActive: false)
+        if case .unavailable(let detail) = viaReduce {
+            XCTAssertEqual(detail, "boom")
+        } else {
+            XCTFail("attendu .unavailable, obtenu \(viaReduce)")
+        }
+        // Un run en cours prime : l'erreur agent ne l'écrase pas.
+        let acting = HUDState.acting(tool: "bash", target: "ls")
+        XCTAssertEqual(
+            HUDReduce.reduce(state: acting, action: .connection(.agentError(detail: "x")), runActive: true),
+            acting)
+    }
+
+    @MainActor
+    func testRebuildHostEchecInitNeMentPasUnreachable() {
+        var s = ShellSettings(defaults: UserDefaults(suiteName: "jarvis-diagnostic-\(UUID().uuidString)")!)
+        s.ollamaURL = "http://example.com:11434" // hôte distant non-TLS → init lève
+        let coordinator = ShellCoordinator(settings: s)
+        coordinator.rebuildHost()
+        if case .unavailable(let detail) = coordinator.hudState {
+            XCTAssertFalse(detail.isEmpty)
+        } else {
+            XCTFail("attendu .unavailable (pas .unreachable), obtenu \(coordinator.hudState)")
         }
     }
 }

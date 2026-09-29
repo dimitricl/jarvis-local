@@ -59,6 +59,8 @@ public struct ConnectionProbeRequest: Sendable {
     }
 
     private func tagsRTT() async -> Double? {
+        // Best des 2 tentatives : un échec transitoire ne condamne jamais
+        // la sonde (sinon faux `unreachable` alors que le serveur va bien).
         var best: Double?
         for _ in 1...2 {
             var req = URLRequest(url: baseURL.appendingPathComponent("api/tags"))
@@ -66,11 +68,11 @@ public struct ConnectionProbeRequest: Sendable {
             let start = Date()
             do {
                 let (_, resp) = try await URLSession.shared.data(for: req)
-                guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+                guard (resp as? HTTPURLResponse)?.statusCode == 200 else { continue }
                 let ms = Date().timeIntervalSince(start) * 1000.0
                 best = min(best ?? ms, ms)
             } catch {
-                return nil
+                continue
             }
         }
         return best
