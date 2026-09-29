@@ -282,7 +282,11 @@ public final class ShellCoordinator: @unchecked Sendable, ObservableObject {
 
     private func scheduleAutoHide() {
         Task {
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            // 10 s (ex-4 s) : à 4 s l'utilisateur ratait systématiquement le
+            // résumé (constaté en réel : run OK, tokens streamés, `hide`
+            // pile +4,0 s après la fin — « la réponse ne s'affiche pas »).
+            // Le HUD reste fermable à tout moment (tap / Échap).
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
             if !runActive, isDoneState {
                 applyAction(.dismiss)
             }
