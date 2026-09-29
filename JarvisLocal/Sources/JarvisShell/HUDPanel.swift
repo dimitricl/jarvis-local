@@ -15,6 +15,19 @@ import JarvisKit
 ///   envoyer, Échap = refuser / interrompre (×2 = interruption immédiate).
 /// Fin et testé : le positionnement pur (`HUDPlacement`) ; le panneau lui
 /// est une coquille fine (pas de test headless possible).
+///
+/// Focus saisie (`showForInput`) — cause réelle et correctif :
+/// l'app est `LSUIElement` (politique `.accessory`, pas de Dock) et, sur
+/// macOS récent, `NSApp.activate()` seul n'arrache pas le focus à l'app
+/// frontale précédente : le log constatait
+/// `hud input: key=false active=false` malgré
+/// `activate() + makeKeyAndOrderFront`. Le correctif bascule temporairement
+/// la politique d'activation à `.regular` avant d'activer, puis `hide()`
+/// la restaure à `.accessory` (un seul point de fermeture du panel, via
+/// `ShellCoordinator.applyAction` → `hide()`, audité : aucun autre
+/// `orderOut` hors de ce fichier). Le comportement `NSApp`/`NSPanel` réel
+/// reste non testable en headless ; seule la logique pure de bascule
+/// (`HUDFocusPolicy`) est couverte par test.
 public enum HUDPlacement {
     /// Cadre rabattu dans l'écran contenant le curseur (coin haut-droit
     /// sous le curseur, à défaut coin de l'écran).
@@ -37,6 +50,21 @@ public enum HUDPlacement {
         }
         return CGRect(x: x, y: y, width: panelSize.width, height: panelSize.height)
     }
+}
+
+/// Logique pure de bascule de politique d'activation pour le focus HUD.
+///
+/// - `input` (`.regular`) : appliquée par `showForInput()` avant
+///   `activate() + makeKeyAndOrderFront` — seule façon fiable d'arracher le
+///   focus à l'app frontale pour une app `LSUIElement` sur macOS récent.
+/// - `idle` (`.accessory`) : restaurée par `hide()`, unique point de
+///   fermeture du panel — préserve la contrainte « pas de Dock ».
+///
+/// Extraite pour être testable : le comportement `NSApp`/`NSPanel` réel
+/// reste non testable en headless (coquille `HUDPanelController`).
+public enum HUDFocusPolicy {
+    public static var input: NSApplication.ActivationPolicy { .regular }
+    public static var idle: NSApplication.ActivationPolicy { .accessory }
 }
 
 @MainActor
@@ -92,6 +120,9 @@ public final class HUDPanelController {
         log.info("hud hide")
         panel.orderOut(nil)
         lastEscape = .distantPast
+        // Restaure la politique `LSUIElement` : sans ce reset l'app garderait
+        // une icône Dock en permanence (contrainte « pas de Dock »).
+        NSApp.setActivationPolicy(HUDFocusPolicy.idle)
     }
 
     public var isVisible: Bool { panel.isVisible }
@@ -104,12 +135,17 @@ public final class HUDPanelController {
     /// Ouverture explicite pour saisie (menu, hotkey) : le panneau devient
     /// `key` pour que le champ prenne le focus. Les affichages pilotés par
     /// l'agent (`show()`) restent non-activants et non-intrusifs.
-    /// Constaté en réel : `activate + makeKey` ne prend pas sur un panneau
-    /// `.nonactivatingPanel` (`key=false active=false`) — on retire le masque
-    /// pour la saisie, `show()` le remet pour les màj agent.
+    /// App `LSUIElement` (`.accessory`) : `activate()` seul ne suffit pas à
+    /// arracher le focus sur macOS récent (`key=false active=false`
+    /// constaté en réel) — on bascule temporairement en `.regular`,
+    /// restaurée par `hide()`. Étape 1 du fix focus ; si le log montre
+    /// encore `active=false`, l'étape 2 envisagée est
+    /// `activate(ignoringOtherApps: true)` (dépréciée depuis macOS 14 mais
+    /// fonctionnelle — ne l'ajouter qu'après confirmation par le log).
     public func showForInput() {
         show()
         panel.styleMask.remove(.nonactivatingPanel)
+        NSApp.setActivationPolicy(HUDFocusPolicy.input)
         NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
         // L'activation est asynchrone : on constate au prochain tour.

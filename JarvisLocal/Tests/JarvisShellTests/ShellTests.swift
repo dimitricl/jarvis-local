@@ -165,3 +165,11 @@ final class TranscriptListTests: XCTestCase {
         XCTAssertTrue(list[0].preview.contains("bonjour"))
     }
 }
+
+final class HUDFocusPolicyTests: XCTestCase {
+    func testInputRequiresRegularIdleRestoresAccessory() {
+        XCTAssertEqual(HUDFocusPolicy.input, .regular)
+        XCTAssertEqual(HUDFocusPolicy.idle, .accessory)
+        XCTAssertNotEqual(HUDFocusPolicy.input, HUDFocusPolicy.idle)
+    }
+}
