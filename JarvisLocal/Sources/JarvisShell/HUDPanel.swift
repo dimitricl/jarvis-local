@@ -72,6 +72,7 @@ public final class HUDPanelController {
     }
 
     public func show() {
+        panel.styleMask.insert(.nonactivatingPanel)
         guard let screen = screenAtCursor() else {
             log.info("hud show: no screen at cursor, centering")
             panel.center()
@@ -102,11 +103,22 @@ public final class HUDPanelController {
 
     /// Ouverture explicite pour saisie (menu, hotkey) : le panneau devient
     /// `key` pour que le champ prenne le focus. Les affichages pilotés par
-    /// l'agent (`applyAction`) restent non-intrusifs et passent par `show()`.
+    /// l'agent (`show()`) restent non-activants et non-intrusifs.
+    /// Constaté en réel : `activate + makeKey` ne prend pas sur un panneau
+    /// `.nonactivatingPanel` (`key=false active=false`) — on retire le masque
+    /// pour la saisie, `show()` le remet pour les màj agent.
     public func showForInput() {
         show()
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKey()
+        panel.styleMask.remove(.nonactivatingPanel)
+        NSApp.activate()
+        panel.makeKeyAndOrderFront(nil)
+        // L'activation est asynchrone : on constate au prochain tour.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let key = self.panel.isKeyWindow
+            let active = NSApp.isActive
+            self.log.info("hud input: key=\(key) active=\(active)")
+        }
     }
 
     private func screenAtCursor() -> NSScreen? {

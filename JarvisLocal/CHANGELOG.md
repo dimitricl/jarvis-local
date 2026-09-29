@@ -275,6 +275,9 @@
 - Saisie impossible dans le HUD — panneau non-activant jamais `key` :
   `showForInput()` (activate + `makeKey`) sur ouverture explicite (menu,
   tap hotkey) ; les affichages pilotés par l'agent restent non-intrusifs.
+  `activate + makeKey` seul ne prend pas (`key=false active=false` en réel) :
+  le masque `.nonactivatingPanel` est retiré pour la saisie puis remis par
+  `show()` pour les màj agent.
 - Envoi mort (pastille orange figée) — `onConfirmKey` armé dès la création
   avalait Entrée via `answerConfirm` sans effet : armé uniquement sur vraie
   demande de confirmation, désarmé en fin de run / interruption / réponse.
