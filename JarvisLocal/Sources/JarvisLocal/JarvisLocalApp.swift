@@ -56,6 +56,8 @@ struct JarvisLocalApp: App {
             .keyboardShortcut("j", modifiers: [.command, .option])
             Divider()
             Button("Historique") { openWindow(id: "history") }
+            Button("Discussion") { openWindow(id: "chat") }
+                .keyboardShortcut("d", modifiers: [.command, .option])
             Button("Réglages") { openWindow(id: "settings") }
             Button("Permissions et onboarding") { openWindow(id: "onboarding") }
             Divider()
@@ -65,6 +67,11 @@ struct JarvisLocalApp: App {
         Window("Historique Jarvis", id: "history") {
             HistoryView(store: FileTranscriptStore(directory: AgentHost.transcriptsDirectory()))
                 .frame(minWidth: 700, minHeight: 450)
+        }
+        .defaultPosition(.center)
+
+        Window("Discussion Jarvis", id: "chat") {
+            ChatView(coordinator: coordinator)
         }
         .defaultPosition(.center)
 
