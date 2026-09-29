@@ -399,8 +399,25 @@ final class AgentLoopTests: XCTestCase {
         XCTAssertEqual(reloaded?.messages.filter { $0.role == .user }.count, 2)
     }
 
-    func testCompactionA75Pourcent() async throws {
-        let todos = TodoStore()
+    func testLastTranscriptIDChaineLesRuns() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jarvis-agent-chain-\(UUID().uuidString)", isDirectory: true)
+        let store = FileTranscriptStore(directory: dir)
+        let loop = makeLoop(turns: [FakeTurn(text: "un")], transcripts: store)
+        _ = await collect(loop.run(prompt: "premier"))
+        let first = await loop.lastTranscriptID()
+        XCTAssertNotNil(first)
+        _ = await collect(loop.run(prompt: "second", resumeFrom: first))
+        // Même transcript chaîné, pas un nouveau fichier.
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        XCTAssertEqual(files.count, 1)
+        let second = await loop.lastTranscriptID()
+        XCTAssertEqual(second, first)
+        let reloaded = try await store.load(id: first!)
+        XCTAssertEqual(reloaded?.messages.filter { $0.role == .user }.count, 2)
+    }
+
+    func testCompactionA75Pourcent() async throws {        let todos = TodoStore()
         await todos.add(title: "relire le bilan")
         // D'abord un tour avec outil pour allonger l'historique, puis pression.
         let loop = makeLoop(

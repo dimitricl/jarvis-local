@@ -79,11 +79,11 @@ public actor AgentHost {
 
     // MARK: - Runs
 
-    public func run(prompt: String) -> AsyncStream<AgentEvent> {
+    public func run(prompt: String, resumeFrom transcriptId: UUID? = nil) -> AsyncStream<AgentEvent> {
         currentTask?.cancel()
         let (stream, continuation) = AsyncStream<AgentEvent>.makeStream()
         currentTask = Task {
-            let inner = await loop.run(prompt: prompt)
+            let inner = await loop.run(prompt: prompt, resumeFrom: transcriptId)
             for await event in inner {
                 if Task.isCancelled { break }
                 continuation.yield(event)
@@ -96,6 +96,11 @@ public actor AgentHost {
     public func cancel() {
         currentTask?.cancel()
         Task { await loop.cancel() }
+    }
+
+    /// ID du transcript du dernier run, pour chaîner en reprise.
+    public func lastTranscriptID() async -> UUID? {
+        await loop.lastTranscriptID()
     }
 
     // MARK: - Confirmations inline

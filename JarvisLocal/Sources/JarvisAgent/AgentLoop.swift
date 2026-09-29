@@ -54,6 +54,8 @@ public actor AgentLoop {
     private let confirm: @Sendable (ToolCallRef, String) async -> Bool
 
     private var worker: Task<Void, Never>?
+    /// Transcript du dernier run (remonté pour la reprise multi-tours).
+    private var lastID: UUID?
 
     public init(
         llm: any AgentLLM,
@@ -87,8 +89,7 @@ public actor AgentLoop {
         worker?.cancel()
     }
 
-    public func run(prompt: String, resumeFrom transcriptId: UUID? = nil) -> AsyncStream<AgentEvent> {
-        let (stream, continuation) = AsyncStream<AgentEvent>.makeStream()
+    public func run(prompt: String, resumeFrom transcriptId: UUID? = nil) -> AsyncStream<AgentEvent> {        let (stream, continuation) = AsyncStream<AgentEvent>.makeStream()
         worker?.cancel()
         worker = Task {
             await self.execute(prompt: prompt, resumeFrom: transcriptId, continuation: continuation)
@@ -98,6 +99,10 @@ public actor AgentLoop {
         }
         return stream
     }
+
+    /// ID du transcript du dernier run (nil si aucun) : permet au coordinator
+    /// de chaîner les runs en reprise (`resumeFrom`) pour une vraie conversation.
+    public func lastTranscriptID() -> UUID? { lastID }
 
     private func saveTranscript(_ transcript: Transcript) async {
         try? await transcripts?.save(transcript)
@@ -129,6 +134,7 @@ public actor AgentLoop {
             ])
             if let id = transcriptId { transcript.id = id }
         }
+        lastID = transcript.id
         await saveTranscript(transcript)
 
         var tainted = transcript.messages.contains { $0.role == .tool }
