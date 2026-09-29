@@ -204,6 +204,14 @@ final class MacToolsFakeTests: XCTestCase {
         XCTAssertTrue(r.ok)
     }
 
+    func testOpenAccepteAliasPath() async {
+        // Le modèle calque `path` (convention dominante) au lieu de `target`
+        // (constaté : `open(path="mail")` → bad_args ×2 puis stall).
+        let defs = MacTools.definitions(config: MacConfig.fakes())
+        let r = await runTool(tool(defs, named: "open"), args: ["path": "Mail"])
+        XCTAssertTrue(r.ok)
+    }
+
     func testScreenshotPNG() async {
         let defs = MacTools.definitions(config: MacConfig.fakes())
         let r = await runTool(tool(defs, named: "screenshot"), args: [:])

@@ -81,8 +81,13 @@ public enum MacTools {
             isNetworkEgress: true,
             isWrite: true
         ) { args, _ in
-            guard let target = args["target"].string, !target.isEmpty else {
-                return .failure(code: "bad_args", message: "Paramètre 'target' manquant.", hint: "Relis le schéma.")
+            // Tolérance : le modèle calque la convention dominante (`path`)
+            // au lieu de `target` (constaté : `open(path="mail")` → bad_args
+            // ×2 puis stall). Schéma inchangé, on accepte les deux.
+            let raw = args["target"].string ?? args["path"].string ?? ""
+            let target = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !target.isEmpty else {
+                return .failure(code: "bad_args", message: "Paramètre 'target' (ou 'path') manquant.", hint: "Relis le schéma.")
             }
             do {
                 return .success(JSONValue(try await config.opener.open(target: target)))
