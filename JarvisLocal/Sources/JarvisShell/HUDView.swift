@@ -80,11 +80,16 @@ public struct HUDView: View {
             }
             // La réponse du run : sans ce bloc, `.done` n'affichait que la
             // pastille « ✓ terminé » et le texte final était perdu à
-            // l'affichage (constaté en réel : « juste terminé », pas de réponse).
+            // l'affichage. Zone scrollable à hauteur bornée : la réponse
+            // entière reste lisible sans transformer le HUD en fenêtre de chat.
             if case .done(let summary) = state, !summary.isEmpty {
-                Text(summary)
-                    .font(.system(size: 12))
-                    .lineLimit(8)
+                ScrollView {
+                    Text(summary)
+                        .font(.system(size: 12))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 220)
             }
             if !steps.isEmpty {
                 Divider()

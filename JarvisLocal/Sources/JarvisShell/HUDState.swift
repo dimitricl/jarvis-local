@@ -87,6 +87,9 @@ public enum ConnectionState: Sendable, Equatable {
 }
 
 public enum HUDReduce {
+    /// Résumé affiché en état `.done` : borné pour que le HUD reste une
+    /// pastille (pas une fenêtre de chat), assez large pour une vraie réponse.
+    public static let doneSummaryMax = 2000
     /// Transition pure. Les événements agent priment sur la connexion, sauf
     /// `unreachable` qui s'affiche dès qu'aucun run n'est en cours.
     public static func reduce(state: HUDState, action: HUDAction, runActive: Bool) -> HUDState {
@@ -123,7 +126,7 @@ public enum HUDReduce {
             if decision == .deny { return .thinking }
             return .confirming(tool: name, reason: reason, callId: callId)
         case .compacted: return .compacting
-        case .done(let text, _, _): return .done(summary: String(text.prefix(120)))
+        case .done(let text, _, _): return .done(summary: String(text.prefix(HUDReduce.doneSummaryMax)))
         case .failed: return .idle
         }
     }

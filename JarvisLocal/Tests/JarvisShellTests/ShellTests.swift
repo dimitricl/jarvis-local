@@ -172,4 +172,19 @@ final class HUDFocusPolicyTests: XCTestCase {
         XCTAssertEqual(HUDFocusPolicy.idle, .accessory)
         XCTAssertNotEqual(HUDFocusPolicy.input, HUDFocusPolicy.idle)
     }
+
+    func testDoneSummaryGardeLaReponseEntiere() {
+        let long = String(repeating: "a", count: 2500)
+        let state = HUDReduce.reduce(
+            state: .thinking,
+            action: .agentEvent(.done(
+                finalText: long, turnsUsed: 1,
+                usage: TokenUsage(promptTokens: 10, calibrated: true))),
+            runActive: true)
+        if case .done(let summary) = state {
+            XCTAssertEqual(summary.count, HUDReduce.doneSummaryMax)
+        } else {
+            XCTFail("attendu done")
+        }
+    }
 }
