@@ -166,7 +166,7 @@ final class JarvisLocalToolServiceTests: XCTestCase {
         try skipIfCIHeadless("screencapture : prompt capture d'écran sans humain en CI")
         let tools = ToolService.shared
         let result = try await tools.execute(name: "take_screenshot", args: [:])
-        XCTAssertTrue(result.contains("Capture d'écran") || result.contains("Erreur"))
+        XCTAssertTrue(result.contains("Capture enregistrée") || result.contains("Erreur"))
     }
 
     func testSleepMacActions() async throws {

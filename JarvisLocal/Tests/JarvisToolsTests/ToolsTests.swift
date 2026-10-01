@@ -218,7 +218,9 @@ final class MacToolsFakeTests: XCTestCase {
         let defs = MacTools.definitions(config: MacConfig.fakes())
         let r = await runTool(tool(defs, named: "screenshot"), args: [:])
         XCTAssertTrue(r.ok)
-        XCTAssertNotNil(r.data?["png_base64"].string)
+        XCTAssertNotNil(r.data?["path"].string)
+        XCTAssertNotNil(r.data?["width"].int)
+        XCTAssertNotNil(r.data?["height"].int)
     }
 
     func testClipboardSimule() async {

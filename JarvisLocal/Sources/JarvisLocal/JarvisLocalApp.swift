@@ -5,6 +5,7 @@ import JarvisCore
 import JarvisServices
 import JarvisAgent
 import JarvisShell
+import JarvisUI
 
 /// L'app est un `LSUIElement` (pas de Dock) qui ne quitte JAMAIS à la
 /// fermeture d'une fenêtre : l'agent vit dans la menu bar + le HUD.
@@ -24,12 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 /// Composition root : assemble le shell (hotkey, HUD, voix, monitor) sur le
-/// nouveau moteur. L'ancien pipeline (AppViewModel/ContentView) n'est plus
-/// branché — suppression phase 4.
+/// nouveau moteur + la fenêtre classique (ModernContentView sur AppViewModel,
+/// même graphe Services, pour les conversations persistées).
 @main
 struct JarvisLocalApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var coordinator: ShellCoordinator
+    @State private var classicViewModel: AppViewModel
     @Environment(\.openWindow) private var openWindow
     private let log = Logger(subsystem: "com.dimitriclaverie.JarvisLocal", category: "app")
 
@@ -45,6 +47,20 @@ struct JarvisLocalApp: App {
         // `App` est MainActor-isolé : démarrage explicite ici, une seule fois.
         // Le coordinateur possède tout (hotkey, HUD, voix, monitor).
         booted.boot()
+        // Fenêtre classique : SEUL endroit qui assemble AppViewModel concret.
+        // Settings.shared est la même instance que le shell observe via ses
+        // propres bindings — pas de divergence de config.
+        let settings = Settings.shared
+        let llm = LLMProviderFactory.makeDefault(settings: settings)
+        _classicViewModel = State(wrappedValue: AppViewModel(
+            db: ServiceHosts.store,
+            ollama: llm,
+            tools: ServiceHosts.tools,
+            audio: ServiceHosts.tts,
+            stt: ServiceHosts.stt,
+            settings: settings,
+            jobsRegistry: ServiceHosts.jobs
+        ))
         log.info("Jarvis shell boot")
     }
 
@@ -68,6 +84,7 @@ struct JarvisLocalApp: App {
             }
             .keyboardShortcut("j", modifiers: [.command, .option])
             Button("Historique") { openWindow(id: "history") }
+            Button("Conversation classique") { openWindow(id: "classic") }
             Button("Réglages") { openWindow(id: "settings") }
             Button("Permissions et onboarding") { openWindow(id: "onboarding") }
             Divider()
@@ -77,6 +94,16 @@ struct JarvisLocalApp: App {
         Window("Historique Jarvis", id: "history") {
             HistoryView(store: FileTranscriptStore(directory: AgentHost.transcriptsDirectory()))
                 .frame(minWidth: 700, minHeight: 450)
+        }
+        .defaultPosition(.center)
+
+        Window("Conversation Jarvis", id: "classic") {
+            ModernContentView(settings: Settings.shared)
+                .environment(classicViewModel)
+                .frame(minWidth: 1000, minHeight: 640)
+                .task {
+                    await classicViewModel.startup()
+                }
         }
         .defaultPosition(.center)
 

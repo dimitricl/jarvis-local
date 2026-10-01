@@ -85,9 +85,19 @@ public enum TranscriptTrimming {
     public static func truncateResult(_ text: String, limitBytes: Int) -> String {
         let total = text.utf8.count
         guard total > limitBytes else { return text }
-        var prefix = text
-        while prefix.utf8.count > limitBytes { prefix = String(prefix.dropLast()) }
-        let dropped = total - prefix.utf8.count
-        return prefix + "\n[tronqué : \(dropped) octets, relire avec offset=\(prefix.utf8.count)]"
+
+        // O(n) : avance caractère par caractère, coupe sur frontière UTF-8 valide.
+        var byteCount = 0
+        var cutIndex = text.startIndex
+        for idx in text.indices {
+            let w = text[idx].utf8.count
+            if byteCount + w > limitBytes { break }
+            byteCount += w
+            cutIndex = text.index(after: idx)
+        }
+
+        let prefix = String(text[..<cutIndex])
+        let dropped = total - byteCount
+        return prefix + "\n[tronqué : \(dropped) octets, relire avec offset=\(byteCount)]"
     }
 }

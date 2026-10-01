@@ -3,6 +3,7 @@ import JarvisCore
 import AppKit
 import Darwin // sysctlbyname (CPU) — plus de `sysctl` en Process
 import IOKit.ps // batterie : IOPSCopyPowerSourcesInfo — plus de `pmset` en Process
+import ImageIO
 
 /// Runner AppleScript RÉSERVÉ AUX TEMPLATES INTERNES FIGÉS (Messages, Notes, Plans).
 /// L'outil générique `applescript` exposé au modèle a été SUPPRIMÉ (RCE triviale via
@@ -356,17 +357,29 @@ actor SystemTools {
     // MARK: - take_screenshot
 
     func takeScreenshot() async throws -> String {
-        let tempDir = FileManager.default.temporaryDirectory
-        let df = DateFormatter()
-        df.dateFormat = "'Capture d\u{2019}\u{00E9}cran' yyyy-MM-dd '\u{00E0}' HH.mm.ss"
-        let filename = "\(df.string(from: Date())).png"
-        let path = tempDir.appendingPathComponent(filename).path
+        // Create captures directory
+        let capturesDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/jarvis/captures", isDirectory: true)
+        try FileManager.default.createDirectory(at: capturesDir, withIntermediateDirectories: true)
+        
+        // Generate unique filename
+        let filename = "capture-\(UUID().uuidString).png"
+        let path = capturesDir.appendingPathComponent(filename).path
+        
         let (_, err) = try await ctx.runProcess("/usr/sbin/screencapture", ["-x", path], 45)
         if !err.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Erreur capture : \(err.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
-        await MainActor.run { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
-        return "Capture d'écran enregistrée et ouverte : \(filename) (ouverte dans Aperçu)"
+        
+        // Get image dimensions
+        guard let imageSource = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            return "Capture enregistrée : \(path) (dimensions non disponibles)"
+        }
+        
+        return "Capture enregistrée : \(path) (\(width)×\(height))"
     }
 
     // MARK: - sleep_mac (allowlist typée)

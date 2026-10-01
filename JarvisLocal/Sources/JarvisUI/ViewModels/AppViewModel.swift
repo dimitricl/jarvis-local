@@ -372,6 +372,15 @@ public final class AppViewModel {
         await conversationCoordinator.loadConversations()
     }
 
+    /// Séquence de démarrage de la fenêtre classique (composition root) :
+    /// conversations + faits + bandeau santé. Un seul point d'entrée public
+    /// au lieu de trois appels internes depuis l'exécutable.
+    public func startup() async {
+        await loadConversations()
+        await loadFacts()
+        await runHealthCheck()
+    }
+
     func selectConversation(_ conv: Conversation) async {
         await conversationCoordinator.selectConversation(conv)
         await loadMessages()

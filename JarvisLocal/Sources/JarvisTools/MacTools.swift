@@ -101,15 +101,16 @@ public enum MacTools {
     static func screenshot(config: MacConfig) -> ToolDefinition {
         ToolDefinition(
             name: "screenshot",
-            description: "Capture l'écran (PNG base64, décris ce que tu y vois).",
+            description: "Capture l'écran (PNG écrit dans ~/.local/share/jarvis/captures/, renvoie path + dimensions).",
             parameters: .object(["type": .string("object"), "properties": .object([:])]),
             isCore: false
         ) { _, _ in
             do {
-                let png = try await config.screenshotter.capture()
+                let (path, width, height) = try await config.screenshotter.captureToFile()
                 return .success(.object([
-                    "note": .string("Capture PNG (base64). L'envoi image au modèle vision suit en phase 3."),
-                    "png_base64": .string(png.base64EncodedString()),
+                    "path": .string(path),
+                    "width": .int(width),
+                    "height": .int(height),
                 ]))
             } catch {
                 return .failure(code: "capture_failed", message: "Capture impossible.", hint: "Décris l'échec.")

@@ -488,6 +488,36 @@ final class BudgetEtPermissionsTests: XCTestCase {
         _ = est
     }
 
+    func testTruncateResultLargeInputFast() {
+        let largeText = String(repeating: "é", count: 5_000_000) // 5 MB UTF-8
+        let start = Date()
+        let result = TranscriptTrimming.truncateResult(largeText, limitBytes: 100)
+        let duration = Date().timeIntervalSince(start)
+        
+        XCTAssertLessThan(duration, 0.05, "5 MB truncation should complete in < 50 ms")
+        XCTAssertTrue(result.contains("[tronqué :"))
+        // The marker string adds overhead, but should still be bounded
+        XCTAssertLessThan(result.utf8.count, 300, "Result should be reasonably bounded including marker")
+    }
+
+    func testTruncateResultUTF8Valid() {
+        let text = "Hello 世界 🌍"
+        let result = TranscriptTrimming.truncateResult(text, limitBytes: 10)
+        
+        // Result should be valid UTF-8
+        let data = result.data(using: .utf8)
+        XCTAssertNotNil(data)
+        
+        // Should contain truncation marker
+        XCTAssertTrue(result.contains("[tronqué :"))
+    }
+
+    func testTruncateResultNoTruncateUnderLimit() {
+        let text = "short"
+        let result = TranscriptTrimming.truncateResult(text, limitBytes: 100)
+        XCTAssertEqual(result, text)
+    }
+
     func testCalibrationResserre() {
         var est = TokenEstimator(charsPerToken: 4.0)
         est.calibrate(promptChars: 2000, promptTokens: 1000)

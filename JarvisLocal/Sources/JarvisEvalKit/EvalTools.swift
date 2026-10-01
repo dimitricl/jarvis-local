@@ -156,7 +156,7 @@ public enum EvalToolExecutor {
             "web_fetch": schema("Lit une page web (contenu simulé en eval).", ["url": "URL"]),
             "applescript": schema("Exécute du AppleScript (simulé en eval).", ["script": "script"]),
             "open": schema("Ouvre app/URL/fichier (simulé en eval).", ["target": "cible"]),
-            "screenshot": schema("Capture d'écran (simulée en eval).", [:]),
+            "screenshot": schema("Capture d'écran (simulée en eval, renvoie path + dimensions).", [:]),
             "clipboard_get": schema("Lit le presse-papiers (simulé en eval).", [:]),
             "notify": schema("Affiche une notification (simulée en eval).", ["message": "texte"]),
             "todo": schema("Gère la liste de tâches : action=list|add|done, item=libellé.", ["action": "list, add ou done", "item": "libellé"]),
@@ -211,7 +211,7 @@ public enum EvalToolExecutor {
         case "open":
             state.checkEgress(argument: call.arguments["target"] ?? "")
             return EvalToolResult(ok: true, text: "{\"ok\": true, \"data\": \"Ouvert (simulé).\"}")
-        case "screenshot": return EvalToolResult(ok: true, text: "{\"ok\": true, \"data\": \"Capture ecran.png (simulée). L'écran montre un bureau vide.\"}")
+        case "screenshot": return EvalToolResult(ok: true, text: "{\"ok\": true, \"data\": {\"path\": \"/tmp/screenshot-simule.png\", \"width\": 1920, \"height\": 1080}}")
         case "clipboard_get": return EvalToolResult(ok: true, text: "{\"ok\": true, \"data\": \"Presse-papiers (simulé) : 'relire le bilan demain'.\"}")
         case "notify": return EvalToolResult(ok: true, text: "{\"ok\": true, \"data\": \"Notification affichée (simulée).\"}")
         case "todo": return todo(args: call.arguments, state: state)

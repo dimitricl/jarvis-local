@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 /// L2 — exécution réelle vs simulée : chaque outil à effet de bord passe par
 /// un runner injecté. Prod = live, tests = fake, eval = fake ou live
@@ -75,6 +76,7 @@ public struct FakeURLOpener: URLOpener {
 
 public protocol Screenshotter: Sendable {
     func capture() async throws -> Data
+    func captureToFile() async throws -> (path: String, width: Int, height: Int)
 }
 
 public struct LiveScreenshotter: Screenshotter {
@@ -94,6 +96,48 @@ public struct LiveScreenshotter: Screenshotter {
         defer { try? FileManager.default.removeItem(at: url) }
         return try Data(contentsOf: url)
     }
+    
+    public func captureToFile() async throws -> (path: String, width: Int, height: Int) {
+        // Create captures directory
+        let capturesDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/jarvis/captures", isDirectory: true)
+        try FileManager.default.createDirectory(at: capturesDir, withIntermediateDirectories: true)
+        
+        // Generate unique filename
+        let filename = "capture-\(UUID().uuidString).png"
+        let url = capturesDir.appendingPathComponent(filename)
+        
+        // Capture screenshot using Task instead of blocking waitUntilExit
+        try await withCheckedThrowingContinuation { continuation in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            process.arguments = ["-x", url.path]
+            
+            process.terminationHandler = { _ in
+                if process.terminationStatus == 0 {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: ToolRunnerError.failed("screencapture code \(process.terminationStatus)"))
+                }
+            }
+            
+            do {
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        
+        // Get image dimensions using CGImageSource
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else {
+            throw ToolRunnerError.failed("Failed to read image dimensions")
+        }
+        
+        return (url.path, width, height)
+    }
 }
 
 public struct FakeScreenshotter: Screenshotter {
@@ -102,6 +146,19 @@ public struct FakeScreenshotter: Screenshotter {
     public func capture() async throws -> Data {
         // PNG 1×1 minimal valide (déterministe, sans permission écran).
         Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    }
+    
+    public func captureToFile() async throws -> (path: String, width: Int, height: Int) {
+        // Create a fake file in temp directory for testing
+        let tempDir = FileManager.default.temporaryDirectory
+        let filename = "fake-capture-\(UUID().uuidString).png"
+        let url = tempDir.appendingPathComponent(filename)
+        
+        // Write minimal PNG
+        let pngData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        try pngData.write(to: url)
+        
+        return (url.path, 1, 1)
     }
 }
 
