@@ -1,14 +1,6 @@
 # Changelog
 
-## [Non publié] - Design moderne finalisé
-
-### Refonte visuelle branchée (suite du 2026-10-01)
-- **Placeholders supprimés** — `ModernSettingsView`, `ModernHelpView`, `ModernSearchPanelView`, `ModernToolRunsPanel`, `ModernToolConfirmationView` sont de vraies implémentations (mêmes contrôles et comportements que les vues classiques, style `JarvisPalette`/`JarvisTypography`/`ModernCard`/`ModernButton`)
-- **Fenêtre classique** — nouvelle fenêtre « Conversation Jarvis » (`id: classic`, menu barre) : `ModernContentView` + `AppViewModel` assemblé dans la composition root (`Settings.shared`, `LLMProviderFactory`, `ServiceHosts`), démarrage via nouveau `AppViewModel.startup()` public
-- **Frontière préservée** — `JarvisUI` re-dépend de `JarvisCore` seul (`Package.swift` revert) ; `ModernChatWindow.swift` mort supprimé ; `ModuleBoundaryTests` verts
-- **Correctifs** — `ExportFormat` dupliqué supprimé, `Conversation.messages` inexistant → `title`, `vm.activeJobs` → filtre local `vm.jobs`, `truncateResult` réécrit O(n) correct sur frontière UTF-8
-
-## [0.10.0] - 2026-09-29
+## [0.10.0] - 2026-10-01
 
 ### Lot 0.1 - Performance truncateResult
 - **Performance O(n)** — Réécriture de `TranscriptTrimming.truncateResult` en O(n) (vue UTF-8 simple passe) contre O(n²) précédent
@@ -23,6 +15,13 @@
 - **Dimensions** — Extraction des dimensions via `CGImageSource` (ImageIO)
 - **Tests** — Mise à jour des tests pour vérifier `path`, `width`, `height` au lieu de `png_base64`
 - **Tests** : Tous les tests passent (284 fichiers Swift), build réussi
+
+### Lot 0.3 - Design moderne finalisé et branché
+- **Placeholders supprimés** — `ModernSettingsView`, `ModernHelpView`, `ModernSearchPanelView`, `ModernToolRunsPanel`, `ModernToolConfirmationView` sont de vraies implémentations (mêmes contrôles et comportements que les vues classiques, style `JarvisPalette`/`JarvisTypography`/`ModernCard`/`ModernButton`)
+- **Fenêtre classique** — nouvelle fenêtre « Conversation Jarvis » (`id: classic`, menu barre) : `ModernContentView` + `AppViewModel` assemblé dans la composition root (`Settings.shared`, `LLMProviderFactory`, `ServiceHosts`), démarrage via nouveau `AppViewModel.startup()` public
+- **Frontière préservée** — `JarvisUI` re-dépend de `JarvisCore` seul (`Package.swift` revert) ; `ModernChatWindow.swift` mort supprimé ; `ModuleBoundaryTests` verts
+- **Correctifs** — `ExportFormat` dupliqué supprimé, `Conversation.messages` inexistant → `title`, `vm.activeJobs` → filtre local `vm.jobs`, `truncateResult` réécrit O(n) correct sur frontière UTF-8
+- **Tests** : build vert, suite verte, `swiftlint --strict` 0 violation
 
 ## [0.9.3] - 2026-09-29
 

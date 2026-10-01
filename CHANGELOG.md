@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.0 (2026-10-01)
+
+### Performance truncateResult
+- **Performance O(n)** — Réécriture de `TranscriptTrimming.truncateResult` en O(n) contre O(n²) précédent, coupe sur frontière UTF-8 valide
+
+### Screenshot file-based
+- **Fichier PNG** — `screenshot` écrit le PNG dans `~/.local/share/jarvis/captures/` et renvoie `{path, width, height}` au lieu de base64 tronqué, capture non-bloquante
+
+### Design moderne finalisé et branché
+- **Vraies vues Modern** — Settings, Help, Search, ToolRuns, Confirmation implémentés (style `JarvisPalette`/`JarvisTypography`), plus de placeholders
+- **Fenêtre classique** — nouvelle fenêtre « Conversation Jarvis » dans la barre de menu
+- **Tests** : build vert, suite verte, `swiftlint --strict` 0 violation
+
 ## 0.9.3 (2026-09-29)
 
 ### Correction outils système + permissions améliorées

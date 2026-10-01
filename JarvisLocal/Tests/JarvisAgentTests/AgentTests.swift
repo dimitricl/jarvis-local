@@ -493,7 +493,7 @@ final class BudgetEtPermissionsTests: XCTestCase {
         let start = Date()
         let result = TranscriptTrimming.truncateResult(largeText, limitBytes: 100)
         let duration = Date().timeIntervalSince(start)
-        
+
         XCTAssertLessThan(duration, 0.05, "5 MB truncation should complete in < 50 ms")
         XCTAssertTrue(result.contains("[tronqué :"))
         // The marker string adds overhead, but should still be bounded
@@ -503,11 +503,11 @@ final class BudgetEtPermissionsTests: XCTestCase {
     func testTruncateResultUTF8Valid() {
         let text = "Hello 世界 🌍"
         let result = TranscriptTrimming.truncateResult(text, limitBytes: 10)
-        
+
         // Result should be valid UTF-8
         let data = result.data(using: .utf8)
         XCTAssertNotNil(data)
-        
+
         // Should contain truncation marker
         XCTAssertTrue(result.contains("[tronqué :"))
     }

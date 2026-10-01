@@ -8,7 +8,7 @@ final class SystemToolsTests: XCTestCase {
         print("Test Safari result: \(result)")
         XCTAssertTrue(result.contains("Safari") || result.contains("ouvert"))
     }
-    
+
     func testMailBundleID() async throws {
         let system = SystemTools()
         let result = try await system.openApp("mail", url: nil)
