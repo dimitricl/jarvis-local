@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1 (2026-10-02)
+
+### Rebuild sans changement fonctionnel
+- Aucun changement de code depuis la v0.10.0 : re-tag pour régénérer l'artefact CI.
+
 ## 0.10.0 (2026-10-01)
 
 ### Performance truncateResult
