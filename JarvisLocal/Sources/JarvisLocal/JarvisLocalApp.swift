@@ -98,7 +98,7 @@ struct JarvisLocalApp: App {
         .defaultPosition(.center)
 
         Window("Conversation Jarvis", id: "classic") {
-            ModernContentView(settings: Settings.shared)
+            MinimalContentView(settings: Settings.shared)
                 .environment(classicViewModel)
                 .frame(minWidth: 1000, minHeight: 640)
                 .task {
